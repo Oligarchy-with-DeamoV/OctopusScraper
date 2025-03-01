@@ -1,0 +1,2 @@
+class Octopus:
+    pass
