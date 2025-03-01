@@ -1,0 +1,40 @@
+[project]
+name = "octopus-scraper"
+version = "0.1.0"
+description = "OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。"
+authors = [
+    {name = "Duan-JM",email = "vincent.duan95@gmail.com"}
+]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">3.9, <3.11"
+doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
+
+[tool.poetry.group.dev.dependencies]
+pytest-cov = "^4.0.0"
+pytest-asyncio = "^0.23.5"
+pytest-xdist = "^3.2.1"
+pytest-mock = ">0"
+pytest = "^7.1.3"
+black = "^22.10.0"
+tqdm = "^4.66.4"
+ipdb = "^0.13.13"
+
+[[tool.poetry.source]]
+name = "aliyun for china users"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+priority = "primary"
+
+[tool.poetry.scripts]
+octopus_go = "octopus_scraper.__main__:run_cotopus_go"
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = [
+    "--import-mode=importlib",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
