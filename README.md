@@ -7,7 +7,17 @@ poetry install
 ```
 Note: 更多的安装信息可以使用 `-vvv` 来 debug。
 
-## 使用
+## Usage
 ```bash
 poetry run octopus_go
 ```
+
+## Dev Dependencies
+1. Pre-commit Installation
+    ```bash
+    brew install pre-commit
+    ```
+2. Mannually Check
+    ```bash
+    pre-commit run --all-files
+    ```
