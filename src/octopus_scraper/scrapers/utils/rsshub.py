@@ -1,12 +1,13 @@
-from dataclasses import dataclass
-from typing import List
 from urllib.parse import urljoin
+from tenacity import retry, stop_after_attempt, wait_fixed
+import requests
+from dataclasses import dataclass
+from dacite import from_dict
+from typing import List, Optional, Dict
 
 import feedparser
 from feedparser.util import FeedParserDict
-import requests
 import structlog
-from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = structlog.getLogger(__name__)
 
@@ -18,6 +19,13 @@ class Content:
     summary: str
 
 
+@dataclass
+class RssHubConifg:
+    hub_root: str
+    route: str
+    fetch_params: Optional[Dict]
+
+
 class RssHub:
     """
     RssHub integration with python
@@ -27,11 +35,11 @@ class RssHub:
     >>> contents = rsshub.fetch_contents("/sspai/matrix", {"filter_title": "打造"})
     """
 
-    def __init__(self, service_instance_url: str):
-        self.service_instance_url = service_instance_url
+    def __init__(self, config: Dict):
+        self.config = from_dict(RssHubConifg, config)
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def fetch_contents(self, route: str, params: dict = {}) -> List[Content]:
+    def fetch_contents(self, params: dict = {}) -> List[Content]:
         """获取 contents
         https://docs.rsshub.app/guide/parameters
 
@@ -56,8 +64,12 @@ class RssHub:
         Returns:
             - return: List[Content]
         """
+        if self.config.fetch_params:
+            _params = self.config.fetch_params.update(params)
+        else:
+            _params = params
         rss_url = requests.get(
-            urljoin(self.service_instance_url, route), params=params
+            urljoin(self.config.hub_root, self.config.route), params=_params
         ).url
         logger.debug("Fetching rss_url.", rss_url=rss_url)
         feed: FeedParserDict = feedparser.parse(rss_url)
