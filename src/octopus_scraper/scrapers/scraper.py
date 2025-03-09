@@ -1,32 +1,28 @@
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Literal, Text
-import structlog
+from typing import Any, Dict, List, Text
 
 from dacite import from_dict
+import structlog
 
+from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
+from octopus_scraper.scrapers.processors.protos import ProcessorConfig
 from octopus_scraper.scrapers.utils.rsshub import Content, RssHub, RssHubConifg
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub}
-AVALIABLE_PROCESSOR = {}
 
 logger = structlog.getLogger(__name__)
 
 
 @dataclass
-class ProccessorConfig:
-    pass
-
-
-@dataclass
-class BaseScraperConfig:
-    fetcher_name: Literal["rsshub"]
+class ScraperConfig:
+    fetcher_name: str
     fecher_config: RssHubConifg
-    content_processor_configs: Dict[Text, ProccessorConfig]
+    content_processor_configs: Dict[Text, Any]
 
 
 class Scraper:
     def __init__(self, config: Dict):
-        self.config = from_dict(BaseScraperConfig, config)
+        self.config = from_dict(ScraperConfig, config)
         self.activate_fetcher = AVALIABLE_FETCHERS[self.config.fetcher_name](
             asdict(self.config.fecher_config)
         )
