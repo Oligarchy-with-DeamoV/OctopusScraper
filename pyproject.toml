@@ -34,6 +34,9 @@ octopus_go = "octopus_scraper.cli:run_octopus_go"
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+markers = [
+    "need_external_service: marks tests as need external service",
+]
 addopts = [
     "--import-mode=importlib",
 ]

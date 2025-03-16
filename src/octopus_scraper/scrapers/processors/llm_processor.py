@@ -1,14 +1,15 @@
 from copy import deepcopy
+import json
 import re
 from typing import Dict, List
 
+from jsonschema import validate
+
 from dacite import from_dict
 from doraemon.gpt_utils.chatgpt_api import request_openai
-from jsonschema import validate
-import structlog
-
 from octopus_scraper.scrapers.processors.protos import LLMProcessorConfig
 from octopus_scraper.scrapers.utils.rsshub import Content
+import structlog
 
 logger = structlog.getLogger(__name__)
 
@@ -62,9 +63,10 @@ class LLMProcessor:
             if self.output_schema and success:
                 try:
                     result = self._parse_json_output(result)
+                    result = json.loads(result)
                     validate(result, self.output_schema)
                     _o_c = deepcopy(c)
-                    _o_c.summary = result
+                    _o_c.summary = json.dumps(result)
                     _output_contents.append(_o_c)
                 except Exception as e:
                     logger.error(

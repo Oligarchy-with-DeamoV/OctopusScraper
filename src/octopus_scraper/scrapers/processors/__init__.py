@@ -1,3 +1,3 @@
-from octopus_scraper.scrapers.processors.llm_proccessor import LLMProcessor
+from octopus_scraper.scrapers.processors.llm_processor import LLMProcessor
 
 AVALIABLE_PROCESSOR = {"llm": LLMProcessor}

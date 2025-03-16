@@ -21,3 +21,13 @@ poetry run octopus_go
     ```bash
     pre-commit run --all-files
     ```
+
+## Tests Check
+1. Check with external service
+    ```bash
+    poetry run pytest -m "not need_external_service" --cov=octopus_scraper ./tests/octopus_scraper/base_scraper_test.py
+    ```
+2. Check with no external service
+    ```bash
+    poetry run pytest -m "need_external_service" --cov=octopus_scraper --cov-fail-under=80 ./tests/octopus_scraper/base_scraper_test.py
+    ```
