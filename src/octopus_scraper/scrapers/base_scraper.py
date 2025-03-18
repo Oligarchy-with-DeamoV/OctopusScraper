@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Literal, Text
+from typing import Dict, List, Literal, Text, Any
 import structlog
 
 from dacite import from_dict
@@ -20,18 +20,24 @@ class ProccessorConfig:
 @dataclass
 class BaseScraperConfig:
     fetcher_name: Literal["rsshub"]
-    fecher_config: RssHubConifg
-    content_processor_configs: Dict[Text, ProccessorConfig]
+    fecher_config: Any
+    content_processor_configs: Dict[Text, Any]
 
 
 class Scraper:
     def __init__(self, config: Dict):
         self.config = from_dict(BaseScraperConfig, config)
-        self.activate_fetcher = AVALIABLE_FETCHERS[self.config.fetcher_name](
-            asdict(self.config.fecher_config)
-        )
+        try:
+            self.activate_fetcher = AVALIABLE_FETCHERS[self.config.fetcher_name](
+                self.config.fecher_config
+            )
+        except Exception as e:
+            logger.error(
+                f"Activate_fetcher init failed with exception: {e}.",
+                config=self.config,
+            )
         self.active_content_processor = {
-            key: AVALIABLE_PROCESSOR[key](asdict(config))
+            key: AVALIABLE_PROCESSOR[key](config)
             for key, config in self.config.content_processor_configs.items()
         }
 

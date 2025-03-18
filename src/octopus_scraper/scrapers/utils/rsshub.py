@@ -1,13 +1,13 @@
-from urllib.parse import urljoin
-from tenacity import retry, stop_after_attempt, wait_fixed
-import requests
 from dataclasses import dataclass
-from dacite import from_dict
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
+from dacite import from_dict
 import feedparser
 from feedparser.util import FeedParserDict
+import requests
 import structlog
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = structlog.getLogger(__name__)
 
@@ -65,9 +65,9 @@ class RssHub:
             - return: List[Content]
         """
         if self.config.fetch_params:
-            _params = self.config.fetch_params.update(params)
-        else:
-            _params = params
+            self.config.fetch_params.update(params)
+        _params = self.config.fetch_params
+        logger.error(_params)
         rss_url = requests.get(
             urljoin(self.config.hub_root, self.config.route), params=_params
         ).url
