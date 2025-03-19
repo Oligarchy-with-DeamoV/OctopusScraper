@@ -21,3 +21,28 @@ poetry run octopus_go
     ```bash
     pre-commit run --all-files
     ```
+
+## Notion API
+1.	获取Notion的API密钥
+* 需要在Notion的[开发者页面](https://www.notion.so/profile/integrations)创建一个集成，并获取API密钥
+
+  ![image-20250319160454590](./img/image-20250319160454590.png)
+2.   获取数据库ID
+
+在数据库下拉菜单中，选择**拷贝视图链接**
+
+![image-20250319160945137](./img/image-20250319160945137.png)
+
+以如下链接为例：
+
+https://www.notion.so/1a7fee39437281feace5c0ad44df8fb6?v=1a7fee39437281c4a958000c6e469dbd&pvs=4
+
+链接中```1a7fee39437281feace5c0ad44df8fb6```便是notion数据库 ID。
+
+3. 授予集成数据库权限
+
+   为了集成能够读写数据库，还需要在数据库中授予第一步创建的集成权限。授权之后即可使用notion-client库与Notion API交互。
+
+   ![image-20250319162121443](./img/image-20250319162121443.png)
+
+   
