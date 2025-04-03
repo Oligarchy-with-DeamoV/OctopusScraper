@@ -9,14 +9,9 @@ import requests
 import structlog
 from tenacity import retry, stop_after_attempt, wait_fixed
 
+from octopus_scraper.scrapers.scraper_protos import Content
+
 logger = structlog.getLogger(__name__)
-
-
-@dataclass
-class Content:
-    title: str
-    link: str
-    summary: str
 
 
 @dataclass

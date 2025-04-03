@@ -1,10 +1,11 @@
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Literal, Text, Any
-import structlog
+from typing import Any, Dict, List, Literal, Text
 
 from dacite import from_dict
+import structlog
 
-from octopus_scraper.scrapers.utils.rsshub import Content, RssHub, RssHubConifg
+from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.scrapers.utils.rsshub import RssHub, RssHubConifg
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub}
 AVALIABLE_PROCESSOR = {}

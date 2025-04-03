@@ -39,6 +39,8 @@ markers = [
 ]
 addopts = [
     "--import-mode=importlib",
+    "--showlocals",
+    "--verbose",
 ]
 
 [build-system]
