@@ -22,12 +22,25 @@ poetry run octopus_go
     pre-commit run --all-files
     ```
 
+## Obtain Notion API Key and Database ID
+1. Notion Secrect 官方获取手册 [here](https://developers.notion.com/docs/create-a-notion-integration):
+2. Database ID 官方获取手册 [here](https://developers.notion.com/docs/working-with-databases)
+
 ## Tests Check
-1. Check with external service
+为了本项目的持续可维护性，目前为强制测试覆盖率超过 80% 才能提交，测试方式如下。
+
+1. 手动检查是否在环境变量中正确设置了 Notion 相关配置
+    ```bash
+    # .zshrc
+    export NOTION_API_KEY=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
+    export NOTION_DATABASE_ID=1ca2602c0dbf80e2a090f7116d8e6959
+    ```
+
+1. Pytest 检查不需要外部服务的测试用例
     ```bash
     poetry run pytest -m "not need_external_service" --cov=octopus_scraper ./tests/octopus_scraper/base_scraper_test.py
     ```
-2. Check with no external service
+1. Pytest 检查需要外部服务的测试用例
     ```bash
     poetry run pytest -m "need_external_service" --cov=octopus_scraper --cov-fail-under=80 ./tests/octopus_scraper/base_scraper_test.py
     ```
