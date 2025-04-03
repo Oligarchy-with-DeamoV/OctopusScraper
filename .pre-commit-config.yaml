@@ -18,6 +18,6 @@ repos:
     hooks:
     - id: pytest
       name: Check for all tests
-      entry: poetry run pytest -m "need_external_service" --cov=octopus_scraper --cov-fail-under=80 ./tests/
+      entry: poetry run pytest --cov=octopus_scraper --cov-fail-under=80 ./tests/
       language: system
       types: [python]

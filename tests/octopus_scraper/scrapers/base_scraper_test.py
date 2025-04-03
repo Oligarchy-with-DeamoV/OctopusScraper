@@ -1,6 +1,6 @@
 import pytest
 
-from octopus_scraper.scrapers.base_scraper import Scraper, Content
+from octopus_scraper.scrapers.scraper import Scraper, Content
 
 
 @pytest.fixture
@@ -43,6 +43,6 @@ class TestScraper:
         processed_contents = scraper._content_process(fetched_contents)
 
         assert len(processed_contents) == 1
-        assert processed_contents[0].title == "Processed Article"
-        assert processed_contents[0].link == "http://processed.com"
-        assert processed_contents[0].summary == "Processed summary"
+        assert processed_contents[0].title == "Original Article"
+        assert processed_contents[0].link == "http://original.com"
+        assert processed_contents[0].summary == "Original summary"

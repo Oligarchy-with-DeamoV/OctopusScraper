@@ -4,11 +4,11 @@ from typing import Any, Dict, List, Literal, Text
 from dacite import from_dict
 import structlog
 
-from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.utils.rsshub import RssHub, RssHubConifg
+from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
+from octopus_scraper.scrapers.processors.protos import ProcessorConfig
+from octopus_scraper.scrapers.utils.rsshub import Content, RssHub, RssHubConifg
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub}
-AVALIABLE_PROCESSOR = {}
 
 logger = structlog.getLogger(__name__)
 
