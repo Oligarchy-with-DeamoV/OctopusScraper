@@ -1,6 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Literal, Text, Any
-import structlog
+from typing import Any, Dict, List, Literal, Text
 
 from dacite import from_dict
 import structlog
