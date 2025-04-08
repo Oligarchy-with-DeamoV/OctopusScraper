@@ -1,2 +1,58 @@
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Tuple
+
+from dacite import from_dict
+import structlog
+
+from octopus_scraper.scrapers.scraper import Scraper, BaseScraperConfig, Content
+from octopus_scraper.scrapers.utils.notion_api import NotionStorage, NotionAPIConfig
+
+logger = structlog.getLogger(__name__)
+
+
+@dataclass
+class BaseOctopusConfig:
+    scrapers_config_with_fetch_param: List[Tuple[BaseScraperConfig, Dict]]
+    notion_api_config: NotionAPIConfig
+
+
 class Octopus:
-    pass
+    def __init__(self, config: Dict):
+        self._config = from_dict(BaseOctopusConfig, config)
+        self._scrapers: List[Tuple[Scraper, Dict]] = []
+        self._fetched_contents: List[Content] = []
+        self._notion_api: NotionStorage = NotionStorage(
+            asdict(self._config.notion_api_config)
+        )
+
+        try:
+            self._setup()
+        except Exception as e:
+            logger.error(
+                f"Activate scrapers init failed with exception: {e}.",
+                config=self._config,
+            )
+            raise RuntimeError(f"Activate scrapers init failed with exception: {e}.")
+        self._health_check()
+
+    def _setup(self):
+        for scraper_config in self._config.scrapers_config_with_fetch_param:
+            self._setup_single_scrapper(*scraper_config)
+
+    def _setup_single_scrapper(self, config: Any, fetch_params: Dict):
+        """初始化 scraper，同时设置对应的 fetch_params"""
+        self._scrapers.append((Scraper(asdict(config)), fetch_params))
+
+    def _health_check(self):
+        """针对设置的 Scraper 和 NotionAPI 进行健康检查"""
+        pass
+
+    def trigger_scraper(self):
+        """触发一次 Scraper"""
+        for _s, _p in self._scrapers:
+            self._fetched_contents.extend(_s.scrap_contents(_p))
+
+    def trigger_upload(self):
+        """将获取的 Content 批量上传"""
+        while self._fetched_contents:
+            self._notion_api.store_content(self._fetched_contents.pop())
