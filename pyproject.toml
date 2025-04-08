@@ -13,6 +13,7 @@ feedparser = "^6.0.11"
 tenacity = "^9.0.0"
 notion_client = "^2.3.0"
 jsonschema = "^4.23.0"
+httpx = {version = "^0.27.0", extras = ["socks"]}
 doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 
 [tool.poetry.group.dev.dependencies]
@@ -35,8 +36,11 @@ octopus_go = "octopus_scraper.cli:run_octopus_go"
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+log_cli = true
+log_cli_level = "DEBUG"
 markers = [
     "need_external_service: marks tests as need external service",
+    "integrate_test: test all rss resources",
 ]
 addopts = [
     "--import-mode=importlib",
