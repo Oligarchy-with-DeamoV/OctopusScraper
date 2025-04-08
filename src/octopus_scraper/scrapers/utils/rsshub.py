@@ -62,7 +62,6 @@ class RssHub:
         if self.config.fetch_params:
             self.config.fetch_params.update(params)
         _params = self.config.fetch_params
-        logger.error(_params)
         rss_url = requests.get(
             urljoin(self.config.hub_root, self.config.route), params=_params
         ).url

@@ -17,7 +17,6 @@ MAX_NOTION_SUMMARY_LENGTH = 2000
 class NotionAPIConfig:
     api_key: str
     database_id: str
-    fetch_params: Optional[Dict] = None
 
 
 class NotionStorage:
