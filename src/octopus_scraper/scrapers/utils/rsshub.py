@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 from urllib.parse import urljoin
+from html2markdown import convert
 
 from dacite import from_dict
 import feedparser
@@ -12,6 +13,32 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from octopus_scraper.scrapers.scraper_protos import Content
 
 logger = structlog.getLogger(__name__)
+
+
+def convert_contents_to_mk(contents: List) -> str:
+    """https://feedparser.readthedocs.io/en/latest/common-atom-elements.html"""
+    _parsed_content = ""
+    for content in contents:
+        _parsed_content = _parsed_content + convert(content.get("value")) + "\n"
+    return _parsed_content
+
+
+def build_contents(feed: FeedParserDict) -> List[Content]:
+    contents: List[Content] = []
+    for entry in feed.entries:
+        logger.debug("Fetch raw entry content.", entry=entry)
+        contents.append(
+            Content(
+                content_id=str(entry.get("id", entry.get("guid", entry.link))),
+                title=str(entry.title),
+                link=str(entry.link),
+                summary=convert(entry.summary) if entry.summary else "",
+                content=convert_contents_to_mk(
+                    entry.get("content", [])  # pyright: ignore
+                ),
+            )
+        )
+    return contents
 
 
 @dataclass
@@ -26,8 +53,9 @@ class RssHub:
     RssHub integration with python
 
     Examples:
-    >>> rsshub = RssHub(service_instance_url="https://rsshub.thzu.xyz")
-    >>> contents = rsshub.fetch_contents("/sspai/matrix", {"filter_title": "打造"})
+    >>> config = RssHubConfig(hub_root: "root", route: "/api", fetch_params={})
+    >>> rsshub = RssHub(asdict(config))
+    >>> contents = rsshub.fetch_contents({"filter_title": "打造"})
     """
 
     def __init__(self, config: Dict):
@@ -67,15 +95,6 @@ class RssHub:
         ).url
         logger.debug("Fetching rss_url.", rss_url=rss_url)
         feed: FeedParserDict = feedparser.parse(rss_url)
-        contents = []
         if feed.status == 200:
-            for entry in feed.entries:
-                contents.append(
-                    Content(
-                        title=str(entry.title),
-                        summary=str(entry.summary),
-                        link=str(entry.link),
-                    )
-                )
-            return contents
+            return build_contents(feed)
         raise RuntimeError(f"Failed to get RSS feed. Status code: {feed.status}.")

@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import MagicMock
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
@@ -18,24 +19,31 @@ def dummy_scraper_config():
 
 
 @pytest.fixture
-def dummy_notion_config():
-    return NotionAPIConfig(api_key="dummy-key", database_id="dummy-db")
+def notion_config():
+    return NotionAPIConfig(
+        api_key=os.environ.get("NOTION_API_KEY", ""),
+        database_id=os.environ.get("NOTION_DATABASE_ID", ""),
+    )
 
 
 @pytest.fixture
 def dummy_content():
     return Content(
-        title="Test Title", link="https://example.com", summary="Test Summary"
+        title="Test Title",
+        link="https://example.com",
+        summary="Test Summary",
+        content="Test Content",
+        content_id="content_id",
     )
 
 
 @pytest.fixture
-def dummy_octopus_config(dummy_scraper_config, dummy_notion_config):
+def octopus_config(dummy_scraper_config, notion_config):
     return {
         "scrapers_config_with_fetch_param": [
             (dummy_scraper_config, {"param1": "value1"})
         ],
-        "notion_api_config": dummy_notion_config,
+        "notion_api_config": notion_config,
     }
 
 
@@ -58,4 +66,4 @@ def patch_notion(monkeypatch):
         def store_content(self, content):
             self.stored.append(content)
 
-    monkeypatch.setattr(notion_api, "NotionStorage", DummyNotionStorage)
+    monkeypatch.setattr("octopus_scraper.octopus.NotionStorage", DummyNotionStorage)

@@ -34,9 +34,11 @@ class TestScraper:
 
         fetched_contents = [
             Content(
+                content_id="http://xxxx",
                 title="Original Article",
                 link="http://original.com",
                 summary="Original summary",
+                content="Original content",
             )
         ]
         scraper.active_content_processor = {"mock_processor": lambda x: x}
@@ -46,3 +48,4 @@ class TestScraper:
         assert processed_contents[0].title == "Original Article"
         assert processed_contents[0].link == "http://original.com"
         assert processed_contents[0].summary == "Original summary"
+        assert processed_contents[0].content == "Original content"

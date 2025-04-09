@@ -1,21 +1,15 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Text
 
 from dacite import from_dict
 import structlog
 
 from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
-from octopus_scraper.scrapers.processors.protos import ProcessorConfig
-from octopus_scraper.scrapers.utils.rsshub import Content, RssHub, RssHubConifg
+from octopus_scraper.scrapers.utils.rsshub import Content, RssHub
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub}
 
 logger = structlog.getLogger(__name__)
-
-
-@dataclass
-class ProccessorConfig:
-    pass
 
 
 @dataclass
