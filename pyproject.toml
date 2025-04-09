@@ -14,6 +14,7 @@ tenacity = "^9.0.0"
 notion_client = "^2.3.0"
 jsonschema = "^4.23.0"
 httpx = {version = "^0.27.0", extras = ["socks"]}
+html2markdown = "^0.1.7"
 doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 
 [tool.poetry.group.dev.dependencies]

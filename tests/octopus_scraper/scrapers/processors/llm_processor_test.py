@@ -43,8 +43,10 @@ lower nonce
 def sample_content():
     return Content(
         title="Test Article",
+        content_id="content-id",
         link="http://example.com",
         summary="This is the article summary.",
+        content="This is the article content.",
     )
 
 
@@ -65,7 +67,13 @@ def llm_processor(llm_processor_config):
 
 class TestLLMProcessor:
     def test_create_single_content_input(self, llm_processor):
-        content_data = {"title": "name", "link": "url", "summary": "summary"}
+        content_data = {
+            "title": "name",
+            "link": "url",
+            "summary": "summary",
+            "content": "content",
+            "content_id": "content_id",
+        }
         content = from_dict(Content, content_data)
         input_content = llm_processor._create_single_content_input(content)
         assert len(input_content) == 3

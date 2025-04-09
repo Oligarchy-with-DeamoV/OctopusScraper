@@ -11,6 +11,10 @@ from octopus_scraper.scrapers.scraper_protos import Content
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
+NOTION_PROPERTIY_TITLE_NAME = "Name"
+NOTION_PROPERTIY_SUMMARY_NAME = "Summary"
+NOTION_PROPERTIY_CONTENT_ID = "ContentId"
+NOTION_PROPERTIY_URL = "URL"
 
 
 @dataclass
@@ -37,6 +41,18 @@ class NotionStorage:
         )
 
         self.notion = Client(auth=self.config.api_key)
+        self.check_property_exist()
+
+    def check_property_exist(self):
+        self.notion.databases.update(
+            database_id=self.config.database_id,
+            properties={
+                NOTION_PROPERTIY_TITLE_NAME: {"title": {}},
+                NOTION_PROPERTIY_SUMMARY_NAME: {"rich_text": {}},
+                NOTION_PROPERTIY_URL: {"url": {}},
+                NOTION_PROPERTIY_CONTENT_ID: {"url": {}},
+            },
+        )
 
     def build_properties(self, content: Content) -> dict:
         """构建Notion属性结构"""
@@ -45,13 +61,16 @@ class NotionStorage:
                 "Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will bi cut off."
             )
         return {
-            "Name": {"title": [{"text": {"content": content.title}}]},
-            "Summary": {
+            NOTION_PROPERTIY_TITLE_NAME: {
+                "title": [{"text": {"content": content.title}}]
+            },
+            NOTION_PROPERTIY_SUMMARY_NAME: {
                 "rich_text": [
                     {"text": {"content": content.summary[:MAX_NOTION_SUMMARY_LENGTH]}}
                 ]
             },
-            "URL": {"url": content.link},
+            NOTION_PROPERTIY_URL: {"url": content.link},
+            NOTION_PROPERTIY_CONTENT_ID: {"url": content.link},
         }
 
     def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:
@@ -66,7 +85,7 @@ class NotionStorage:
         try:
             # 分割长文本，以符合 notion文本块最大长度限制
             content_chunks = self._split_text_chunks(
-                content.summary, max_len=MAX_NOTION_SUMMARY_LENGTH
+                content.content, max_len=MAX_NOTION_SUMMARY_LENGTH
             )
             children = []
             for chunk in content_chunks:
