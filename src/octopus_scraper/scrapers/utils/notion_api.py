@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from dacite import Config, from_dict
 import structlog
@@ -42,6 +42,18 @@ class NotionStorage:
 
         self.notion = Client(auth=self.config.api_key)
         self.check_property_exist()
+
+    def has_content_id(self, content_id: str) -> bool:
+        query_filter = {
+            "property": NOTION_PROPERTIY_CONTENT_ID,
+            "url": {"equals": content_id},
+        }
+
+        response = self.notion.databases.query(
+            database_id=self.config.database_id, filter=query_filter, page_size=1
+        )
+
+        return len(response.get("results", [])) > 0
 
     def check_property_exist(self):
         self.notion.databases.update(
@@ -96,11 +108,17 @@ class NotionStorage:
                         "paragraph": {"rich_text": [chunk]},
                     }
                 )
-            self.notion.pages.create(
-                parent={"database_id": self.config.database_id},
-                properties=self.build_properties(content),
-                children=children,
-            )
+            if not self.has_content_id(content.content_id):
+                self.notion.pages.create(
+                    parent={"database_id": self.config.database_id},
+                    properties=self.build_properties(content),
+                    children=children,
+                )
+            else:
+                logger.warning(
+                    "Found existed content with content id.",
+                    content_id=content.content_id,
+                )
             return True
         except Exception as e:
             logger.error(f"存储失败: {e}")
