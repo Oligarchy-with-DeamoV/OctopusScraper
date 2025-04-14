@@ -30,7 +30,7 @@ def build_contents(feed: FeedParserDict) -> List[Content]:
                 content=convert_contents_to_mk(
                     entry.get("content", [])  # pyright: ignore
                 ),
-                pub_date=str(entry.get("published", "")),
+                published=str(entry.get("published", "")),
             )
         )
     return contents
