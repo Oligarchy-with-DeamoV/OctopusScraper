@@ -34,6 +34,7 @@ def dummy_content():
         summary="Test Summary",
         content="Test Content",
         content_id="content_id",
+        pub_date="2025-04-06T13:50:59+08:00",
     )
 
 

@@ -30,6 +30,7 @@ class TestNotionStorage:
             summary="summary",
             content_id="content_id",
             content="content",
+            pub_date="2025-04-06T13:50:59+08:00",
         )
         assert (
             notion_storage.store_content(content) == True
@@ -43,6 +44,7 @@ class TestNotionStorage:
             summary="summary",
             content_id="conflict_id",
             content="content",
+            pub_date="2025-04-06T13:50:59+08:00",
         )
         assert (
             notion_storage.has_content_id(content.content_id) == True

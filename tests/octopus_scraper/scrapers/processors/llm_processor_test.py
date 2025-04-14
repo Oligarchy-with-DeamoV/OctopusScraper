@@ -47,6 +47,7 @@ def sample_content():
         link="http://example.com",
         summary="This is the article summary.",
         content="This is the article content.",
+        pub_date="2025-04-06T13:50:59+08:00",
     )
 
 
@@ -73,6 +74,7 @@ class TestLLMProcessor:
             "summary": "summary",
             "content": "content",
             "content_id": "content_id",
+            "pub_date": "2025-04-06T13:50:59+08:00",
         }
         content = from_dict(Content, content_data)
         input_content = llm_processor._create_single_content_input(content)
