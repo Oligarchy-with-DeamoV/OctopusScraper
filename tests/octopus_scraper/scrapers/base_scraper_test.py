@@ -39,7 +39,7 @@ class TestScraper:
                 link="http://original.com",
                 summary="Original summary",
                 content="Original content",
-                pub_date="2025-04-06T13:50:59+08:00",
+                published="2025-04-06T13:50:59+08:00",
             )
         ]
         scraper.active_content_processor = {"mock_processor": lambda x: x}

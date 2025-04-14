@@ -1,7 +1,9 @@
 import os
+import uuid
+
+import pytest
 
 from octopus_scraper.scrapers.utils.notion_api import Content, NotionStorage
-import pytest
 
 
 class TestNotionStorage:
@@ -28,9 +30,9 @@ class TestNotionStorage:
             title="this is a test",
             link="url_link",
             summary="summary",
-            content_id="content_id",
+            content_id=uuid.uuid4().hex[:20],
             content="content",
-            pub_date="2025-04-06T13:50:59+08:00",
+            published="2025-04-06T13:50:59+08:00",
         )
         assert (
             notion_storage.store_content(content) == True
@@ -44,7 +46,7 @@ class TestNotionStorage:
             summary="summary",
             content_id="conflict_id",
             content="content",
-            pub_date="2025-04-06T13:50:59+08:00",
+            published="2025-04-06T13:50:59+08:00",
         )
         assert (
             notion_storage.has_content_id(content.content_id) == True

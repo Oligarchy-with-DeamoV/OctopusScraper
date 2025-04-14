@@ -42,11 +42,12 @@ class DirectRSS:
         filtered_contents = []
         for content in contents:
             try:
-                # pub_date example: 2025-04-06T13:50:59+08:00
+                # published example: 2025-04-06T13:50:59+08:00
                 if (
-                    content.pub_date is not None
+                    content.published is not None
                     and (
-                        now - parser.isoparse(content.pub_date).astimezone(timezone.utc)
+                        now
+                        - parser.isoparse(content.published).astimezone(timezone.utc)
                     ).total_seconds()
                     <= filter_time
                 ):
@@ -59,7 +60,7 @@ class DirectRSS:
                     error=e,
                 )
                 continue
-        return contents
+        return filtered_contents
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def fetch_contents(self, params: dict = {}) -> List[Content]:
@@ -77,6 +78,6 @@ class DirectRSS:
         if feed.status == 200:
             contents = build_contents(feed)
             if params.get("filter_time"):
-                contents = self.filter_by_timerange(contents, params["filter_tiem"])
+                contents = self.filter_by_timerange(contents, params["filter_time"])
             return contents
         raise RuntimeError(f"Failed to get RSS feed. Status code: {feed.status}.")

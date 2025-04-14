@@ -8,4 +8,4 @@ class Content:
     link: str
     summary: str
     content: str
-    pub_date: str
+    published: str
