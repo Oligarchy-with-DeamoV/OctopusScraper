@@ -1,0 +1,22 @@
+scrapers_config_with_fetch_params:
+- scraper_config:
+    fetcher_name: rsshub
+    fetcher_config:
+      hub_root: https://rss.owo.nz
+      route: /qbitai/category/资讯
+      fetch_params: {}
+    content_processor_configs: {}
+  fetch_params: {"limit": 1}
+
+- scraper_config:
+    fetcher_name: direct_rss
+    fetcher_config:
+      hub_root: https://www.owenyoung.com
+      route: /atom.xml
+      fetch_params:
+    content_processor_configs: {}
+  fetch_params: {'filter_time': 5184000}
+
+notion_api_config:
+  api_key: "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"
+  database_id: "1ca2602c0dbf80e2a090f7116d8e6959"

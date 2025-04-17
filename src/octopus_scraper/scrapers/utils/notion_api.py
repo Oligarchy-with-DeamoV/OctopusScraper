@@ -43,6 +43,7 @@ class NotionStorage:
         self.notion = Client(auth=self.config.api_key)
         self.check_property_exist()
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def has_content_id(self, content_id: str) -> bool:
         query_filter = {
             "property": NOTION_PROPERTIY_CONTENT_ID,
@@ -52,9 +53,9 @@ class NotionStorage:
         response = self.notion.databases.query(
             database_id=self.config.database_id, filter=query_filter, page_size=1
         )
-
         return len(response.get("results", [])) > 0
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def check_property_exist(self):
         self.notion.databases.update(
             database_id=self.config.database_id,
@@ -70,7 +71,7 @@ class NotionStorage:
         """构建Notion属性结构"""
         if len(content.summary) > MAX_NOTION_SUMMARY_LENGTH:
             logger.warning(
-                "Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will bi cut off."
+                f"Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will be cut off."
             )
         return {
             NOTION_PROPERTIY_TITLE_NAME: {

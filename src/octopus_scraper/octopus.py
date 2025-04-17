@@ -11,14 +11,20 @@ logger = structlog.getLogger(__name__)
 
 
 @dataclass
-class BaseOctopusConfig:
-    scrapers_config_with_fetch_param: List[Tuple[BaseScraperConfig, Dict]]
+class ScraperRuntimeConfig:
+    scraper_config: BaseScraperConfig
+    fetch_params: dict
+
+
+@dataclass
+class OctopusConfig:
+    scrapers_config_with_fetch_params: List[ScraperRuntimeConfig]
     notion_api_config: NotionAPIConfig
 
 
 class Octopus:
     def __init__(self, config: Dict):
-        self._config = from_dict(BaseOctopusConfig, config)
+        self._config = from_dict(OctopusConfig, config)
         self._scrapers: List[Tuple[Scraper, Dict]] = []
         self._fetched_contents: List[Content] = []
         self._notion_api: NotionStorage = NotionStorage(
@@ -36,8 +42,11 @@ class Octopus:
         self._health_check()
 
     def _setup(self):
-        for scraper_config in self._config.scrapers_config_with_fetch_param:
-            self._setup_single_scrapper(*scraper_config)
+        for scraper_runtime_config in self._config.scrapers_config_with_fetch_params:
+            self._setup_single_scrapper(
+                scraper_runtime_config.scraper_config,
+                scraper_runtime_config.fetch_params,
+            )
 
     def _setup_single_scrapper(self, config: Any, fetch_params: Dict):
         """初始化 scraper，同时设置对应的 fetch_params"""

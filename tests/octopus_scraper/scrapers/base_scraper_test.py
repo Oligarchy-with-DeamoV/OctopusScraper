@@ -7,7 +7,7 @@ from octopus_scraper.scrapers.scraper import Scraper, Content
 def sspai_rss_hub_config():
     config = {
         "fetcher_name": "rsshub",
-        "fecher_config": {
+        "fetcher_config": {
             "hub_root": "https://rsshub.thzu.xyz",
             "route": "/sspai/matrix",
             "fetch_params": {"limit": 3},
