@@ -9,7 +9,14 @@ Note: 更多的安装信息可以使用 `-vvv` 来 debug。
 
 ## Usage
 ```bash
-poetry run octopus_go
+# check manual
+poetry run octopus_go -h
+
+# only fetch contents don't upload
+poetry run octopus_go --config ./tests/octopus_scraper/cli/octopus_test_config.yml
+
+# only fetch contents and upload to notion
+poetry run octopus_go --config ./tests/octopus_scraper/cli/octopus_test_config.yml --notion_upload
 ```
 
 ## Dev Dependencies

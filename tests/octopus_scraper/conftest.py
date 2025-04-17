@@ -1,5 +1,6 @@
 import os
 import pytest
+from dataclasses import asdict
 from unittest.mock import MagicMock
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
 from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig
@@ -9,7 +10,7 @@ from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig
 def dummy_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
-        fecher_config={
+        fetcher_config={
             "hub_root": "https://rsshub.app/test",
             "route": "/api",
             "fetch_params": {},
@@ -41,10 +42,13 @@ def dummy_content():
 @pytest.fixture
 def octopus_config(dummy_scraper_config, notion_config):
     return {
-        "scrapers_config_with_fetch_param": [
-            (dummy_scraper_config, {"param1": "value1"})
+        "scrapers_config_with_fetch_params": [
+            {
+                "scraper_config": asdict(dummy_scraper_config),
+                "fetch_params": {"param1": "value1"},
+            }
         ],
-        "notion_api_config": notion_config,
+        "notion_api_config": asdict(notion_config),
     }
 
 

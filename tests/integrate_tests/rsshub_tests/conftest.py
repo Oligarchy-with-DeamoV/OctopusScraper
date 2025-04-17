@@ -8,7 +8,7 @@ from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig
 def owen_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
-        fecher_config={
+        fetcher_config={
             "hub_root": "https://www.owenyoung.com",
             "route": "/atom.xml",
             "fetch_params": {},
@@ -21,7 +21,7 @@ def owen_scraper_config():
 def machine_heart_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
-        fecher_config={
+        fetcher_config={
             "hub_root": "https://raw.githubusercontent.com",
             "route": "/osnsyc/Wechat-Scholar/main/channels/gh_dbc0a5474692.xml",
             "fetch_params": {},
@@ -34,7 +34,7 @@ def machine_heart_scraper_config():
 def love_kk_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
-        fecher_config={
+        fetcher_config={
             "hub_root": "https://rss.owo.nz",
             "route": "/weibo/user/1402400261",
             "fetch_params": {},
@@ -47,7 +47,7 @@ def love_kk_scraper_config():
 def qbitai_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
-        fecher_config={
+        fetcher_config={
             "hub_root": "https://rss.owo.nz",
             "route": "/qbitai/category/资讯",
             "fetch_params": {},
@@ -73,11 +73,11 @@ def octopus_config(
     notion_config,
 ):
     return {
-        "scrapers_config_with_fetch_param": [
-            (owen_scraper_config, {}),
-            (machine_heart_scraper_config, {}),
-            (love_kk_scraper_config, {}),
-            (qbitai_scraper_config, {}),
+        "scrapers_config_with_fetch_params": [
+            {"scraper_config": owen_scraper_config, "fetch_params": {}},
+            {"scraper_config": machine_heart_scraper_config, "fetch_params": {}},
+            {"scraper_config": love_kk_scraper_config, "fetch_params": {}},
+            {"scraper_config": qbitai_scraper_config, "fetch_params": {}},
         ],
         "notion_api_config": notion_config,
     }
