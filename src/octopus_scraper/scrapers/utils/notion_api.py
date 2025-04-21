@@ -1,14 +1,13 @@
+import re
 from dataclasses import dataclass
 from typing import Dict, List
 
 from dacite import Config, from_dict
 import structlog
-from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from notion_client import Client
 from octopus_scraper.scrapers.scraper_protos import Content
-
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
@@ -68,6 +67,7 @@ class NotionStorage:
             },
         )
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def build_properties(self, content: Content) -> dict:
         """构建Notion属性结构"""
         if len(content.summary) > MAX_NOTION_SUMMARY_LENGTH:
@@ -87,6 +87,7 @@ class NotionStorage:
             NOTION_PROPERTIY_CONTENT_ID: {"url": content.link},
         }
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:
         """将长文本按自然段落分割成符合Notion限制的块"""
         paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
@@ -104,75 +105,48 @@ class NotionStorage:
 
         return chunks
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _parse_markdown_to_notion_blocks(self, chunk: Dict) -> List[Dict]:
         """将Markdown块转换为Notion块"""
         content = chunk['text']['content']
 
-        # 处理HTML格式链接
-        if '<a href="' in content and '</a>' in content:
-            try:
-                soup = BeautifulSoup(content, 'html.parser')
-                a_tag = soup.find('a')
-                if a_tag:
-                    return [{
-                        "object": "block",
-                        "type": "bookmark",
-                        "bookmark": {
-                            "url": a_tag['href'],
-                            "caption": [{
-                                "type": "text",
-                                "text": {"content": a_tag.text}
-                            }]
-                        }
-                    }]
-            except Exception:
-                pass
-
-        # 处理标题
-        if content.startswith('# '):
-            level = content.count('#', 0, 6)
+        if (match := re.search(r'\[([^\]]+)\]\(([^)]+)\)', content)):
             return [{
                 "object": "block",
-                "type": f"heading_{level}",
-                f"heading_{level}": {"rich_text": [{"text": {"content": content.lstrip('#').strip()}}]}
+                "type": "bookmark",
+                "bookmark": {
+                    "url": match.group(2).strip(),
+                    "caption": [{"type": "text", "text": {"content": match.group(1).strip()}}]
+                }
             }]
 
-        # 处理列表
-        if content.startswith('- ') or content.startswith('* '):
-            return [{
+        handlers = {
+            '#': lambda c: {
+                "object": "block",
+                "type": f"heading_{c.count('#', 0, 6)}",
+                f"heading_{c.count('#', 0, 6)}": {"rich_text": [{"text": {"content": c.lstrip('#').strip()}}]}
+            },
+            '-': lambda c: {
                 "object": "block",
                 "type": "bulleted_list_item",
-                "bulleted_list_item": {"rich_text": [{"text": {"content": content[2:].strip()}}]}
-            }]
-        if content[0].isdigit() and content[1] == '.':
-            return [{
+                "bulleted_list_item": {"rich_text": [{"text": {"content": c[2:].strip()}}]}
+            },
+            '*': lambda c: {
                 "object": "block",
-                "type": "numbered_list_item",
-                "numbered_list_item": {"rich_text": [{"text": {"content": content[2:].strip()}}]}
-            }]
-
-        # 处理代码块
-        if content.startswith('```'):
-            return [{
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {"rich_text": [{"text": {"content": c[2:].strip()}}]}
+            },
+            '`': lambda c: {
                 "object": "block",
                 "type": "code",
-                "code": {"rich_text": [{"text": {"content": content.strip('```').strip()}}]}
-            }]
+                "code": {"rich_text": [{"text": {"content": c.strip('`').strip()}}]}
+            }
+        }
+        
+        for prefix, handler in handlers.items():
+            if content.startswith(prefix):
+                return [handler(content)]
 
-        # 处理链接
-        if '](' in content and content.endswith(')'):
-            try:
-                text_part, url_part = content.split('](')
-                url = url_part[:-1]  # 去掉结尾的)
-                return [{
-                    "object": "block",
-                    "type": "bookmark",
-                    "bookmark": {"url": url}
-                }]
-            except Exception:
-                pass
-
-        # 默认处理为段落
         return [{
             "object": "block",
             "type": "paragraph",
