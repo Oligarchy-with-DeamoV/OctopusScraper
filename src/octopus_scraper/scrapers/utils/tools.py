@@ -1,11 +1,10 @@
+import re
 from typing import List
 
+import structlog
+from bs4 import BeautifulSoup
 from feedparser.util import FeedParserDict
 from html2markdown import convert
-import structlog
-
-from bs4 import BeautifulSoup
-import re
 
 from octopus_scraper.scrapers.scraper_protos import Content
 
@@ -17,28 +16,28 @@ def convert_contents_to_mk(contents: List) -> str:
     _parsed_content = ""
     for content in contents:
         html_content = content.get("value", "")
-        
+
         # 先用convert统一转换
         markdown_content = convert(html_content)
-        
+
         # 后处理：单独处理HTML格式的链接
-        soup = BeautifulSoup(markdown_content, 'html.parser')
-        for a in soup.find_all('a'):
+        soup = BeautifulSoup(markdown_content, "html.parser")
+        for a in soup.find_all("a"):
             if a.text.strip():
-                href = a.get('href', '').strip()
+                href = a.get("href", "").strip()
                 if href:
                     # 替换为Markdown格式链接
                     a.replace_with(f"[{a.text}]({href})")
-        
+
         # 获取最终处理结果
         markdown_content = str(soup)
-        
+
         # 修复其他格式
-        markdown_content = re.sub(r'^\*\s+', '* ', markdown_content, flags=re.MULTILINE)
-        markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
-        
+        markdown_content = re.sub(r"^\*\s+", "* ", markdown_content, flags=re.MULTILINE)
+        markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
+
         _parsed_content += markdown_content + "\n\n"
-    
+
     return _parsed_content.strip()
 
 
