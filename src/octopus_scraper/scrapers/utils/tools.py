@@ -50,7 +50,11 @@ def build_contents(feed: FeedParserDict) -> List[Content]:
                 content_id=str(entry.get("id", entry.get("guid", entry.link))),
                 title=str(entry.title),
                 link=str(entry.link),
-                summary=convert(entry.summary) if entry.summary else "",
+                summary=(
+                    convert_contents_to_mk([{"value": entry.summary}])
+                    if entry.summary
+                    else ""
+                ),
                 content=convert_contents_to_mk(
                     entry.get("content", [])  # pyright: ignore
                 ),

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Text
 
-from dacite import from_dict
 import structlog
+from dacite import from_dict
 
 from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
 from octopus_scraper.scrapers.utils.direct_rss import DirectRSS
