@@ -1,11 +1,11 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Tuple
 
-from dacite import from_dict
 import structlog
+from dacite import from_dict
 
-from octopus_scraper.scrapers.scraper import Scraper, BaseScraperConfig, Content
-from octopus_scraper.scrapers.utils.notion_api import NotionStorage, NotionAPIConfig
+from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
+from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig, NotionStorage
 
 logger = structlog.getLogger(__name__)
 
