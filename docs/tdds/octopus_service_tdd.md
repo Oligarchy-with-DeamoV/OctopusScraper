@@ -242,29 +242,409 @@ stop
 
 ---
 
-## 十二、配置管理细节补充
+# 十二、配置管理细节
 
-### 配置来源：
+## 12.1 配置架构设计
 
-- Notion 配置通过 Octopus 模块从 Notion API 读取
-- 本地支持通过环境变量覆盖配置关键项（如 API token）
-- 配置格式示例：
+### 配置分层策略
 
-```yaml
-notion:
-  api_token: "secret_token"
-  database_id: "xxxx-xxxx"
-rss_sources:
-  - name: "Source A"
-    url: "https://example.com/rss"
-  - name: "Source B"
-    url: "https://another.com/rss"
+OctopusService 采用三层配置架构：
+
+1. **静态配置层**：服务运行参数（端口、超时、日志等）
+2. **动态配置层**：业务配置从 Notion Database 动态获取
+3. **环境变量层**：敏感信息和运行时覆盖
+
+### 核心配置对象定义
+
+```python
+@dataclass
+class ServiceConfig:
+    """服务层静态配置"""
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = False
+    log_level: str = "INFO"
+    scraper_timeout: int = 10
+    upload_timeout: int = 15
+    upload_max_retries: int = 3
+    config_refresh_interval: int = 300  # 配置刷新间隔(秒)
+
+@dataclass
+class NotionAPIConfig:
+    """Notion API 连接配置"""
+    api_key: str
+    scrapers_database_id: str  # 存储 scraper 配置的数据库
+    content_database_id: str   # 存储抓取内容的数据库
+
+@dataclass
+class OctopusServiceConfig:
+    """OctopusService 完整配置"""
+    service_config: ServiceConfig
+    notion_api_config: NotionAPIConfig
 ```
 
-### 配置热加载：
+## 12.2 配置来源与优先级
 
-- 当前版本不支持热加载，需重启服务生效
-- 未来版本可增加文件或数据库监听机制
+### 优先级顺序（由高到低）
+
+1. **环境变量**：运行时动态配置和敏感信息
+2. **本地配置文件**：服务层基础配置
+3. **Notion Database**：业务配置动态获取
+4. **代码默认值**：兜底默认配置
+
+### 配置获取流程设计
+
+```mermaid
+graph TD
+    A[服务启动] --> B[加载静态配置]
+    B --> C[应用环境变量覆盖]
+    C --> D[初始化 Notion API 连接]
+    D --> E[首次加载 Scrapers 配置]
+    E --> F[启动配置监听器]
+    F --> G[服务就绪]
+
+    G --> H[定时检查配置变更]
+    H --> I{配置是否变更?}
+    I -->|是| J[重新加载配置]
+    I -->|否| H
+    J --> K[验证新配置]
+    K --> L[热更新 Octopus 实例]
+    L --> H
+```
+
+## 12.3 Notion Scrapers 配置数据库设计
+
+### 数据库 Schema 定义
+
+| 字段名           | 类型             | 必需 | 描述                 | 示例值                      |
+| ---------------- | ---------------- | ---- | -------------------- | --------------------------- |
+| Name             | Title            | ✓    | Scraper 唯一标识名称 | "Owen Blog"                 |
+| Status           | Select           | ✓    | 启用状态             | "Active" / "Inactive"       |
+| Fetcher          | Select           | ✓    | 抓取器类型           | "rsshub"                    |
+| Hub Root         | URL              | ✓    | RSS Hub 根地址       | "https://www.owenyoung.com" |
+| Route            | Text             | ✓    | RSS 路由路径         | "/atom.xml"                 |
+| Fetch Params     | Text             | ✗    | 抓取参数(JSON)       | `{"limit": 100}`            |
+| Processor Config | Text             | ✗    | 内容处理器配置(JSON) | `{"filters": []}`           |
+| Priority         | Number           | ✗    | 执行优先级           | 1                           |
+| Last Modified    | Last edited time | -    | 最后更新时间         | 自动生成                    |
+
+### 配置变更检测策略
+
+1. **时间戳比较**：记录上次配置加载时间，与 Notion Database 的 `Last Modified` 字段比较
+2. **配置哈希**：计算配置内容哈希值，检测实际变更
+3. **增量更新**：只处理变更的配置项，减少不必要的重载
+
+## 12.4 配置热更新机制设计
+
+### 热更新触发方式
+
+#### 方式一：定时轮询（推荐）
+
+- **触发机制**：后台定时任务，定期查询 Notion Database
+- **轮询间隔**：可配置，默认 5 分钟
+- **优点**：实现简单，可控性强
+- **缺点**：存在延迟，轮询频率与实时性权衡
+
+#### 方式二：API 手动触发
+
+- **触发机制**：提供 `/admin/refresh_config` 接口
+- **适用场景**：测试环境或紧急配置变更
+- **优点**：即时生效，可控性强
+- **缺点**：需要人工干预
+
+#### 方式三：Webhook 推送（预留）
+
+- **触发机制**：Notion 支持 Webhook 时使用
+- **适用场景**：实时性要求极高的场景
+- **优点**：实时响应，无轮询开销
+- **缺点**：依赖 Notion Webhook 功能
+
+### 热更新执行流程
+
+```mermaid
+sequenceDiagram
+    participant T as 定时器
+    participant CM as ConfigManager
+    participant N as Notion API
+    participant V as ConfigValidator
+    participant O as Octopus实例
+    participant L as Logger
+
+    T->>CM: 检查配置更新
+    CM->>N: 查询 Database 变更时间
+    N->>CM: 返回最新时间戳
+
+    alt 配置有变更
+        CM->>N: 获取最新配置数据
+        N->>CM: 返回配置数据
+        CM->>V: 验证新配置
+        V->>CM: 验证结果
+
+        alt 配置验证通过
+            CM->>O: 热更新 Octopus 配置
+            O->>CM: 更新完成
+            CM->>L: 记录更新成功日志
+        else 配置验证失败
+            CM->>L: 记录验证失败日志
+        end
+    else 配置无变更
+        CM->>L: 记录无变更日志
+    end
+```
+
+### 热更新安全机制
+
+#### 配置验证策略
+
+1. **格式验证**：JSON 格式、必需字段检查
+2. **逻辑验证**：URL 可达性、参数合理性检查
+3. **回滚机制**：验证失败时保持原配置不变
+
+#### 更新原子性保证
+
+1. **配置预加载**：新配置验证通过后才应用
+2. **实例隔离**：创建新 Octopus 实例，验证成功后替换
+3. **状态保护**：更新过程中保护正在执行的任务
+
+#### 错误处理策略
+
+1. **重试机制**：网络异常时自动重试
+2. **降级策略**：连续失败时降低检查频率
+3. **告警机制**：配置更新失败时记录告警日志
+
+## 12.5 环境变量配置设计
+
+### 必需环境变量
+
+| 环境变量名             | 描述                   | 示例值          |
+| ---------------------- | ---------------------- | --------------- |
+| `NOTION_API_KEY`       | Notion API 密钥        | `secret_xxx`    |
+| `SCRAPERS_DATABASE_ID` | Scrapers 配置数据库 ID | `12345678-1234` |
+| `CONTENT_DATABASE_ID`  | 内容存储数据库 ID      | `87654321-4321` |
+
+### 可选环境变量
+
+| 环境变量名                | 默认值    | 描述                |
+| ------------------------- | --------- | ------------------- |
+| `SERVICE_HOST`            | "0.0.0.0" | 服务监听地址        |
+| `SERVICE_PORT`            | 8000      | 服务监听端口        |
+| `LOG_LEVEL`               | "INFO"    | 日志级别            |
+| `LOG_FORMAT`              | "plain"   | 日志格式 plain/json |
+| `CONFIG_REFRESH_INTERVAL` | 300       | 配置刷新间隔(秒)    |
+| `SCRAPER_TIMEOUT`         | 10        | 抓取超时(秒)        |
+| `UPLOAD_TIMEOUT`          | 15        | 上传超时(秒)        |
+| `UPLOAD_MAX_RETRIES`      | 3         | 上传最大重试次数    |
+
+## 12.6 配置管理器设计
+
+### ConfigManager 核心职责
+
+1. **配置加载**：从多个来源聚合配置信息
+2. **变更检测**：监测 Notion 配置变更
+3. **热更新执行**：安全地更新运行时配置
+4. **配置验证**：确保配置完整性和合理性
+5. **状态管理**：维护配置版本和更新状态
+
+### 主要方法设计
+
+```python
+class ConfigManager:
+    async def load_initial_config() -> OctopusServiceConfig
+    async def start_config_watcher()
+    async def check_config_changes() -> bool
+    async def reload_scrapers_config() -> List[Dict[str, Any]]
+    async def apply_hot_update(new_config)
+    def validate_config(config) -> List[str]
+    def get_config_hash(config) -> str
+```
+
+## 12.7 服务集成设计
+
+### 服务启动时集成
+
+```python
+@app.before_server_start
+async def setup_octopus_service(app, _):
+    # 1. 初始化配置管理器
+    # 2. 加载初始配置
+    # 3. 创建 Octopus 实例
+    # 4. 启动配置监听器
+    # 5. 注册优雅关闭处理
+```
+
+### 后台任务集成
+
+```python
+@app.after_server_start
+async def start_background_tasks(app, _):
+    # 启动配置监听后台任务
+    app.add_task(config_watcher_task())
+
+async def config_watcher_task():
+    # 定时检查配置变更的后台任务
+```
+
+## 12.8 管理接口设计
+
+### 配置管理接口
+
+| 接口                     | 方法 | 描述             | 响应                 |
+| ------------------------ | ---- | ---------------- | -------------------- |
+| `/admin/config/status`   | GET  | 获取当前配置状态 | 配置概览和统计信息   |
+| `/admin/config/refresh`  | POST | 手动刷新配置     | 刷新结果和新配置统计 |
+| `/admin/config/history`  | GET  | 获取配置变更历史 | 最近的配置变更记录   |
+| `/admin/config/validate` | POST | 验证指定配置     | 配置验证结果         |
+
+### 响应数据结构设计
+
+```python
+@dataclass
+class ConfigStatusResponse:
+    status: str
+    data: Dict[str, Any]  # 包含配置概览、更新时间、版本信息
+
+@dataclass
+class ConfigRefreshResponse:
+    status: str
+    message: str
+    data: Optional[Dict[str, Any]]  # 刷新统计信息
+
+@dataclass
+class ConfigHistoryResponse:
+    status: str
+    data: List[Dict[str, Any]]  # 配置变更历史记录
+```
+
+## 12.9 配置版本管理设计
+
+### 版本标识策略
+
+1. **时间戳版本**：使用配置最后更新时间作为版本标识
+2. **哈希版本**：基于配置内容计算 MD5/SHA256 哈希
+3. **递增版本**：维护递增的版本号
+
+### 版本信息记录
+
+```python
+@dataclass
+class ConfigVersion:
+    version_id: str           # 版本标识
+    timestamp: datetime       # 更新时间
+    config_hash: str         # 配置哈希
+    scrapers_count: int      # Scrapers 数量
+    change_summary: str      # 变更摘要
+```
+
+### 变更历史跟踪
+
+- 记录每次配置更新的详细信息
+- 支持查询最近 N 次配置变更
+- 提供配置对比功能（预留）
+
+## 12.10 监控与告警设计
+
+### 关键监控指标
+
+1. **配置状态指标**
+
+   - 配置最后更新时间
+   - 配置检查频率和耗时
+   - 配置验证成功/失败次数
+
+2. **热更新指标**
+
+   - 热更新执行次数和成功率
+   - 热更新平均耗时
+   - 更新失败原因统计
+
+3. **服务健康指标**
+   - Notion API 连接状态
+   - 活跃 Scrapers 数量
+   - 配置版本信息
+
+### 告警策略设计
+
+| 告警类型     | 触发条件              | 告警级别 | 处理建议               |
+| ------------ | --------------------- | -------- | ---------------------- |
+| 配置加载失败 | 连续 3 次配置检查失败 | ERROR    | 检查 Notion API 连接   |
+| 配置验证失败 | 新配置验证不通过      | WARN     | 检查 Notion 数据完整性 |
+| 热更新失败   | 热更新执行异常        | WARN     | 检查服务状态和资源     |
+| API 连接异常 | Notion API 持续不可达 | ERROR    | 检查网络和 API 密钥    |
+
+## 12.11 性能优化设计
+
+### 配置缓存策略
+
+1. **内存缓存**：缓存当前生效的配置对象
+2. **变更缓存**：缓存配置哈希值，避免重复计算
+3. **结果缓存**：缓存 Notion API 查询结果
+
+### 网络优化策略
+
+1. **增量查询**：仅查询变更时间戳，确认变更后再获取完整数据
+2. **批量处理**：批量处理多个配置变更
+3. **连接复用**：复用 Notion API 连接
+
+### 资源控制策略
+
+1. **并发控制**：限制同时进行的配置检查数量
+2. **超时控制**：设置合理的 API 调用超时时间
+3. **重试策略**：指数退避的重试机制
+
+## 12.12 部署配置示例
+
+### 开发环境配置
+
+```yaml
+# service_config.yaml (开发环境)
+service:
+  host: "127.0.0.1"
+  port: 8000
+  debug: true
+  log_level: "DEBUG"
+  config_refresh_interval: 60 # 开发环境更频繁检查
+
+performance:
+  scraper_timeout: 30
+  upload_timeout: 30
+```
+
+### 生产环境配置
+
+```yaml
+# service_config.yaml (生产环境)
+service:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  log_level: "INFO"
+  config_refresh_interval: 300 # 生产环境稳定检查
+
+performance:
+  scraper_timeout: 10
+  upload_timeout: 15
+  upload_max_retries: 3
+```
+
+## 12.13 扩展性设计考虑
+
+### 配置源扩展
+
+- 预留其他配置源接入能力（如数据库、Redis）
+- 支持配置源优先级调整
+- 支持配置源故障切换
+
+### 配置类型扩展
+
+- 支持新的抓取器类型配置
+- 支持复杂的条件配置和规则配置
+- 支持配置模板和继承机制
+
+### 部署模式扩展
+
+- 支持多实例配置同步
+- 支持分布式配置管理
+- 支持配置中心集成（如 Consul、etcd）
 
 ## 十三、性能及超时控制补充
 
