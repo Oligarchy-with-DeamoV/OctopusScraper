@@ -22,8 +22,12 @@ def dummy_scraper_config():
 @pytest.fixture
 def notion_config():
     return NotionAPIConfig(
-        api_key=os.environ.get("NOTION_API_KEY", ""),
-        database_id=os.environ.get("NOTION_DATABASE_ID", ""),
+        api_key=os.environ.get(
+            "NOTION_API_KEY", "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"
+        ),
+        database_id=os.environ.get(
+            "NOTION_DATABASE_ID", "1ca2602c0dbf80e2a090f7116d8e6959"
+        ),
     )
 
 

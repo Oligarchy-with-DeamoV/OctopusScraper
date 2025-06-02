@@ -1,7 +1,10 @@
 import os
 import pytest
+from dotenv import load_dotenv
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
 from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig
+
+load_dotenv()
 
 
 @pytest.fixture
@@ -59,8 +62,8 @@ def qbitai_scraper_config():
 @pytest.fixture
 def notion_config():
     return NotionAPIConfig(
-        api_key=os.environ["NOTION_API_KEY"],
-        database_id=os.environ["NOTION_DATABASE_ID"],
+        api_key=os.getenv("NOTION_API_KEY", ""),
+        database_id=os.getenv("NOTION_DATABASE_ID", ""),
     )
 
 

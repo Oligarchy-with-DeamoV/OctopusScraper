@@ -1,16 +1,18 @@
 import os
 import uuid
 
+from dotenv import load_dotenv
+from octopus_scraper.scrapers.utils.notion_api import Content, NotionStorage
 import pytest
 
-from octopus_scraper.scrapers.utils.notion_api import Content, NotionStorage
+load_dotenv()
 
 
 class TestNotionStorage:
     @pytest.fixture
     def notion_config(self):
-        notion_api_key = os.environ.get("NOTION_API_KEY")
-        database_id = os.environ.get("NOTION_DATABASE_ID")
+        notion_api_key = os.getenv("NOTION_API_KEY", "")
+        database_id = os.getenv("NOTION_DATABASE_ID", "")
         if not (notion_api_key and database_id):
             raise ValueError(
                 "NOTION_API_KEY and NOTION_DATABASE_ID does not found in environ settings."
@@ -36,7 +38,7 @@ class TestNotionStorage:
         )
         assert (
             notion_storage.store_content(content) == True
-        ), f"Failed with token {os.environ.get('NOTION_API_KEY')} and {os.environ.get('NOTION_DATABASE_ID')}"
+        ), f"Failed with token {os.getenv('NOTION_API_KEY', '')} and {os.getenv('NOTION_DATABASE_ID', '')}"
 
     @pytest.mark.need_external_service
     def test_check_contentid(self, notion_storage):
@@ -50,4 +52,4 @@ class TestNotionStorage:
         )
         assert (
             notion_storage.has_content_id(content.content_id) == True
-        ), f"Failed with token {os.environ.get('NOTION_API_KEY')} and {os.environ.get('NOTION_DATABASE_ID')}"
+        ), f"Failed with token {os.getenv('NOTION_API_KEY', '')} and {os.getenv('NOTION_DATABASE_ID', '')}"

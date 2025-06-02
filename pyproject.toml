@@ -17,6 +17,8 @@ httpx = {version = "^0.27.0", extras = ["socks"]}
 html2markdown = "^0.1.7"
 doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 pyyaml = "^6.0.1"
+sanic = ">=21.3.0"
+python-dotenv = "^1.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^4.0.0"
@@ -48,6 +50,14 @@ addopts = [
     "--import-mode=importlib",
     "--showlocals",
     "--verbose",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "./src/octopus_scraper/service_models.py",
+    "./src/octopus_scraper/octopus_service.py",
+    "./src/octopus_scraper/tests/*"
 ]
 
 [build-system]
