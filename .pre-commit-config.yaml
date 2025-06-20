@@ -1,23 +1,23 @@
 exclude: ./resources
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.3.0
     hooks:
-    -   id: check-yaml
-    -   id: end-of-file-fixer
-    -   id: trailing-whitespace
-    -   id: check-added-large-files
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
 
--   repo: https://github.com/psf/black
+  - repo: https://github.com/psf/black
     rev: 22.10.0
     hooks:
-    -   id: black
+      - id: black
         name: Format with black
 
--   repo: local
+  - repo: local
     hooks:
-    - id: pytest
-      name: Check for all tests
-      entry: poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under=80 ./tests/
-      language: system
-      types: [python]
+      - id: pytest
+        name: Check for all tests
+        entry: poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under=80 ./tests/ -n auto
+        language: system
+        types: [python]

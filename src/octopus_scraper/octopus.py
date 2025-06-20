@@ -61,7 +61,10 @@ class Octopus:
         for _s, _p in self._scrapers:
             self._fetched_contents.extend(_s.scrap_contents(_p))
 
-    def trigger_upload(self):
+    def trigger_upload(self) -> int:
         """将获取的 Content 批量上传"""
+        uploaded_count = 0
         while self._fetched_contents:
             self._notion_api.store_content(self._fetched_contents.pop())
+            uploaded_count += 1
+        return uploaded_count

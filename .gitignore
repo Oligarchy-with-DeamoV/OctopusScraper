@@ -1,6 +1,7 @@
 # manual ignore
 .python-version
 .log
+.vscode
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

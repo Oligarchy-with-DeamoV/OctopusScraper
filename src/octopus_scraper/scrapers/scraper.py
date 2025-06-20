@@ -5,8 +5,9 @@ import structlog
 from dacite import from_dict
 
 from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
+from octopus_scraper.scrapers.scraper_protos import Content
 from octopus_scraper.scrapers.utils.direct_rss import DirectRSS
-from octopus_scraper.scrapers.utils.rsshub import Content, RssHub
+from octopus_scraper.scrapers.utils.rsshub import RssHub
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub, "direct_rss": DirectRSS}
 

@@ -1,2 +1,0 @@
-class OctopusServer:
-    pass

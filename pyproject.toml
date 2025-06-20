@@ -17,6 +17,8 @@ httpx = {version = "^0.27.0", extras = ["socks"]}
 html2markdown = "^0.1.7"
 doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 pyyaml = "^6.0.1"
+sanic = ">=21.3.0"
+python-dotenv = "^1.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^4.0.0"
@@ -35,9 +37,11 @@ priority = "primary"
 
 [tool.poetry.scripts]
 octopus_go = "octopus_scraper.cli:run_octopus_go"
+octopus_service = "octopus_scraper.cli:run_octopus_service"
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+asyncio_mode = "auto"
 log_cli = true
 log_cli_level = "DEBUG"
 markers = [
@@ -48,6 +52,12 @@ addopts = [
     "--import-mode=importlib",
     "--showlocals",
     "--verbose",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "./src/octopus_scraper/tests/*"
 ]
 
 [build-system]
