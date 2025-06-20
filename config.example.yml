@@ -1,0 +1,39 @@
+# OctopusScraper 配置文件示例
+# 复制此文件为 config.yml 并修改相应配置
+
+# 抓取器配置
+scrapers:
+  # RSS 抓取器示例
+  - name: "技术博客示例"
+    fetcher: "direct_rss"
+    hub_root: "https://example.com"
+    route: "/feed.xml"
+    priority: 1
+    fetch_params:
+      limit: 10
+      filter_hours: 24 # 仅获取24小时内的内容
+
+  # RSSHub 抓取器示例
+  - name: "少数派热门"
+    fetcher: "rsshub"
+    hub_root: "https://rsshub.app"
+    route: "/sspai/matrix"
+    priority: 2
+    fetch_params:
+      limit: 5
+
+# Notion 配置
+notion:
+  api_key: "${NOTION_API_KEY}" # 从环境变量获取
+  content_database_id: "${NOTION_CONTENT_DATABASE_ID}"
+
+# 服务配置 (可选，仅在 Web 服务模式下使用)
+service:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  log_level: "INFO"
+  config_refresh_interval: 300 # 配置刷新间隔（秒）
+  scraper_timeout: 10 # 抓取超时时间（秒）
+  upload_timeout: 15 # 上传超时时间（秒）
+  upload_max_retries: 3 # 上传最大重试次数

@@ -39,12 +39,25 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 - 使用 `structlog`
 - 支持通过环境变量控制格式（plain / JSON）
 
+### F7. 配置管理接口
+
+- 提供 `/admin/config/status` 获取配置状态
+- 提供 `/admin/config/refresh` 手动刷新配置
+- 提供 `/admin/config/validate` 验证配置有效性
+
+### F8. CLI 工具支持
+
+- 提供 `octopus_service` 命令行工具
+- 支持灵活的启动参数配置
+
 ## 四、模块结构设计
 
 ```
 src/octopus_scraper/
-├── octopus_service.py   # Sanic 服务主入口
-└── service_models.py     # 响应数据结构（dataclasses）
+├── cli/                     # CLI 工具模块
+│   └── __init__.py         # 包含 run_octopus_service 函数
+├── octopus_service.py      # Sanic 服务主入口
+└── service_models.py       # 响应数据结构（dataclasses）
 ```
 
 ## 五、接口规范设计
@@ -73,7 +86,7 @@ from typing import Dict, Optional
 @dataclass
 class TriggerScraperResponse:
     status: str  # "success" | "error"
-    message: str
+    message: str  # 实际响应: "Scraping completed successfully." 或错误信息
     data: Optional[Dict[str, int]]  # {"source_count": int, "item_count": int}
 ```
 
@@ -99,7 +112,7 @@ from typing import Dict, Optional
 @dataclass
 class TriggerUploadResponse:
     status: str
-    message: str
+    message: str  # 实际响应: "Upload completed successfully." 或错误信息
     data: Optional[Dict[str, int]]  # {"uploaded_count": int}
 ```
 
@@ -112,6 +125,67 @@ from dataclasses import dataclass
 class HealthCheckResponse:
     status: str  # always "ok" if healthy
 ```
+
+### 5.4 配置管理接口
+
+#### GET /admin/config/status
+
+获取配置状态和健康信息，返回详细的配置状态数据。
+
+#### POST /admin/config/refresh
+
+手动触发配置刷新，检查并重新加载 Notion 配置。
+
+#### POST /admin/config/validate
+
+验证当前配置的有效性，不应用更改。
+    status: str
+    message: str  # 实际响应: "Upload completed successfully." 或错误信息
+    data: Optional[Dict[str, int]]  # {"uploaded_count": int}
+```
+
+### 5.3 GET /health
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class HealthCheckResponse:
+    status: str  # always "ok" if healthy
+```
+
+### 5.4 配置管理接口
+
+#### GET /admin/config/status
+
+获取配置状态和健康信息，返回详细的配置状态数据。
+
+#### POST /admin/config/refresh
+
+手动触发配置刷新，检查并重新加载 Notion 配置。
+
+#### POST /admin/config/validate
+
+验证当前配置的有效性，不应用更改。
+
+### 5.5 CLI 工具接口
+
+```python
+def run_octopus_service():
+    """启动 OctopusScraper Web 服务的命令行工具"""
+    # 解析命令行参数
+    # 配置日志和服务参数
+    # 启动 Sanic 应用
+```
+
+支持的命令行参数：
+- `--host`: 服务监听地址
+- `--port`: 服务监听端口  
+- `--debug`: 调试模式
+- `--log-level`: 日志级别
+- `--log-format`: 日志格式
+- `--workers`: 工作进程数
+- `--single-process`: 单进程模式
 
 ### 响应输出格式
 
@@ -127,22 +201,22 @@ return json(asdict(response_model))
 
 - 使用 [`structlog`](https://www.structlog.org/en/stable/)
 - 环境变量控制格式：
-  - `LOG_FORMAT=plain`：控制台调试模式
-  - `LOG_FORMAT=json`：JSON 格式日志
+  - CLI 工具：`OCTOPUS_LOG_FORMAT=plain|json`
+  - 直接启动：`LOG_FORMAT=plain|json`
 
 ### 异常捕获策略
 
-- 封装 `@handle_exceptions` 装饰器
+- 封装 `@handle_exceptions` 装饰器（如需要）
 - 所有接口都返回结构化错误：
 
 ```json
 {
   "status": "error",
-  "message": "抓取过程中出现异常：<详细错误>"
+  "message": "An unexpected error occurred: <详细错误>"
 }
 ```
 
-- 支持错误码与详细上下文
+- 支持错误码与详细上下文（未来扩展）
 
 ```json
 {
@@ -222,16 +296,74 @@ stop
 @enduml
 ```
 
-## 十、测试点建议
+### 9.4 CLI 工具启动流程
+
+```plantuml
+@startuml
+start
+:执行 octopus_service 命令;
+:解析命令行参数;
+:配置日志格式和级别;
+:设置服务配置参数;
+note right: host, port, debug, workers等
+:导入并启动 Sanic 应用;
+:应用配置到 app.run();
+:服务启动并监听请求;
+stop
+@enduml
+```
+
+## 十、CLI 工具技术实现
+
+### 10.1 命令行参数解析
+
+使用 `argparse` 模块实现参数解析：
+
+```python
+def create_service_args():
+    parser = argparse.ArgumentParser(
+        description="Start OctopusScraper Web Service"
+    )
+    parser.add_argument("--host", default=os.getenv("OCTOPUS_HOST", "0.0.0.0"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("OCTOPUS_PORT", "8000")))
+    parser.add_argument("--debug", action="store_true")
+    # ... 其他参数
+    return parser.parse_args()
+```
+
+### 10.2 配置层次结构
+
+1. **命令行参数** - 最高优先级
+2. **环境变量** - 中等优先级  
+3. **默认值** - 最低优先级
+
+### 10.3 进程模式处理
+
+- **单进程模式** (`--single-process`): 适用于开发和调试
+- **多进程模式** (`--workers N`): 适用于生产环境
+
+```python
+if args.single_process:
+    service_config["single_process"] = True
+else:
+    service_config["workers"] = args.workers
+```
+
+## 十一、测试点建议
 
 | 用例编号 | 场景                       | 预期结果                              |
 | -------- | -------------------------- | ------------------------------------- |
 | T01      | 调用 /health 接口          | 返回 200 + {"status": "ok"}           |
-| T02      | 正常调用 /trigger_scraper  | 返回 source/item 数量，状态为 success |
-| T03      | 正常调用 /trigger_upload   | 返回 uploaded_count，状态为 success   |
+| T02      | 正常调用 /trigger_scraper  | 返回 source/item 数量，状态为 success，消息为 "Scraping completed successfully." |
+| T03      | 正常调用 /trigger_upload   | 返回 uploaded_count，状态为 success，消息为 "Upload completed successfully." |
 | T04      | Octopus 异常（如连接失败） | status 为 error，message 中提示异常   |
+| T05      | 调用 /admin/config/status  | 返回配置状态详情                      |
+| T06      | 调用 /admin/config/refresh | 返回配置刷新结果                      |
+| T07      | 调用 /admin/config/validate| 返回配置验证结果                      |
+| T08      | CLI 工具启动服务           | octopus_service 命令成功启动服务      |
+| T09      | CLI 工具参数解析           | 各个命令行参数生效                    |
 
-## 十一、未来可拓展点（预留）
+## 十二、未来可拓展点（预留）
 
 | 拓展方向     | 建议实现方式                  |
 | ------------ | ----------------------------- |
@@ -242,9 +374,9 @@ stop
 
 ---
 
-# 十二、配置管理细节
+# 十三、配置管理细节
 
-## 12.1 配置架构设计
+## 13.1 配置架构设计
 
 ### 配置分层策略
 
@@ -283,7 +415,7 @@ class OctopusServiceConfig:
     notion_api_config: NotionAPIConfig
 ```
 
-## 12.2 配置来源与优先级
+## 13.2 配置来源与优先级
 
 ### 优先级顺序（由高到低）
 
@@ -312,7 +444,35 @@ graph TD
     L --> H
 ```
 
-## 12.3 Notion Scrapers 配置数据库设计
+## 13.3 环境变量配置
+
+### CLI 工具环境变量 (octopus_service 命令)
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `OCTOPUS_HOST` | 服务监听地址 | `0.0.0.0` |
+| `OCTOPUS_PORT` | 服务监听端口 | `8000` |
+| `OCTOPUS_DEBUG` | 调试模式 | `false` |
+| `OCTOPUS_LOG_LEVEL` | 日志级别 | `INFO` |
+| `OCTOPUS_LOG_FORMAT` | 日志格式 | `plain` |
+| `OCTOPUS_WORKERS` | 工作进程数 | `1` |
+| `OCTOPUS_SINGLE_PROCESS` | 单进程模式 | `false` |
+
+### 直接启动环境变量 (python octopus_service.py)
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `SERVICE_HOST` | 服务监听地址 | `0.0.0.0` |
+| `SERVICE_PORT` | 服务监听端口 | `8000` |
+| `DEBUG` | 调试模式 | `false` |
+| `LOG_LEVEL` | 日志级别 | `INFO` |
+| `LOG_FORMAT` | 日志格式 | `plain` |
+| `CONFIG_REFRESH_INTERVAL` | 配置刷新间隔(秒) | `300` |
+| `SCRAPER_TIMEOUT` | 抓取超时时间(秒) | `10` |
+| `UPLOAD_TIMEOUT` | 上传超时时间(秒) | `15` |
+| `UPLOAD_MAX_RETRIES` | 上传最大重试次数 | `3` |
+
+## 13.4 Notion Scrapers 配置数据库设计
 
 ### 数据库 Schema 定义
 
