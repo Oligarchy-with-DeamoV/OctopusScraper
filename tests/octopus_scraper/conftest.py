@@ -63,14 +63,12 @@ def patch_scraper_scrap(monkeypatch, dummy_content):
 
 @pytest.fixture(autouse=False)
 def patch_notion(monkeypatch):
-    from octopus_scraper.scrapers.utils import notion_api
-
     class DummyNotionStorage:
         def __init__(self, config):
             self.config = config
             self.stored = []
 
-        def store_content(self, content):
-            self.stored.append(content)
+        def store_contents_with_dedup(self, content):
+            return []
 
     monkeypatch.setattr("octopus_scraper.octopus.NotionStorage", DummyNotionStorage)

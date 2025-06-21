@@ -60,7 +60,7 @@ def sample_scrapers():
         ),
         ScraperConfig(
             name="test_scraper_2",
-            status="Active", 
+            status="Active",
             fetcher="direct_rss",
             hub_root="https://example.com",
             route="/feed.xml",
@@ -83,42 +83,50 @@ def mock_notion_client():
 class TestConfigManagerIntegration:
     """Test ConfigManager integration with service."""
 
-    async def test_config_manager_initialization(self, mock_notion_config, mock_service_config, sample_scrapers):
+    async def test_config_manager_initialization(
+        self, mock_notion_config, mock_service_config, sample_scrapers
+    ):
         """Test ConfigManager initialization."""
-        with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.validate_connection = AsyncMock(return_value=True)
             mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
-            
+
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
-            
+
             # Test initial config loading
             loaded_scrapers = await config_manager.load_initial_config()
-            
+
             assert len(loaded_scrapers) == 2
             assert loaded_scrapers[0].name == "test_scraper_1"
             assert config_manager.get_current_version() is not None
             assert config_manager.get_status().is_healthy
 
-    async def test_config_change_detection(self, mock_notion_config, mock_service_config, sample_scrapers):
+    async def test_config_change_detection(
+        self, mock_notion_config, mock_service_config, sample_scrapers
+    ):
         """Test configuration change detection."""
-        with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.validate_connection = AsyncMock(return_value=True)
             mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
             mock_client.check_config_changes = AsyncMock(return_value=True)
-            
+
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
             await config_manager.load_initial_config()
-            
+
             # Modify scrapers for change simulation
             modified_scrapers = sample_scrapers.copy()
             modified_scrapers[0].priority = 10  # Change priority
             mock_client.load_scrapers_config.return_value = modified_scrapers
-            
+
             # Test reload
             config_changed = await config_manager.reload_config_if_changed()
-            
+
             assert config_changed is True
             current_scrapers = config_manager.get_current_scrapers()
             assert current_scrapers[0].priority == 10
@@ -126,7 +134,7 @@ class TestConfigManagerIntegration:
     async def test_config_validation(self, mock_notion_config, mock_service_config):
         """Test configuration validation."""
         config_manager = ConfigManager(mock_notion_config, mock_service_config)
-        
+
         # Test valid configuration
         valid_scrapers = [
             ScraperConfig(
@@ -138,10 +146,10 @@ class TestConfigManagerIntegration:
                 priority=5,
             )
         ]
-        
+
         errors = config_manager.validate_scrapers_config(valid_scrapers)
         assert len(errors) == 0
-        
+
         # Test invalid configuration
         invalid_scrapers = [
             ScraperConfig(
@@ -153,26 +161,30 @@ class TestConfigManagerIntegration:
                 priority=5,
             )
         ]
-        
+
         errors = config_manager.validate_scrapers_config(invalid_scrapers)
         assert len(errors) > 0
 
-    async def test_octopus_config_conversion(self, mock_notion_config, mock_service_config, sample_scrapers):
+    async def test_octopus_config_conversion(
+        self, mock_notion_config, mock_service_config, sample_scrapers
+    ):
         """Test conversion to Octopus configuration format."""
-        with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.validate_connection = AsyncMock(return_value=True)
             mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
-            
+
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
             await config_manager.load_initial_config()
-            
+
             octopus_configs = config_manager.get_scrapers_for_octopus()
-            
+
             assert len(octopus_configs) == 2
             assert "scraper_config" in octopus_configs[0]
             assert "fetch_params" in octopus_configs[0]
-            
+
             scraper_config = octopus_configs[0]["scraper_config"]
             assert scraper_config["name"] == "test_scraper_1"
             assert scraper_config["fetcher"] == "rsshub"
@@ -181,52 +193,62 @@ class TestConfigManagerIntegration:
 class TestServiceIntegration:
     """Test integration with OctopusService."""
 
-    async def test_service_initialization_with_config_manager(self, mock_notion_config, mock_service_config, sample_scrapers):
+    async def test_service_initialization_with_config_manager(
+        self, mock_notion_config, mock_service_config, sample_scrapers
+    ):
         """Test service initialization with ConfigManager."""
         env_vars = {
             "NOTION_API_KEY": "test_key",
             "NOTION_SCRAPERS_DATABASE_ID": "test_db",
             "NOTION_CONTENT_DATABASE_ID": "test_content_db",
         }
-        
-        with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class:
             with patch("octopus_scraper.octopus_service.Octopus") as mock_octopus_class:
                 with patch.dict(os.environ, env_vars, clear=False):
                     mock_client = mock_client_class.return_value
                     mock_client.validate_connection = AsyncMock(return_value=True)
-                    mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
-                    
+                    mock_client.load_scrapers_config = AsyncMock(
+                        return_value=sample_scrapers
+                    )
+
                     mock_octopus = mock_octopus_class.return_value
-                    
+
                     from octopus_scraper.octopus_service import create_config_from_env
 
                     # Test config creation from environment
                     notion_config, service_config = create_config_from_env()
                     assert notion_config.api_key == "test_key"
                     assert notion_config.scrapers_database_id == "test_db"
-                    
+
                     # Test that ConfigManager would be created successfully
                     config_manager = ConfigManager(notion_config, service_config)
                     await config_manager.load_initial_config()
-                    
+
                     assert len(config_manager.get_current_scrapers()) == 2
 
-    async def test_config_management_endpoints(self, mock_notion_config, mock_service_config, sample_scrapers):
+    async def test_config_management_endpoints(
+        self, mock_notion_config, mock_service_config, sample_scrapers
+    ):
         """Test configuration management endpoints."""
-        with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.validate_connection = AsyncMock(return_value=True)
             mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
-            
+
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
             await config_manager.load_initial_config()
-            
+
             # Test status retrieval
             status = config_manager.get_status()
             assert status.is_healthy
             assert len(status.scrapers) == 2
             assert status.version is not None
-            
+
             # Test manual refresh
             refresh_result = await config_manager.manual_refresh_config()
             assert "success" in refresh_result
@@ -252,27 +274,29 @@ async def test_config_watcher_lifecycle():
         upload_timeout=15,
         upload_max_retries=3,
     )
-    
-    with patch("octopus_scraper.config.config_manager.NotionConfigClient") as mock_client_class:
+
+    with patch(
+        "octopus_scraper.config.config_manager.NotionConfigClient"
+    ) as mock_client_class:
         mock_client = mock_client_class.return_value
         mock_client.validate_connection = AsyncMock(return_value=True)
         mock_client.load_scrapers_config = AsyncMock(return_value=[])
         mock_client.check_config_changes = AsyncMock(return_value=False)
-        
+
         config_manager = ConfigManager(mock_notion_config, mock_service_config)
         await config_manager.load_initial_config()
-        
+
         # Start watcher
         config_manager.start_config_watcher()
         assert config_manager._watcher_task is not None
-        
+
         # Give it a moment to start
         await asyncio.sleep(0.1)
-        
+
         # Stop watcher
         config_manager.stop_config_watcher()
-        
+
         # Give it a moment to stop
         await asyncio.sleep(0.1)
-        
+
         assert config_manager._stop_watcher is True

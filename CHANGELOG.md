@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且该项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [0.1.1] - 2025-06-21
+
+### ✨ 新增
+- 🔧 **内容处理优化**：
+  - 添加可配置的摘要长度限制 (`OCTOPUS_SUMMARY_MAX_LENGTH`)
+  - 实现智能内容回退机制 (content → summary)
+  - 优化 Content ID 生成算法，使用 MD5 哈希确保唯一性
+- 🛠️ **架构改进**：
+  - 新增 `ContentDeduplicator` 组件，实现职责分离
+  - 重构 `NotionStorage`，分离存储和去重逻辑
+  - 扩展 `Scraper` 类，支持可选的存储集成
+
+### 🔧 优化
+- 📊 **数据处理**：
+  - Summary 超长时自动置空，交由 LLM 处理器生成
+  - 改进 Content 构建流程，增强数据质量
+  - 优化环境变量配置支持
+- 🧪 **测试增强**：
+  - 新增 `content_deduplicator_test.py` 测试套件
+  - 扩展 `tools_test.py` 覆盖新功能
+  - 修复现有测试适应架构变更
+
+### 📝 文档更新
+- 更新 `README.md` 环境变量配置文档
+- 更新 `.env.example` 添加新配置项
+- 添加详细的功能说明和使用示例
+
 ## [0.1.0] - 2025-06-20
 
 ### ✨ 新增
@@ -62,9 +89,9 @@
 
 ---
 
-**说明**: 
+**说明**:
 - ✨ 新增功能
-- 🔧 改进优化  
+- 🔧 改进优化
 - 🐛 问题修复
 - 🗑️ 移除功能
 - 🛡️ 安全更新

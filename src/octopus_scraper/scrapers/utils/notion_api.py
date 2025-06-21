@@ -8,6 +8,9 @@ from notion_client import Client
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.scrapers.utils.content_deduplicator import (
+    ContentDeduplicator,
+)
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
@@ -47,7 +50,7 @@ class NotionStorage:
     def has_content_id(self, content_id: str) -> bool:
         query_filter = {
             "property": NOTION_PROPERTIY_CONTENT_ID,
-            "url": {"equals": content_id},
+            "rich_text": {"equals": content_id},
         }
 
         response = self.notion.databases.query(
@@ -66,7 +69,7 @@ class NotionStorage:
                 NOTION_PROPERTIY_TITLE_NAME: {"title": {}},
                 NOTION_PROPERTIY_SUMMARY_NAME: {"rich_text": {}},
                 NOTION_PROPERTIY_URL: {"url": {}},
-                NOTION_PROPERTIY_CONTENT_ID: {"url": {}},
+                NOTION_PROPERTIY_CONTENT_ID: {"rich_text": {}},
             },
         )
 
@@ -86,7 +89,9 @@ class NotionStorage:
                 ]
             },
             NOTION_PROPERTIY_URL: {"url": content.link},
-            NOTION_PROPERTIY_CONTENT_ID: {"url": content.link},
+            NOTION_PROPERTIY_CONTENT_ID: {
+                "rich_text": [{"text": {"content": content.content_id}}]
+            },
         }
 
     def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:
@@ -172,6 +177,7 @@ class NotionStorage:
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def store_content(self, content: Content) -> bool:
+        """存储单个内容，不做重复性检查"""
         try:
             content_chunks = self._split_text_chunks(
                 content.content, max_len=MAX_NOTION_SUMMARY_LENGTH
@@ -180,18 +186,33 @@ class NotionStorage:
             for chunk in content_chunks:
                 children.extend(self._parse_markdown_to_notion_blocks(chunk))
 
-            if not self.has_content_id(content.content_id):
-                self.notion.pages.create(
-                    parent={"database_id": self.config.database_id},
-                    properties=self.build_properties(content),
-                    children=children,
-                )
-            else:
-                logger.warning(
-                    "Found existed content with content id.",
-                    content_id=content.content_id,
-                )
+            # 直接存储，不检查是否存在
+            self.notion.pages.create(
+                parent={"database_id": self.config.database_id},
+                properties=self.build_properties(content),
+                children=children,
+            )
+            logger.info("Content stored successfully", content_id=content.content_id)
             return True
         except Exception as e:
-            logger.error(f"存储失败: {e}")
+            logger.error(f"存储失败: {e}", content_id=content.content_id)
             return False
+
+    def store_contents_with_dedup(self, contents: List[Content]) -> List[bool]:
+        """带去重的批量存储方法（向后兼容）"""
+
+        deduplicator = ContentDeduplicator(self)
+        new_contents = deduplicator.filter_new_contents(contents)
+
+        results = []
+        for content in new_contents:
+            results.append(self.store_content(content))
+
+        # 为已存在的内容返回True（表示"处理成功"）
+        skipped_count = len(contents) - len(new_contents)
+        results.extend([True] * skipped_count)
+
+        logger.info(
+            f"Batch storage completed: {len(new_contents)} stored, {skipped_count} skipped"
+        )
+        return results

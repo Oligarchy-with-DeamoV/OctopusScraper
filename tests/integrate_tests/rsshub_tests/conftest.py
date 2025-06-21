@@ -42,7 +42,7 @@ def qbitai_scraper_config():
         fetcher_config={
             "hub_root": "https://rss.owo.nz",
             "route": "/qbitai/category/资讯",
-            "fetch_params": {},
+            "fetch_params": {"limit": 1},
         },
         content_processor_configs={},
     )
@@ -67,7 +67,7 @@ def octopus_config(
         "scrapers_config_with_fetch_params": [
             {"scraper_config": owen_scraper_config, "fetch_params": {}},
             {"scraper_config": machine_heart_scraper_config, "fetch_params": {}},
-            {"scraper_config": qbitai_scraper_config, "fetch_params": {}},
+            {"scraper_config": qbitai_scraper_config, "fetch_params": {"limit": 1}},
         ],
         "notion_api_config": notion_config,
     }

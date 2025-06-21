@@ -16,7 +16,7 @@ class TestNotionConfigClient:
         return NotionDatabaseConfig(
             api_key="test_api_key",
             scrapers_database_id="test_scrapers_db",
-            content_database_id="test_content_db"
+            content_database_id="test_content_db",
         )
 
     @pytest.fixture
@@ -26,22 +26,26 @@ class TestNotionConfigClient:
     @pytest.mark.asyncio
     async def test_validate_connection_success(self, notion_client):
         """Test successful connection validation."""
-        with patch.object(notion_client.client.databases, 'retrieve', new_callable=AsyncMock) as mock_retrieve:
+        with patch.object(
+            notion_client.client.databases, "retrieve", new_callable=AsyncMock
+        ) as mock_retrieve:
             mock_retrieve.return_value = {"id": "database_id"}
-            
+
             result = await notion_client.validate_connection()
-            
+
             assert result == True
             assert mock_retrieve.call_count == 2  # Called for both databases
 
     @pytest.mark.asyncio
     async def test_validate_connection_failure(self, notion_client):
         """Test connection validation failure."""
-        with patch.object(notion_client.client.databases, 'retrieve', new_callable=AsyncMock) as mock_retrieve:
+        with patch.object(
+            notion_client.client.databases, "retrieve", new_callable=AsyncMock
+        ) as mock_retrieve:
             mock_retrieve.side_effect = Exception("Connection failed")
-            
+
             result = await notion_client.validate_connection()
-            
+
             assert result == False
 
     @pytest.mark.asyncio
@@ -57,17 +61,19 @@ class TestNotionConfigClient:
                         "Hub Root": {"url": "https://example.com"},
                         "Route": {"rich_text": [{"plain_text": "/test"}]},
                         "Priority": {"number": 1},
-                        "Fetch Params": {"rich_text": [{"plain_text": "{}"}]}
+                        "Fetch Params": {"rich_text": [{"plain_text": "{}"}]},
                     }
                 }
             ]
         }
-        
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
+
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
             mock_query.return_value = mock_response
-            
+
             scrapers = await notion_client.load_scrapers_config()
-            
+
             assert len(scrapers) == 1
             assert scrapers[0].name == "Test Scraper"
             assert scrapers[0].status == "Active"
@@ -80,12 +86,14 @@ class TestNotionConfigClient:
     async def test_load_scrapers_config_empty(self, notion_client):
         """Test loading empty scrapers config."""
         mock_response = {"results": []}
-        
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
+
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
             mock_query.return_value = mock_response
-            
+
             scrapers = await notion_client.load_scrapers_config()
-            
+
             assert len(scrapers) == 0
 
     @pytest.mark.asyncio
@@ -102,24 +110,26 @@ class TestNotionConfigClient:
                         "Hub Root": {"url": "https://example.com"},
                         "Route": {"rich_text": [{"plain_text": "/test"}]},
                         "Priority": {"number": 1},
-                        "Fetch Params": {"rich_text": [{"plain_text": "{}"}]}
+                        "Fetch Params": {"rich_text": [{"plain_text": "{}"}]},
                     }
                 }
                 # Inactive scrapers should not be in response since query filters them
             ]
         }
-        
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
+
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
             mock_query.return_value = mock_response
-            
+
             scrapers = await notion_client.load_scrapers_config()
-            
+
             # Verify that the query was called with correct filter
             mock_query.assert_called_once()
             call_args = mock_query.call_args
-            assert call_args[1]['filter']['property'] == 'Status'
-            assert call_args[1]['filter']['select']['equals'] == 'Active'
-            
+            assert call_args[1]["filter"]["property"] == "Status"
+            assert call_args[1]["filter"]["select"]["equals"] == "Active"
+
             # Only active scrapers should be returned
             assert len(scrapers) == 1
             assert scrapers[0].name == "Active Scraper"
@@ -132,18 +142,22 @@ class TestNotionConfigClient:
 
         # Manually set last check time to simulate a previous call
         notion_client._last_scrapers_check = datetime(2025, 6, 20, 10, 0, 0)
-        
+
         # Mock the database query to return changes
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = {"results": [{"id": "changed_record"}]}  # Has changes
-            
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
+            mock_query.return_value = {
+                "results": [{"id": "changed_record"}]
+            }  # Has changes
+
             result = await notion_client.check_config_changes()
-            
+
             assert result == True
             # Verify the query was called with the correct filter
             mock_query.assert_called_once()
             call_args = mock_query.call_args
-            assert call_args[1]['filter']['property'] == 'Last edited time'
+            assert call_args[1]["filter"]["property"] == "Last edited time"
 
     @pytest.mark.asyncio
     async def test_check_config_changes_false(self, notion_client):
@@ -152,18 +166,20 @@ class TestNotionConfigClient:
 
         # Manually set last check time to simulate a previous call
         notion_client._last_scrapers_check = datetime(2025, 6, 20, 10, 0, 0)
-        
+
         # Mock the database query to return no changes
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
             mock_query.return_value = {"results": []}  # No changes
-            
+
             result = await notion_client.check_config_changes()
-            
+
             assert result == False
             # Verify the query was called with the correct filter
             mock_query.assert_called_once()
             call_args = mock_query.call_args
-            assert call_args[1]['filter']['property'] == 'Last edited time'
+            assert call_args[1]["filter"]["property"] == "Last edited time"
 
     @pytest.mark.asyncio
     async def test_load_scrapers_config_with_invalid_json(self, notion_client):
@@ -178,17 +194,19 @@ class TestNotionConfigClient:
                         "Hub Root": {"url": "https://example.com"},
                         "Route": {"rich_text": [{"plain_text": "/test"}]},
                         "Priority": {"number": 1},
-                        "Fetch Params": {"rich_text": [{"plain_text": "invalid json"}]}
+                        "Fetch Params": {"rich_text": [{"plain_text": "invalid json"}]},
                     }
                 }
             ]
         }
-        
-        with patch.object(notion_client.client.databases, 'query', new_callable=AsyncMock) as mock_query:
+
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query:
             mock_query.return_value = mock_response
-            
+
             scrapers = await notion_client.load_scrapers_config()
-            
+
             assert len(scrapers) == 1
             assert scrapers[0].fetch_params is None  # Should be None for invalid JSON
 
@@ -204,12 +222,12 @@ class TestScraperConfigFromNotionRecord:
                 "Hub Root": {"url": "https://example.com"},
                 "Route": {"rich_text": [{"plain_text": "/test/route"}]},
                 "Priority": {"number": 5},
-                "Fetch Params": {"rich_text": [{"plain_text": '{"key": "value"}'}]}
+                "Fetch Params": {"rich_text": [{"plain_text": '{"key": "value"}'}]},
             }
         }
-        
+
         scraper = ScraperConfig.from_notion_record(record)
-        
+
         assert scraper.name == "Test Scraper"
         assert scraper.status == "Active"
         assert scraper.fetcher == "rsshub"
@@ -228,12 +246,12 @@ class TestScraperConfigFromNotionRecord:
                 "Hub Root": {"url": ""},
                 "Route": {"rich_text": [{"plain_text": ""}]},
                 "Priority": {"number": None},
-                "Fetch Params": {"rich_text": [{"plain_text": ""}]}
+                "Fetch Params": {"rich_text": [{"plain_text": ""}]},
             }
         }
-        
+
         scraper = ScraperConfig.from_notion_record(record)
-        
+
         assert scraper.name == "Minimal Scraper"
         assert scraper.status == "Inactive"
         assert scraper.fetcher == "direct_rss"
@@ -244,12 +262,10 @@ class TestScraperConfigFromNotionRecord:
 
     def test_from_notion_record_missing_fields(self):
         """Test creating ScraperConfig with missing fields."""
-        record = {
-            "properties": {}
-        }
-        
+        record = {"properties": {}}
+
         scraper = ScraperConfig.from_notion_record(record)
-        
+
         assert scraper.name == ""
         assert scraper.status == "Inactive"
         assert scraper.fetcher == "rsshub"
