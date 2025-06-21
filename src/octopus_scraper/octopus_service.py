@@ -31,7 +31,11 @@ else:
 
 logger = structlog.get_logger()
 
-app = Sanic("OctopusService")
+# Create app with unique name to avoid conflicts in parallel tests
+import uuid
+
+app_name = f"OctopusService_{uuid.uuid4().hex[:8]}"
+app = Sanic(app_name)
 
 # Default service configuration (can be overridden by CLI)
 DEFAULT_SERVICE_CONFIG = {
@@ -276,7 +280,6 @@ async def trigger_upload(request):
         response = TriggerUploadResponse(
             status="success",
             message="Upload completed successfully.",
-            # trigger_upload返回一个整数，表示上传成功的数量
             data={"uploaded_count": upload_result},
         )
         return json(asdict(response))
@@ -288,55 +291,56 @@ async def trigger_upload(request):
         return json(asdict(response), status=500)
 
 
-# Configuration Management Endpoints
-
-
 @app.route("/admin/config/status", methods=["GET"])
 async def get_config_status(request):
-    """Get detailed configuration status."""
+    """Get current configuration status."""
     try:
         config_manager: ConfigManager = app.ctx.config_manager
         config_status = config_manager.get_status()
 
-        status_data = {
-            "is_healthy": config_status.is_healthy,
-            "last_check": config_status.last_check.isoformat()
-            if config_status.last_check
-            else None,
-            "error_message": config_status.error_message,
-            "current_version": {
-                "version_id": config_status.version.version_id,
-                "timestamp": config_status.version.timestamp.isoformat(),
-                "config_hash": config_status.version.config_hash,
-                "scrapers_count": config_status.version.scrapers_count,
+        return json(
+            {
+                "status": "success",
+                "config_status": {
+                    "is_healthy": config_status.is_healthy,
+                    "last_check": config_status.last_check.isoformat()
+                    if config_status.last_check
+                    else None,
+                    "version": {
+                        "version_id": config_status.version.version_id,
+                        "timestamp": config_status.version.timestamp.isoformat(),
+                        "change_summary": config_status.version.change_summary,
+                    }
+                    if config_status.version
+                    else None,
+                    "scrapers": [
+                        {
+                            "name": scraper.name,
+                            "status": scraper.status,
+                            "fetcher": scraper.fetcher,
+                        }
+                        for scraper in config_status.scrapers
+                    ],
+                    "error_message": config_status.error_message,
+                },
             }
-            if config_status.version
-            else None,
-            "scrapers": [
-                {
-                    "name": scraper.name,
-                    "status": scraper.status,
-                    "fetcher": scraper.fetcher,
-                    "priority": scraper.priority,
-                }
-                for scraper in config_status.scrapers
-            ],
-        }
-
-        return json(status_data)
+        )
 
     except Exception as e:
         logger.error("Failed to get config status", error=str(e))
-        return json({"error": str(e)}, status=500)
+        return json(
+            {"status": "error", "message": f"Failed to get config status: {e}"},
+            status=500,
+        )
 
 
 @app.route("/admin/config/refresh", methods=["POST"])
 async def refresh_config(request):
-    """Manually trigger configuration refresh."""
+    """Refresh configuration from Notion."""
     try:
         config_manager: ConfigManager = app.ctx.config_manager
 
-        # Check for changes and reload if necessary
+        # Check if configuration has changed and reload if necessary
         config_changed = await config_manager.reload_config_if_changed()
 
         if config_changed:

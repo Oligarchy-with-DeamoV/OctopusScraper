@@ -17,7 +17,7 @@ from .models import (
 
 __all__ = [
     "ConfigManager",
-    "ScraperConfig", 
+    "ScraperConfig",
     "NotionDatabaseConfig",
     "ServiceConfig",
     "ConfigStatus",

@@ -9,9 +9,10 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 ## ✨ 特性
 
 - 🕷️ **多源数据抓取**: 支持 RSS、RSSHub、直接网页抓取等多种数据源
-- 🔧 **灵活配置**: 基于 Notion 数据库的动态配置管理
+- 🔧 **灵活配置**: 基于 Notion 数据库的动态配置管理，支持环境变量覆盖
 - 🚀 **高性能**: 异步处理，支持并发抓取
 - 📊 **智能存储**: 自动去重，支持 Notion 数据库存储
+- 🎯 **智能内容处理**: 可配置的摘要长度控制，内容回退机制
 - 🔄 **实时监控**: 内置 Web 服务，提供配置管理和状态监控
 - 🧪 **高测试覆盖**: 84%+ 测试覆盖率，确保代码质量
 - 🛠️ **易于扩展**: 模块化设计，支持自定义处理器和存储后端
@@ -80,6 +81,9 @@ pip install -r requirements.txt
 export NOTION_API_KEY="your_notion_api_key"
 export NOTION_SCRAPERS_DATABASE_ID="your_scrapers_database_id"
 export NOTION_CONTENT_DATABASE_ID="your_content_database_id"
+
+# 可选：配置内容处理参数
+export OCTOPUS_SUMMARY_MAX_LENGTH="500"  # RSS 摘要最大长度
 ```
 
 ### 3. 运行示例
@@ -406,6 +410,14 @@ poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under
 | `SCRAPER_TIMEOUT` | 抓取超时时间(秒) | 否 | `10` |
 | `UPLOAD_TIMEOUT` | 上传超时时间(秒) | 否 | `15` |
 | `UPLOAD_MAX_RETRIES` | 上传最大重试次数 | 否 | `3` |
+
+### 内容处理配置
+
+| 变量名 | 说明 | 必需 | 默认值 |
+|--------|------|------|--------|
+| `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否 | `500` |
+
+> 💡 **说明**: 当 RSS 摘要超过指定长度时，将设为空并交由 LLM 处理器生成摘要。
 
 ## 🤝 贡献
 

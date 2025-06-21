@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 @dataclass
 class ScraperConfig:
     """Configuration for a single scraper."""
+
     name: str
     status: str  # "Active" or "Inactive"
     fetcher: str  # "rsshub" or "direct_rss"
@@ -17,7 +18,7 @@ class ScraperConfig:
     route: str
     fetch_params: Optional[Dict[str, Any]] = None
     priority: int = 5
-    
+
     def to_octopus_config(self) -> Dict[str, Any]:
         """Convert to format expected by Octopus class."""
         return {
@@ -28,7 +29,7 @@ class ScraperConfig:
             "fetch_params": self.fetch_params or {},
             "priority": self.priority,
         }
-    
+
     @classmethod
     def from_notion_record(cls, record: Dict[str, Any]) -> "ScraperConfig":
         """Create ScraperConfig from Notion database record."""
@@ -36,17 +37,23 @@ class ScraperConfig:
 
         # Extract properties from Notion record
         properties = record.get("properties", {})
-        
+
         name = properties.get("Name", {}).get("title", [{}])[0].get("plain_text", "")
         status = properties.get("Status", {}).get("select", {}).get("name", "Inactive")
         fetcher = properties.get("Fetcher", {}).get("select", {}).get("name", "rsshub")
         hub_root = properties.get("Hub Root", {}).get("url", "")
-        route = properties.get("Route", {}).get("rich_text", [{}])[0].get("plain_text", "")
+        route = (
+            properties.get("Route", {}).get("rich_text", [{}])[0].get("plain_text", "")
+        )
         priority_value = properties.get("Priority", {}).get("number")
         priority = priority_value if priority_value is not None else 5
-        
+
         # Parse fetch params JSON
-        fetch_params_text = properties.get("Fetch Params", {}).get("rich_text", [{}])[0].get("plain_text", "")
+        fetch_params_text = (
+            properties.get("Fetch Params", {})
+            .get("rich_text", [{}])[0]
+            .get("plain_text", "")
+        )
         fetch_params = None
         if fetch_params_text:
             try:
@@ -54,11 +61,14 @@ class ScraperConfig:
             except json.JSONDecodeError:
                 # Log warning and continue with None
                 import structlog
+
                 logger = structlog.get_logger()
-                logger.warning("Invalid JSON in fetch_params", 
-                             scraper_name=name, 
-                             fetch_params_text=fetch_params_text)
-        
+                logger.warning(
+                    "Invalid JSON in fetch_params",
+                    scraper_name=name,
+                    fetch_params_text=fetch_params_text,
+                )
+
         return cls(
             name=name,
             status=status,
@@ -73,6 +83,7 @@ class ScraperConfig:
 @dataclass
 class NotionDatabaseConfig:
     """Configuration for Notion database connections."""
+
     api_key: str
     scrapers_database_id: str
     content_database_id: str
@@ -81,6 +92,7 @@ class NotionDatabaseConfig:
 @dataclass
 class ServiceConfig:
     """Overall service configuration."""
+
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = False
@@ -95,6 +107,7 @@ class ServiceConfig:
 @dataclass
 class ConfigVersion:
     """Configuration version tracking."""
+
     version_id: str
     timestamp: datetime
     config_hash: str
@@ -105,6 +118,7 @@ class ConfigVersion:
 @dataclass
 class ConfigStatus:
     """Current configuration status."""
+
     version: ConfigVersion
     scrapers: List[ScraperConfig]
     last_check: datetime

@@ -52,6 +52,10 @@ class Octopus:
         """初始化 scraper，同时设置对应的 fetch_params"""
         self._scrapers.append((Scraper(asdict(config)), fetch_params))
 
+        # set storage for the scraper for content id check
+        for scraper, _ in self._scrapers:
+            scraper.set_storage(self._notion_api)
+
     def _health_check(self):
         """针对设置的 Scraper 和 NotionAPI 进行健康检查"""
         pass
@@ -62,9 +66,18 @@ class Octopus:
             self._fetched_contents.extend(_s.scrap_contents(_p))
 
     def trigger_upload(self) -> int:
-        """将获取的 Content 批量上传"""
-        uploaded_count = 0
-        while self._fetched_contents:
-            self._notion_api.store_content(self._fetched_contents.pop())
-            uploaded_count += 1
-        return uploaded_count
+        """将获取的 Content 批量上传, 返回成功数量"""
+        try:
+            success_cnt = sum(
+                self._notion_api.store_contents_with_dedup(self._fetched_contents)
+            )
+            self._fetched_contents.clear()  # 清空已上传的内容
+            return success_cnt
+
+        except Exception as e:
+            logger.error(
+                "Failed to upload contents to Notion.",
+                error=str(e),
+                fetched_contents=self._fetched_contents,
+            )
+            raise RuntimeError(f"Failed to upload contents to Notion: {e}")
