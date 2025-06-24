@@ -1,8 +1,10 @@
 from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Dict, List
 
 import requests
 import structlog
+from dacite import from_dict
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 try:
@@ -25,15 +27,14 @@ from octopus_scraper.scrapers.scraper_protos import Content
 logger = structlog.getLogger(__name__)
 
 
+@dataclass
 class HTMLContentProcessorConfig(ProcessorConfig):
     """HTML内容处理器配置"""
 
-    def __init__(self, timeout: int = 30, user_agent: str = None):
-        self.timeout = timeout
-        self.user_agent = user_agent or (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        )
+    timeout: int = field(default=30)
+    user_agent: str = field(
+        default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    )
 
 
 class HTMLContentProcessor:
@@ -57,7 +58,7 @@ class HTMLContentProcessor:
         Args:
             config (Dict): 配置字典，包含timeout和user_agent等参数
         """
-        self.config = HTMLContentProcessorConfig(**config)
+        self.config = from_dict(HTMLContentProcessorConfig, config)
         # 为了兼容测试，也直接设置属性
         self.timeout = self.config.timeout
         self.user_agent = self.config.user_agent
