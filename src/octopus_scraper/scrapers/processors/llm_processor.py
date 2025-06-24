@@ -1,15 +1,15 @@
-from copy import deepcopy
 import json
 import re
+from copy import deepcopy
 from typing import Dict, List
 
-from jsonschema import validate
-
+import structlog
 from dacite import from_dict
 from doraemon.gpt_utils.chatgpt_api import request_openai
+from jsonschema import validate
+
 from octopus_scraper.scrapers.processors.protos import LLMProcessorConfig
 from octopus_scraper.scrapers.utils.rsshub import Content
-import structlog
 
 logger = structlog.getLogger(__name__)
 
@@ -21,7 +21,7 @@ CONTENT_PROMPT = """
 文章标题: {title}
 文章链接: {link}
 文章内容:
-{summary}
+{content}
 """
 
 
@@ -42,7 +42,7 @@ class LLMProcessor:
     def _create_single_content_input(self, content: Content) -> List[Dict]:
         mmessages = []
         content_prompt = CONTENT_PROMPT.format(
-            title=content.title, link=content.link, summary=content.summary
+            title=content.title, link=content.link, content=content.content
         )
         mmessages.append({"role": "system", "content": SYSTEM_PROMPT})
         mmessages.append({"role": "user", "content": content_prompt})
@@ -60,7 +60,12 @@ class LLMProcessor:
         for c in contents:
             _llm_req = self._create_single_content_input(c)
             success, result = request_openai(_llm_req)
-            if self.output_schema and success:
+            if not success:
+                logger.error(f"LLM request failed with error: {result}")
+                _o_c = deepcopy(c)
+                _output_contents.append(_o_c)
+                continue
+            elif self.output_schema:
                 try:
                     result = self._parse_json_output(result)
                     result = json.loads(result)
@@ -73,4 +78,8 @@ class LLMProcessor:
                         f"Json output schema check failed with Exception:\n{e}"
                     )
                     continue
+            else:
+                _o_c = deepcopy(c)
+                _o_c.summary = result
+                _output_contents.append(_o_c)
         return _output_contents
