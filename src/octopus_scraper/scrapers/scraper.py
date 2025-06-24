@@ -6,11 +6,9 @@ from dacite import from_dict
 
 from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
 from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.scrapers.utils.content_deduplicator import ContentDeduplicator
 from octopus_scraper.scrapers.utils.direct_rss import DirectRSS
 from octopus_scraper.scrapers.utils.rsshub import RssHub
-from octopus_scraper.scrapers.utils.content_deduplicator import (
-    ContentDeduplicator,
-)
 
 AVALIABLE_FETCHERS = {"rsshub": RssHub, "direct_rss": DirectRSS}
 
@@ -38,14 +36,34 @@ class Scraper:
                 config=self.config,
                 avaliable_fetcher_names=AVALIABLE_FETCHERS.keys(),
             )
-        self.active_content_processor = {
-            key: AVALIABLE_PROCESSOR[key](config)
-            for key, config in self.config.content_processor_configs.items()
-        }
+        self.active_content_processor = {}
+        self.processor_priorities = {}
+
+        for key, config in self.config.content_processor_configs.items():
+            processor_instance = AVALIABLE_PROCESSOR[key](config)
+            self.active_content_processor[key] = processor_instance
+
+            # 从 processor 的配置中获取优先级
+            if hasattr(processor_instance, "config") and hasattr(
+                processor_instance.config, "priority"
+            ):
+                self.processor_priorities[key] = processor_instance.config.priority
+            else:
+                # 兼容旧的配置方式，如果processor没有priority配置，使用默认值
+                self.processor_priorities[key] = 100
 
     def _content_process(self, contents: List[Content]) -> List[Content]:
-        for key, _processor in self.active_content_processor.items():
-            logger.debug(f"Proccess content with proccessor: {key}")
+        # 按照优先级排序处理器（优先级数值越小，优先级越高）
+        sorted_processors = sorted(
+            self.active_content_processor.items(),
+            key=lambda x: self.processor_priorities.get(x[0], 100),  # 使用get()避免KeyError
+        )
+
+        for key, _processor in sorted_processors:
+            priority = self.processor_priorities.get(key, 100)
+            logger.debug(
+                f"Proccess content with proccessor: {key} (priority: {priority})"
+            )
             contents = _processor(contents)
         return contents
 
