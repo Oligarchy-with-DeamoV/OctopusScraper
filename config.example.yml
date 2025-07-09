@@ -27,6 +27,9 @@ notion:
   api_key: "${NOTION_API_KEY}" # 从环境变量获取
   content_database_id: "${NOTION_CONTENT_DATABASE_ID}"
 
+# 并发配置
+max_concurrent_scrapers: 5 # 最大并发抓取器数量，默认为5
+
 # 服务配置 (可选，仅在 Web 服务模式下使用)
 service:
   host: "0.0.0.0"
