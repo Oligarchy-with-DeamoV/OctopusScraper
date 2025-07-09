@@ -68,7 +68,8 @@ def patch_notion(monkeypatch):
             self.config = config
             self.stored = []
 
-        def store_contents_with_dedup(self, content):
-            return []
+        def store_contents_with_dedup(self, contents):
+            # Mock implementation - return True for each content (simulating successful storage)
+            return [True] * len(contents)
 
     monkeypatch.setattr("octopus_scraper.octopus.NotionStorage", DummyNotionStorage)

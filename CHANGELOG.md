@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且该项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [0.1.2] - 2025-07-09
+
+### 🚀 重大性能优化
+- ⚡ **Notion API 调用优化**：
+  - 重构 `store_contents_with_dedup` 方法，去重时 API 调用次数从 N+1 次减少到 1 次
+  - 新增 `get_all_content_ids` 方法，支持分页批量获取已存在的 content_id
+  - 在内存中使用 set 数据结构进行 O(1) 查找，大幅提升批量处理性能
+
+### 🔧 架构简化
+- 🛠️ **代码重构**：
+  - 移除 `ContentDeduplicator` 和 `BatchContentDeduplicator` 类
+  - 将去重逻辑直接集成到 `NotionStorage` 类中，减少抽象层
+  - 简化 `Scraper` 类中的去重流程，直接使用存储器的批量方法
+
+### 🧪 测试更新
+- ✅ **测试适配**：
+  - 更新 `notion_api_test.py`，新增批量获取和分页测试用例
+  - 重构 `scraper_test.py` 中的存储相关测试
+  - 移除不再需要的 `content_deduplicator_test.py`
+  - 修复 `conftest.py` 中的模拟实现
+
+### 📈 性能提升
+- 🔥 **批量处理优化**：
+  - 处理 N 个内容时，API 调用从 N+1 次减少到 1 次
+  - 特别适合大量内容的批量处理场景
+  - 减少对 Notion API 的压力，提升系统稳定性
+
 ## [0.1.1] - 2025-06-21
 
 ### ✨ 新增

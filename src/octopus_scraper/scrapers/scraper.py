@@ -6,7 +6,6 @@ from dacite import from_dict
 
 from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
 from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.utils.content_deduplicator import ContentDeduplicator
 from octopus_scraper.scrapers.utils.direct_rss import DirectRSS
 from octopus_scraper.scrapers.utils.rsshub import RssHub
 
@@ -79,17 +78,18 @@ class Scraper:
 
         contents = self.activate_fetcher.fetch_contents(params)
         if self.storage:
-            deduplicator = ContentDeduplicator(self.storage)
-            new_contents = deduplicator.filter_new_contents(contents)
-
-            # 存储新内容
-            stored_count = 0
-            for content in new_contents:
-                stored_count += 1
+            # 直接使用存储器的批量去重功能
+            existing_content_ids = self.storage.get_all_content_ids()
+            new_contents = [
+                content
+                for content in contents
+                if content.content_id not in existing_content_ids
+            ]
 
             logger.info(
                 f"Processed {len(contents)} contents, "
-                f"stored {stored_count} new contents"
+                f"{len(new_contents)} are new, "
+                f"{len(contents) - len(new_contents)} already exist"
             )
             return self._content_process(new_contents)
 

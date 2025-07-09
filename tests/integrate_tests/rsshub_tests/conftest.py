@@ -79,32 +79,27 @@ def octopus_config(
         "notion_api_config": notion_config,
     }
 
+
 @pytest.fixture
 def structured_llm_processor_config():
     """带结构化输出的LLM处理器配置"""
     json_schema = {
         "type": "object",
         "properties": {
-            "summary": {
-                "type": "string",
-                "description": "文章摘要"
-            },
+            "summary": {"type": "string", "description": "文章摘要"},
             "keywords": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "关键词"
+                "description": "关键词",
             },
-            "category": {
-                "type": "string",
-                "description": "文章分类"
-            }
+            "category": {"type": "string", "description": "文章分类"},
         },
-        "required": ["summary", "keywords", "category"]
+        "required": ["summary", "keywords", "category"],
     }
-    
+
     return {
         "prompt": "请分析这篇文章并以JSON格式返回：1) 文章摘要(summary) 2) 关键词列表(keywords) 3) 文章分类(category)",
         "if_structure_output": True,
         "json_schema": json_schema,
-        "priority": 100
+        "priority": 100,
     }
