@@ -8,9 +8,6 @@ from notion_client import Client
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.utils.content_deduplicator import (
-    ContentDeduplicator,
-)
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
@@ -61,6 +58,46 @@ class NotionStorage:
         else:
             logger.error("Notion databases fetch content id response is not a dict.")
             return False
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def get_all_content_ids(self) -> set:
+        """批量获取数据库中所有已存在的 content_id"""
+        all_content_ids = set()
+        has_more = True
+        next_cursor = None
+
+        while has_more:
+            query_params = {
+                "database_id": self.config.database_id,
+                "page_size": 100,  # Notion API 最大支持 100
+            }
+
+            if next_cursor:
+                query_params["start_cursor"] = next_cursor
+
+            response = self.notion.databases.query(**query_params)
+
+            if isinstance(response, dict):
+                results = response.get("results", [])
+                for page in results:
+                    properties = page.get("properties", {})
+                    content_id_prop = properties.get(NOTION_PROPERTIY_CONTENT_ID, {})
+                    rich_text = content_id_prop.get("rich_text", [])
+                    if rich_text and len(rich_text) > 0:
+                        content_id = rich_text[0].get("text", {}).get("content", "")
+                        if content_id:
+                            all_content_ids.add(content_id)
+
+                has_more = response.get("has_more", False)
+                next_cursor = response.get("next_cursor")
+            else:
+                logger.error("Notion databases query response is not a dict.")
+                break
+
+        logger.info(
+            f"Retrieved {len(all_content_ids)} existing content IDs from Notion"
+        )
+        return all_content_ids
 
     def check_property_exist(self):
         self.notion.databases.update(
@@ -199,11 +236,25 @@ class NotionStorage:
             return False
 
     def store_contents_with_dedup(self, contents: List[Content]) -> List[bool]:
-        """带去重的批量存储方法（向后兼容）"""
+        """高效的批量存储方法，只需要一次 Notion API 调用进行去重"""
+        if not contents:
+            return []
 
-        deduplicator = ContentDeduplicator(self)
-        new_contents = deduplicator.filter_new_contents(contents)
+        # 一次性获取所有已存在的 content_id
+        existing_content_ids = self.get_all_content_ids()
 
+        # 过滤出新的内容
+        new_contents = []
+        for content in contents:
+            if content.content_id not in existing_content_ids:
+                new_contents.append(content)
+            else:
+                logger.debug(
+                    "Content already exists in storage, skipping",
+                    content_id=content.content_id,
+                )
+
+        # 存储新内容
         results = []
         for content in new_contents:
             results.append(self.store_content(content))
@@ -213,6 +264,6 @@ class NotionStorage:
         results.extend([True] * skipped_count)
 
         logger.info(
-            f"Batch storage completed: {len(new_contents)} stored, {skipped_count} skipped"
+            f"Batch storage completed: {len(new_contents)} stored, {skipped_count} skipped (1 API call for dedup)"
         )
         return results

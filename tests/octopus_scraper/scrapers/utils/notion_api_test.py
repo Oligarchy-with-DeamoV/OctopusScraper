@@ -38,15 +38,15 @@ class TestNotionStorage:
             mock_create.assert_called_once()
 
     def test_store_contents_with_dedup(self, notion_storage):
-        """Test the new batch storage method with deduplication"""
+        """Test the optimized batch storage method with deduplication"""
         with patch.object(
             notion_storage.notion.pages, "create"
         ) as mock_create, patch.object(
-            notion_storage, "has_content_id"
-        ) as mock_has_content:
+            notion_storage, "get_all_content_ids"
+        ) as mock_get_all_ids:
             mock_create.return_value = {"id": "test_page_id"}
-            # First content exists, second doesn't
-            mock_has_content.side_effect = [True, False]
+            # Mock existing content IDs - first content exists, second doesn't
+            mock_get_all_ids.return_value = {"existing_id"}
 
             contents = [
                 Content(
@@ -73,8 +73,8 @@ class TestNotionStorage:
             assert results == [True, True]
             # Only one should be stored (the new one)
             mock_create.assert_called_once()
-            # Should check both content IDs
-            assert mock_has_content.call_count == 2
+            # Should call get_all_content_ids only once for batch dedup
+            mock_get_all_ids.assert_called_once()
 
     def test_check_contentid(self, notion_storage):
         with patch.object(notion_storage.notion.databases, "query") as mock_query:
@@ -89,3 +89,83 @@ class TestNotionStorage:
             mock_query.return_value = {"results": []}
             result = notion_storage.has_content_id(content_id)
             assert result == False
+
+    def test_get_all_content_ids(self, notion_storage):
+        """Test getting all content IDs from Notion database"""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query:
+            # Mock first page response
+            mock_query.return_value = {
+                "results": [
+                    {
+                        "properties": {
+                            "ContentId": {
+                                "rich_text": [{"text": {"content": "content_id_1"}}]
+                            }
+                        }
+                    },
+                    {
+                        "properties": {
+                            "ContentId": {
+                                "rich_text": [{"text": {"content": "content_id_2"}}]
+                            }
+                        }
+                    },
+                ],
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+            result = notion_storage.get_all_content_ids()
+
+            assert result == {"content_id_1", "content_id_2"}
+            mock_query.assert_called_once_with(
+                database_id="test_database_id", page_size=100
+            )
+
+    def test_get_all_content_ids_with_pagination(self, notion_storage):
+        """Test getting all content IDs with pagination"""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query:
+            # Mock two page responses
+            mock_query.side_effect = [
+                {
+                    "results": [
+                        {
+                            "properties": {
+                                "ContentId": {
+                                    "rich_text": [{"text": {"content": "content_id_1"}}]
+                                }
+                            }
+                        }
+                    ],
+                    "has_more": True,
+                    "next_cursor": "next_cursor_token",
+                },
+                {
+                    "results": [
+                        {
+                            "properties": {
+                                "ContentId": {
+                                    "rich_text": [{"text": {"content": "content_id_2"}}]
+                                }
+                            }
+                        }
+                    ],
+                    "has_more": False,
+                    "next_cursor": None,
+                },
+            ]
+
+            result = notion_storage.get_all_content_ids()
+
+            assert result == {"content_id_1", "content_id_2"}
+            assert mock_query.call_count == 2
+
+            # Check first call
+            mock_query.assert_any_call(database_id="test_database_id", page_size=100)
+
+            # Check second call with cursor
+            mock_query.assert_any_call(
+                database_id="test_database_id",
+                page_size=100,
+                start_cursor="next_cursor_token",
+            )

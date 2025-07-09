@@ -595,28 +595,31 @@ sequenceDiagram
 | `UPLOAD_TIMEOUT`          | 15        | 上传超时(秒)        |
 | `UPLOAD_MAX_RETRIES`      | 3         | 上传最大重试次数    |
 
-## 12.6 配置管理器设计
+## 13.6 性能优化设计
 
-### ConfigManager 核心职责
+### 配置缓存策略
 
-1. **配置加载**：从多个来源聚合配置信息
-2. **变更检测**：监测 Notion 配置变更
-3. **热更新执行**：安全地更新运行时配置
-4. **配置验证**：确保配置完整性和合理性
-5. **状态管理**：维护配置版本和更新状态
+1. **内存缓存**：缓存当前生效的配置对象
+2. **变更缓存**：缓存配置哈希值，避免重复计算
+3. **结果缓存**：缓存 Notion API 查询结果
 
-### 主要方法设计
+### 网络优化策略
 
-```python
-class ConfigManager:
-    async def load_initial_config() -> OctopusServiceConfig
-    async def start_config_watcher()
-    async def check_config_changes() -> bool
-    async def reload_scrapers_config() -> List[Dict[str, Any]]
-    async def apply_hot_update(new_config)
-    def validate_config(config) -> List[str]
-    def get_config_hash(config) -> str
-```
+1. **增量查询**：仅查询变更时间戳，确认变更后再获取完整数据
+2. **批量处理**：批量处理多个配置变更
+3. **连接复用**：复用 Notion API 连接
+
+### Notion 存储优化策略
+
+1. **批量去重优化**：单次批量上传时，去重检查的 API 调用从 N+1 次优化到 1 次
+2. **内存去重**：使用 set 数据结构在内存中进行 O(1) 查找，提升大量内容处理性能
+3. **分页查询**：支持大量已存在数据的分页获取，避免单次查询限制
+
+### 资源控制策略
+
+1. **并发控制**：限制同时进行的配置检查数量
+2. **超时控制**：设置合理的 API 调用超时时间
+3. **重试策略**：指数退避的重试机制
 
 ## 12.7 服务集成设计
 
@@ -744,6 +747,12 @@ class ConfigVersion:
 1. **增量查询**：仅查询变更时间戳，确认变更后再获取完整数据
 2. **批量处理**：批量处理多个配置变更
 3. **连接复用**：复用 Notion API 连接
+
+### Notion 存储优化策略
+
+1. **批量去重优化**：单次批量上传时，去重检查的 API 调用从 N+1 次优化到 1 次
+2. **内存去重**：使用 set 数据结构在内存中进行 O(1) 查找，提升大量内容处理性能
+3. **分页查询**：支持大量已存在数据的分页获取，避免单次查询限制
 
 ### 资源控制策略
 

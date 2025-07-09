@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import Mock, patch
 
-from octopus_scraper.scrapers.scraper import Scraper, Content
+import pytest
+
+from octopus_scraper.scrapers.scraper import Content, Scraper
 
 
 @pytest.fixture
@@ -96,38 +97,37 @@ class TestScraper:
         scraper.set_storage(mock_storage)
         assert scraper.storage == mock_storage
 
-    @patch("octopus_scraper.scrapers.scraper.ContentDeduplicator")
-    def test_scrap_contents_with_storage(
-        self, mock_deduplicator_class, sspai_rss_hub_config
-    ):
+    def test_scrap_contents_with_storage(self, sspai_rss_hub_config):
         """测试带存储器的内容抓取（去重）"""
         scraper = Scraper(sspai_rss_hub_config)
 
         # Mock storage
         mock_storage = Mock()
+        mock_storage.get_all_content_ids.return_value = {"existing_id"}
         scraper.set_storage(mock_storage)
-
-        # Mock deduplicator
-        mock_deduplicator = Mock()
-        mock_deduplicator_class.return_value = mock_deduplicator
 
         # Mock fetcher
         mock_contents = [
             Content(
-                content_id="test_id",
-                title="Test Title",
-                link="http://test.com",
-                summary="Test summary",
-                content="Test content",
+                content_id="existing_id",  # This one exists
+                title="Existing Title",
+                link="http://existing.com",
+                summary="Existing summary",
+                content="Existing content",
                 published="2025-01-01T00:00:00Z",
-            )
+            ),
+            Content(
+                content_id="new_id",  # This one is new
+                title="New Title",
+                link="http://new.com",
+                summary="New summary",
+                content="New content",
+                published="2025-01-01T00:00:00Z",
+            ),
         ]
 
         scraper.activate_fetcher = Mock()
         scraper.activate_fetcher.fetch_contents.return_value = mock_contents
-
-        # Mock deduplicator to return filtered contents
-        mock_deduplicator.filter_new_contents.return_value = mock_contents
 
         # Run test
         result = scraper.scrap_contents({"test": "params"})
@@ -136,9 +136,11 @@ class TestScraper:
         scraper.activate_fetcher.fetch_contents.assert_called_once_with(
             {"test": "params"}
         )
-        mock_deduplicator_class.assert_called_once_with(mock_storage)
-        mock_deduplicator.filter_new_contents.assert_called_once_with(mock_contents)
-        assert result == mock_contents
+        mock_storage.get_all_content_ids.assert_called_once()
+
+        # Should only return the new content (existing one filtered out)
+        assert len(result) == 1
+        assert result[0].content_id == "new_id"
 
     def test_scrap_contents_without_storage(self, sspai_rss_hub_config):
         """测试不带存储器的内容抓取（不去重）"""
