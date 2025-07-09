@@ -1,5 +1,6 @@
 import pytest
 import structlog
+
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.scrapers.scraper import Content
 
@@ -26,3 +27,43 @@ def test_trigger_upload(octopus_config, patch_scraper_scrap, patch_notion):
     assert len(octopus._fetched_contents) > 0
     octopus.trigger_upload()
     assert len(octopus._fetched_contents) == 0
+
+
+def test_set_max_concurrent_scrapers(octopus_config, patch_notion):
+    """测试动态设置最大并发数"""
+    octopus = Octopus(octopus_config)
+
+    # 测试设置不同的并发数
+    octopus.set_max_concurrent_scrapers(3)
+    assert octopus._config.max_concurrent_scrapers == 3
+
+    octopus.set_max_concurrent_scrapers(10)
+    assert octopus._config.max_concurrent_scrapers == 10
+
+
+def test_concurrent_scraping(octopus_config, patch_scraper_scrap, patch_notion):
+    """测试并发抓取功能"""
+    # 添加多个scraper配置用于测试并发
+    octopus_config["scrapers_config_with_fetch_params"].extend(
+        [
+            {
+                "scraper_config": octopus_config["scrapers_config_with_fetch_params"][
+                    0
+                ]["scraper_config"],
+                "fetch_params": {"limit": 5},
+            },
+            {
+                "scraper_config": octopus_config["scrapers_config_with_fetch_params"][
+                    0
+                ]["scraper_config"],
+                "fetch_params": {"limit": 3},
+            },
+        ]
+    )
+
+    octopus = Octopus(octopus_config)
+    assert len(octopus._scrapers) == 3  # 现在应该有3个scraper
+
+    octopus.trigger_scraper()
+    # 由于我们的mock返回1个content，3个scraper应该返回3个content
+    assert len(octopus._fetched_contents) == 3
