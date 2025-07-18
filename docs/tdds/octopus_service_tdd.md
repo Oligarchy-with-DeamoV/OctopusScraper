@@ -30,9 +30,14 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 - 接口返回统一结构化响应
 - 提供抓取条数、上传数等统计
 
-### F5. 健康检查接口
+### F5. 企业级健康检查接口
 
-- 提供 `/health` GET 接口，返回 JSON 状态，返回固定 JSON `{"status": "ok"}`，表示服务正常，设计轻量快速，不依赖外部系统
+- 提供三层健康检查体系：
+  - `/health` - 全面健康检查，包含依赖项验证、配置状态、性能指标
+  - `/health/liveness` - 轻量级存活探针，适用于容器环境
+  - `/health/readiness` - 就绪探针，检查服务是否准备好接收流量
+- 实现智能缓存机制（30秒），减少重复检查开销
+- 支持分级状态码：200(健康)、503(不健康)、500(错误)
 
 ### F6. 日志记录与异常处理
 
@@ -116,42 +121,24 @@ class TriggerUploadResponse:
     data: Optional[Dict[str, int]]  # {"uploaded_count": int}
 ```
 
-### 5.3 GET /health
+### 5.3 企业级健康检查接口
+
+#### GET /health - 全面健康检查
+#### GET /health/liveness - 存活探针
+#### GET /health/readiness - 就绪探针
 
 ```python
 from dataclasses import dataclass
+from typing import Dict, Any, Optional
 
 @dataclass
 class HealthCheckResponse:
-    status: str  # always "ok" if healthy
-```
-
-### 5.4 配置管理接口
-
-#### GET /admin/config/status
-
-获取配置状态和健康信息，返回详细的配置状态数据。
-
-#### POST /admin/config/refresh
-
-手动触发配置刷新，检查并重新加载 Notion 配置。
-
-#### POST /admin/config/validate
-
-验证当前配置的有效性，不应用更改。
-    status: str
-    message: str  # 实际响应: "Upload completed successfully." 或错误信息
-    data: Optional[Dict[str, int]]  # {"uploaded_count": int}
-```
-
-### 5.3 GET /health
-
-```python
-from dataclasses import dataclass
-
-@dataclass
-class HealthCheckResponse:
-    status: str  # always "ok" if healthy
+    status: str  # "healthy", "unhealthy", or "error"
+    timestamp: str  # ISO 8601 格式时间戳
+    uptime: float  # 服务运行时间（秒）
+    version: str  # 服务版本
+    dependencies: Dict[str, str]  # 依赖项状态
+    metrics: Optional[Dict[str, Any]] = None  # 性能指标（仅全面检查）
 ```
 
 ### 5.4 配置管理接口
@@ -353,7 +340,9 @@ else:
 
 | 用例编号 | 场景                       | 预期结果                              |
 | -------- | -------------------------- | ------------------------------------- |
-| T01      | 调用 /health 接口          | 返回 200 + {"status": "ok"}           |
+| T01      | 调用 /health 接口          | 返回 200 + 详细健康状态（包含依赖项、指标等） |
+| T01a     | 调用 /health/liveness 接口  | 返回 200 + 基础存活状态                    |
+| T01b     | 调用 /health/readiness 接口 | 返回 200 + 就绪状态                       |
 | T02      | 正常调用 /trigger_scraper  | 返回 source/item 数量，状态为 success，消息为 "Scraping completed successfully." |
 | T03      | 正常调用 /trigger_upload   | 返回 uploaded_count，状态为 success，消息为 "Upload completed successfully." |
 | T04      | Octopus 异常（如连接失败） | status 为 error，message 中提示异常   |

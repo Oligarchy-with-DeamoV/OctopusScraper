@@ -1,7 +1,7 @@
 # OctopusScraper
 
 ![Python Version](https://img.shields.io/badge/python-3.9%7C3.10-blue)
-![Test Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)
+![Test Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
 OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。它隶属于 [Podcast 矩阵生成项目](https://www.notion.so/1a2fee3943728058be3be79b782e1cf4?pvs=4)，但具备广泛的应用潜力，可以作为中间件为其他项目提供数据抓取和分析能力。OctopusScraper 灵活高效，能够为后续项目提供强大的支持，助力快速实现数据整合与分析，为各类项目赋能。
@@ -14,7 +14,9 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 📊 **智能存储**: 自动去重，支持 Notion 数据库存储
 - 🎯 **智能内容处理**: 可配置的摘要长度控制，内容回退机制
 - 🔄 **实时监控**: 内置 Web 服务，提供配置管理和状态监控
-- 🧪 **高测试覆盖**: 84%+ 测试覆盖率，确保代码质量
+- 🏥 **企业级健康检查**: 三层健康检查体系，支持容器环境存活/就绪探针，智能缓存机制
+- 📈 **性能监控**: 内存使用监控、响应时间跟踪、依赖项状态检查
+- 🧪 **高测试覆盖**: 82%+ 测试覆盖率，确保代码质量
 - 🛠️ **易于扩展**: 模块化设计，支持自定义处理器和存储后端
 - 📱 **CLI 工具**: 提供 `octopus_go` 和 `octopus_service` 命令行工具
 - ⚙️ **配置热更新**: 支持动态配置刷新，无需重启服务
@@ -26,6 +28,7 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - [配置](#配置)
 - [使用方法](#使用方法)
 - [API 文档](#api-文档)
+- [部署配置](#部署配置)
 - [开发指南](#开发指南)
 - [测试](#测试)
 - [更新日志](CHANGELOG.md)
@@ -211,16 +214,123 @@ SERVICE_HOST=0.0.0.0 SERVICE_PORT=8080 DEBUG=true poetry run python src/octopus_
 Web 服务提供以下 API 端点：
 
 ### 健康检查
+
+OctopusScraper 提供了三个专业的健康检查端点，适用于不同的监控场景：
+
+#### 1. 全面健康检查
 ```http
 GET /health
 ```
 
+提供完整的系统健康状态，包括依赖项检查、配置状态、性能指标等。
+
+**查询参数：**
+- `cache` (可选): `true`/`false` - 是否使用缓存，默认 `true`
+
 **响应示例：**
 ```json
 {
-  "status": "ok"
+  "status": "healthy",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.2",
+    "uptime_seconds": 1234.56
+  },
+  "dependencies": {
+    "notion_api": {
+      "status": "healthy",
+      "scrapers_database": {
+        "id": "your_scrapers_db_id",
+        "accessible": true
+      },
+      "content_database": {
+        "id": "your_content_db_id",
+        "accessible": true
+      }
+    },
+    "octopus_instance": {
+      "status": "healthy",
+      "scrapers_configured": 3,
+      "fetched_contents_cached": 15
+    }
+  },
+  "configuration": {
+    "status": "healthy",
+    "last_check": "2025-07-18T15:56:20.123456",
+    "next_check": "2025-07-18T16:01:20.123456",
+    "version": "v20250718_155620_abc123",
+    "scrapers_count": 3,
+    "active_scrapers": 2,
+    "error": null
+  },
+  "performance": {
+    "response_time_ms": 45.67,
+    "memory_usage": {
+      "rss_mb": 128.5
+    }
+  },
+  "cached": false
 }
 ```
+
+#### 2. 存活探针 (Liveness Probe)
+```http
+GET /health/liveness
+```
+
+轻量级健康检查，适用于 Docker 等容器环境的存活探针。
+
+**响应示例：**
+```json
+{
+  "status": "alive",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.2"
+  }
+}
+```
+
+#### 3. 就绪探针 (Readiness Probe)
+```http
+GET /health/readiness
+```
+
+检查服务是否准备好接收流量，包含关键依赖项验证。
+
+**查询参数：**
+- `skip_notion` (可选): `true`/`false` - 是否跳过 Notion API 检查，默认 `false`
+
+**响应示例：**
+```json
+{
+  "status": "ready",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.2"
+  },
+  "dependencies": {
+    "notion_api": {
+      "status": "healthy",
+      "checked": true
+    },
+    "octopus_instance": {
+      "status": "healthy"
+    }
+  }
+}
+```
+
+**健康检查状态码：**
+- `200 OK`: 健康/就绪
+- `503 Service Unavailable`: 不健康/未就绪
+- `500 Internal Server Error`: 检查过程出错
+
+**缓存机制：**
+全面健康检查支持智能缓存（30秒），减少重复检查的性能开销。可通过 `?cache=false` 参数禁用缓存获取实时状态。
 
 ### 抓取器管理
 ```http
@@ -346,6 +456,264 @@ class CustomScraper(Scraper):
     def scrap_contents(self) -> List[Content]:
         # 实现自定义抓取逻辑
         pass
+```
+
+## 🚀 部署配置
+
+### Docker 部署
+
+使用 Docker 部署 OctopusService：
+
+```dockerfile
+# Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . .
+
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-dev
+
+EXPOSE 8000
+
+CMD ["poetry", "run", "octopus_service"]
+```
+
+```bash
+# 构建和运行
+docker build -t octopus-scraper .
+docker run -d \
+  --name octopus-service \
+  -p 8000:8000 \
+  -e NOTION_API_KEY="your_api_key" \
+  -e NOTION_SCRAPERS_DATABASE_ID="your_db_id" \
+  octopus-scraper
+```
+
+### Docker Compose 部署
+
+使用 Docker Compose 进行单机部署，配置健康检查：
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  octopus-service:
+    build: .
+    image: octopus-scraper:latest
+    container_name: octopus-service
+    ports:
+      - "8000:8000"
+    environment:
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
+      - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - CONFIG_REFRESH_INTERVAL=300
+
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 挂载日志目录
+    volumes:
+      - ./logs:/app/logs
+
+    # 网络配置
+    networks:
+      - octopus-network
+
+  # 可选：添加 Nginx 代理
+  nginx:
+    image: nginx:alpine
+    container_name: octopus-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      octopus-service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - octopus-network
+
+networks:
+  octopus-network:
+    driver: bridge
+
+volumes:
+  logs:
+```
+
+**环境变量配置文件 (.env)：**
+
+```env
+# .env
+NOTION_API_KEY=your_notion_api_key_here
+NOTION_SCRAPERS_DATABASE_ID=your_scrapers_database_id
+NOTION_CONTENT_DATABASE_ID=your_content_database_id
+```
+
+**启动服务：**
+
+```bash
+# 启动服务
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f octopus-service
+
+# 检查健康状态
+curl http://localhost:8000/health
+
+# 停止服务
+docker-compose down
+```
+
+**可选的 Nginx 配置 (nginx.conf)：**
+
+```nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream octopus_backend {
+        server octopus-service:8000;
+    }
+
+    server {
+        listen 80;
+        server_name localhost;
+
+        # 健康检查端点
+        location /health {
+            proxy_pass http://octopus_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            access_log off;
+        }
+
+        # API 端点
+        location / {
+            proxy_pass http://octopus_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 30s;
+        }
+    }
+}
+
+### 监控配置
+
+#### 健康检查脚本
+
+创建健康检查脚本用于监控：
+
+```bash
+#!/bin/bash
+# health_check.sh
+
+SERVICE_URL="http://localhost:8000"
+
+# 检查存活探针
+liveness_check() {
+    response=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health/liveness")
+    if [ "$response" = "200" ]; then
+        echo "✅ Liveness check passed"
+        return 0
+    else
+        echo "❌ Liveness check failed (HTTP $response)"
+        return 1
+    fi
+}
+
+# 检查就绪探针
+readiness_check() {
+    response=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health/readiness")
+    if [ "$response" = "200" ]; then
+        echo "✅ Readiness check passed"
+        return 0
+    else
+        echo "❌ Readiness check failed (HTTP $response)"
+        return 1
+    fi
+}
+
+# 全面健康检查
+health_check() {
+    curl -s "$SERVICE_URL/health?cache=false" | jq '.'
+}
+
+# 执行检查
+echo "=== OctopusService Health Check ==="
+liveness_check && readiness_check && echo "=== Full Health Status ===" && health_check
+```
+
+#### Prometheus 监控 (可选)
+
+如果需要 Prometheus 监控，可以在 docker-compose.yml 中添加：
+
+```yaml
+# 在 docker-compose.yml 中添加 Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: octopus-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - octopus-network
+```
+
+**prometheus.yml 配置：**
+
+```yaml
+# prometheus.yml
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  - job_name: 'octopus-service'
+    static_configs:
+      - targets: ['octopus-service:8000']
+    metrics_path: '/health'
+    params:
+      cache: ['false']  # 获取实时状态
+    scrape_interval: 30s
 ```
 
 ## 🧪 测试
