@@ -25,6 +25,9 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 | F6   | 企业级健康检查系统       | 提供三层健康检查：全面检查、存活探针、就绪探针，支持智能缓存和性能监控 |
 | F7   | 配置管理                 | 提供配置状态查询、配置刷新、配置验证等管理功能                      |
 | F8   | CLI 工具支持             | 提供 `octopus_service` 命令行工具，支持灵活的启动参数配置           |
+| F9   | 任务管理系统             | 统一的任务队列管理、优先级调度、并发控制和实时监控                  |
+| F10  | 定时任务调度             | 基于 Cron 表达式的自动任务调度，支持灵活的时间配置                  |
+| F11  | 任务重试机制             | 智能重试机制，支持指数退避和可配置的最大重试次数                    |
 
 ---
 
@@ -36,6 +39,7 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 | 运维人员   | 手动排查任务失败，主动触发上传     | 使用 Postman、curl 等工具调试接口 |
 | 开发人员   | 本地开发测试、配置管理和监控       | 使用 `octopus_service` CLI 工具   |
 | 第三方系统 | 集成抓取/上传逻辑至业务流程        | 将接口集成进系统流程链            |
+| 运维团队   | 监控任务执行状态、配置定时调度     | 使用任务管理API和调度器配置       |
 
 ---
 
@@ -93,6 +97,143 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
   "message": "Upload completed successfully.",
   "data": {
     "uploaded_count": 18
+  }
+}
+```
+
+### 任务管理接口
+
+#### GET /tasks/stats
+
+- 描述：获取任务统计信息
+- 响应示例：
+
+```json
+{
+  "status": "success",
+  "data": {
+    "total_tasks": 150,
+    "completed_tasks": 120,
+    "failed_tasks": 5,
+    "pending_tasks": 25,
+    "active_tasks": 3,
+    "queue_size": 22,
+    "workers_count": 4,
+    "uptime_seconds": 3600,
+    "tasks_per_minute": 2.5,
+    "average_task_duration": 45.2,
+    "success_rate": 0.96
+  }
+}
+```
+
+#### GET /tasks/active
+
+- 描述：获取当前正在执行的任务列表
+- 响应示例：
+
+```json
+{
+  "status": "success",
+  "data": {
+    "active_tasks": [
+      {
+        "id": "task_123",
+        "name": "news_scraper",
+        "scraper_name": "daily_news",
+        "status": "running",
+        "priority": "high",
+        "started_at": "2025-01-20T10:30:00Z",
+        "timeout": 300,
+        "retry_count": 0,
+        "worker_id": "worker_1"
+      }
+    ]
+  }
+}
+```
+
+#### POST /tasks/submit
+
+- 描述：提交新的抓取任务
+- 请求体：
+
+```json
+{
+  "name": "custom_task",
+  "scraper_name": "example_scraper",
+  "priority": "normal",
+  "timeout": 120,
+  "max_retries": 2,
+  "params": {
+    "custom_param": "value"
+  }
+}
+```
+
+- 响应示例：
+
+```json
+{
+  "status": "success",
+  "message": "Task submitted successfully",
+  "data": {
+    "task_id": "task_456",
+    "name": "custom_task",
+    "status": "queued",
+    "priority": "normal",
+    "created_at": "2025-01-20T10:35:00Z"
+  }
+}
+```
+
+#### GET /scheduler/status
+
+- 描述：获取任务调度器状态
+- 响应示例：
+
+```json
+{
+  "status": "success",
+  "data": {
+    "scheduler_running": true,
+    "schedules_count": 3,
+    "next_run_times": [
+      {
+        "name": "daily_news",
+        "next_run": "2025-01-21T08:00:00Z",
+        "cron_expression": "0 8 * * *"
+      }
+    ]
+  }
+}
+```
+
+#### POST /scheduler/add
+
+- 描述：添加新的定时任务
+- 请求体：
+
+```json
+{
+  "name": "weekly_report",
+  "scraper_name": "report_scraper",
+  "cron_expression": "0 9 * * 1",
+  "priority": "normal",
+  "timeout": 600,
+  "max_retries": 1
+}
+```
+
+- 响应示例：
+
+```json
+{
+  "status": "success",
+  "message": "Schedule added successfully",
+  "data": {
+    "name": "weekly_report",
+    "next_run": "2025-01-27T09:00:00Z"
   }
 }
 ```
@@ -325,11 +466,14 @@ octopus_service --host 127.0.0.1 --port 8080 --debug --single-process
 | -------- | --------------------------------------------------------------- |
 | 性能     | 单次抓取任务应在 3～5 秒内完成（数据量在合理范围内）            |
 | 性能优化 | 批量上传去重优化：API 调用从 N+1 次减少到 1 次，大幅提升批量处理性能 |
+| 任务管理 | 支持并发任务执行，默认4个工作线程，可配置队列大小和重试策略     |
+| 任务调度 | 基于Cron表达式的定时任务调度，支持秒级精度和复杂时间规则        |
 | 可部署性 | 支持通过命令行或 Docker 启动服务，适配 CI/CD 环境               |
 | 易用性   | 接口应提供统一的响应格式，错误提示应简洁明确，便于调用方处理    |
 | 日志能力 | 所有任务执行与异常信息需写入日志（控制台 + 文件），方便追踪问题 |
 | 扩展性   | 接口结构预留拓展空间，未来可支持定时任务、权限校验等功能        |
 | CLI 支持 | 提供命令行工具，支持灵活的参数配置和环境变量覆盖                |
+| 监控能力 | 提供实时任务状态监控、统计信息和性能指标                        |
 
 ---
 
@@ -339,10 +483,12 @@ octopus_service --host 127.0.0.1 --port 8080 --debug --single-process
 | ---------- | -------------------------------------------------------------------- |
 | 配置更新   | 配置信息由 Notion Database 提供，手动修改后服务可自动读取更新        |
 | 配置管理   | 已提供配置状态查询、手动刷新、配置验证等管理接口                      |
-| 定时调度   | 当前版本不提供内建定时机制，需由外部调度系统（如 cron、Airflow）完成 |
+| 任务管理   | 已提供统一的任务队列、优先级调度、并发控制和实时监控                  |
+| 定时调度   | 已提供基于Cron表达式的内置定时调度机制，支持灵活的时间配置            |
+| 任务重试   | 已提供智能重试机制，支持指数退避和可配置的最大重试次数                |
 | 接口鉴权   | 当前接口为开放状态，未接入鉴权或 Token 校验机制                      |
 | Web 控制台 | 不包含图形界面，所有功能通过 API 接口和 CLI 工具访问                  |
-| 并发控制   | 暂不支持抓取/上传任务的并发控制，调用方应保证合理触发频率            |
+| 并发控制   | 已支持任务并发控制，可配置工作线程数量和队列大小                      |
 
 ---
 
@@ -367,6 +513,10 @@ octopus_service --host 127.0.0.1 --port 8080 --debug --single-process
 | 配置读取成功         | Octopus 实例可成功加载 Notion 中的配置信息，初始化完成               |
 | 抓取与上传逻辑完整   | 抓取后的数据写入缓存，上传后内容写入 Notion，流程无中断或数据丢失    |
 | 配置管理功能         | 配置状态查询、刷新、验证接口正常工作                                 |
+| 任务管理系统         | 任务队列、优先级调度、并发控制功能正常，任务统计信息准确             |
+| 定时调度功能         | 基于Cron表达式的定时任务可正常添加、执行和管理                       |
+| 任务重试机制         | 失败任务能够按配置进行重试，重试次数和延迟策略生效                   |
+| 任务监控功能         | 任务状态监控、统计信息、性能指标等API正常工作                        |
 | 错误处理机制健全     | 异常场景下接口可返回结构化报错信息，日志中记录关键错误点             |
 | 原业务逻辑保持完整性 | 新增服务封装不会破坏现有 Octopus 模块的结构与调用方式                |
 
