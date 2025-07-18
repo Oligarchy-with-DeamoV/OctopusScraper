@@ -161,17 +161,31 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_with_config_manager(self):
         """Test health check with config manager available."""
+        from datetime import datetime
+
         mock_request = Mock()
+        mock_request.args.get.return_value = "true"  # Mock cache parameter
+
         mock_status = Mock()
         mock_status.is_healthy = True
-        mock_status.last_check = None
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
         mock_status.version = Mock(version_id="test_v1")
         mock_status.scrapers = []
+        mock_status.error_message = None
 
         with patch("octopus_scraper.octopus_service.app") as mock_app:
             mock_manager = Mock()
             mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=True
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
             mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = []
+            mock_app.ctx.octopus._fetched_contents = []
 
             response = await health_check(mock_request)
 
@@ -181,11 +195,359 @@ class TestHealthCheck:
     async def test_health_check_without_config_manager(self):
         """Test health check fallback without config manager."""
         mock_request = Mock()
+        mock_request.args.get.return_value = "true"  # Mock cache parameter
 
         with patch.object(app, "ctx", Mock(spec=[])):  # No config_manager attribute
             response = await health_check(mock_request)
 
+            # Without config manager, should still return 200 but with unknown status
             assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_health_check_with_cache(self):
+        """Test health check caching functionality."""
+        from datetime import datetime, timedelta
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "true"  # Use cache
+
+        # Mock the cache to simulate cached result
+        cache_time = datetime.now() - timedelta(seconds=5)  # 5 seconds ago
+        with patch.dict(
+            "octopus_scraper.octopus_service._health_cache",
+            {
+                "cached_result": {
+                    "status": "healthy",
+                    "timestamp": "2025-07-18T10:00:00.000000",
+                    "_status_code": 200,
+                },
+                "last_check": cache_time,
+                "cache_duration": 30,
+            },
+        ):
+            response = await health_check(mock_request)
+
+            assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_liveness_check(self):
+        """Test liveness probe endpoint."""
+        from octopus_scraper.octopus_service import liveness_check
+
+        mock_request = Mock()
+        response = await liveness_check(mock_request)
+
+        assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_readiness_check_ready(self):
+        """Test readiness probe when service is ready."""
+        from octopus_scraper.octopus_service import readiness_check
+
+        mock_request = Mock()
+        mock_status = Mock()
+        mock_status.is_healthy = True
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.get_database_info = AsyncMock(
+                return_value={"title": "test"}
+            )
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+
+            with patch("os.getenv", return_value="false"):  # Don't skip notion check
+                response = await readiness_check(mock_request)
+
+            assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_readiness_check_not_ready(self):
+        """Test readiness probe when service is not ready."""
+        from octopus_scraper.octopus_service import readiness_check
+
+        mock_request = Mock()
+
+        with patch.object(app, "ctx", Mock(spec=[])):  # No config_manager or octopus
+            response = await readiness_check(mock_request)
+
+            assert response.status == 503
+
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_config(self):
+        """Test health check when config manager reports unhealthy status."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        mock_status = Mock()
+        mock_status.is_healthy = False  # Config is unhealthy
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = []
+        mock_status.error_message = "Configuration validation failed"
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=True
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = []
+            mock_app.ctx.octopus._fetched_contents = []
+
+            response = await health_check(mock_request)
+
+            assert response.status == 503  # Should be unhealthy
+
+    @pytest.mark.asyncio
+    async def test_health_check_notion_api_failure(self):
+        """Test health check when Notion API is unreachable."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        mock_status = Mock()
+        mock_status.is_healthy = True
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = []
+        mock_status.error_message = None
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=False
+            )  # Notion API fails
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = []
+            mock_app.ctx.octopus._fetched_contents = []
+
+            response = await health_check(mock_request)
+
+            assert response.status == 503  # Should be unhealthy due to Notion failure
+
+    @pytest.mark.asyncio
+    async def test_health_check_notion_api_exception(self):
+        """Test health check when Notion API validation throws exception."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        mock_status = Mock()
+        mock_status.is_healthy = True
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = []
+        mock_status.error_message = None
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                side_effect=Exception("Connection error")
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = []
+            mock_app.ctx.octopus._fetched_contents = []
+
+            response = await health_check(mock_request)
+
+            assert response.status == 503  # Should be unhealthy due to exception
+
+    @pytest.mark.asyncio
+    async def test_health_check_no_cache(self):
+        """Test health check with cache disabled."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        mock_status = Mock()
+        mock_status.is_healthy = True
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = []
+        mock_status.error_message = None
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=True
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = []
+            mock_app.ctx.octopus._fetched_contents = []
+
+            response = await health_check(mock_request)
+
+            assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_health_check_missing_octopus_with_config_manager(self):
+        """Test health check when octopus instance is missing but config manager exists."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        mock_status = Mock()
+        mock_status.is_healthy = True
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = []
+        mock_status.error_message = None
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            # Create a mock context that has config_manager but no octopus
+            mock_ctx = Mock()
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=True
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_ctx.config_manager = mock_manager
+
+            # Ensure octopus attribute doesn't exist
+            del mock_ctx.octopus  # This will raise AttributeError when accessed
+            mock_app.ctx = mock_ctx
+
+            # Make hasattr return False for octopus but True for config_manager
+            def mock_hasattr(obj, attr):
+                if attr == "octopus":
+                    return False
+                elif attr == "config_manager":
+                    return True
+                return False
+
+            with patch("builtins.hasattr", side_effect=mock_hasattr):
+                response = await health_check(mock_request)
+
+            assert response.status == 503  # Should be unhealthy due to missing octopus
+
+    @pytest.mark.asyncio
+    async def test_health_check_with_scrapers_data(self):
+        """Test health check with actual scrapers data."""
+        from datetime import datetime
+
+        mock_request = Mock()
+        mock_request.args.get.return_value = "false"  # Disable cache
+
+        # Mock scrapers data
+        mock_scraper1 = Mock()
+        mock_scraper1.status = "Active"
+        mock_scraper2 = Mock()
+        mock_scraper2.status = "Inactive"
+
+        mock_status = Mock()
+        mock_status.is_healthy = True
+        mock_status.last_check = datetime.now()
+        mock_status.next_check = datetime.now()
+        mock_status.version = Mock(version_id="test_v1")
+        mock_status.scrapers = [mock_scraper1, mock_scraper2]
+        mock_status.error_message = None
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.validate_connection = AsyncMock(
+                return_value=True
+            )
+            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
+            mock_manager.notion_config.content_database_id = "test_content_db"
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+            mock_app.ctx.octopus._scrapers = ["scraper1", "scraper2"]
+            mock_app.ctx.octopus._fetched_contents = [
+                "content1",
+                "content2",
+                "content3",
+            ]
+
+            response = await health_check(mock_request)
+
+            assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_readiness_check_skip_notion(self):
+        """Test readiness probe with Notion check skipped."""
+        from octopus_scraper.octopus_service import readiness_check
+
+        mock_request = Mock()
+        mock_status = Mock()
+        mock_status.is_healthy = True
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+
+            with patch("os.getenv", return_value="true"):  # Skip notion check
+                response = await readiness_check(mock_request)
+
+            assert response.status == 200
+
+    @pytest.mark.asyncio
+    async def test_readiness_check_notion_failure(self):
+        """Test readiness probe when Notion check fails."""
+        from octopus_scraper.octopus_service import readiness_check
+
+        mock_request = Mock()
+        mock_status = Mock()
+        mock_status.is_healthy = True
+
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_manager = Mock()
+            mock_manager.get_status.return_value = mock_status
+            mock_manager.notion_client.get_database_info = AsyncMock(
+                side_effect=Exception("DB error")
+            )
+            mock_app.ctx.config_manager = mock_manager
+            mock_app.ctx.octopus = Mock()
+
+            with patch("os.getenv", return_value="false"):  # Don't skip notion check
+                response = await readiness_check(mock_request)
+
+            assert response.status == 503
+
+    @pytest.mark.asyncio
+    async def test_health_check_memory_usage_function(self):
+        """Test the memory usage helper function."""
+        from octopus_scraper.octopus_service import _get_memory_usage
+
+        result = _get_memory_usage()
+
+        assert isinstance(result, dict)
+        assert "rss_mb" in result
+        # Memory usage should be either a number or "unavailable"
+        assert isinstance(result["rss_mb"], (int, float, str))
 
 
 class TestTriggerEndpoints:

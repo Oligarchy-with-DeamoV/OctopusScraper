@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 
 @dataclass
@@ -18,4 +18,22 @@ class TriggerUploadResponse:
 
 @dataclass
 class HealthCheckResponse:
-    status: str  # always "ok" if healthy
+    status: str  # "healthy" | "unhealthy" | "error"
+    timestamp: str
+    service: Dict[str, Any]
+    dependencies: Dict[str, Any]
+    configuration: Dict[str, Any]
+    performance: Dict[str, Any]
+
+
+@dataclass
+class LivenessResponse:
+    status: str  # "alive"
+    timestamp: str
+
+
+@dataclass
+class ReadinessResponse:
+    status: str  # "ready" | "not_ready"
+    timestamp: str
+    checks: Dict[str, Any]

@@ -15,16 +15,16 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 
 ## 三、核心功能
 
-| 编号 | 功能名称           | 描述                                                        |
-| ---- | ------------------ | ----------------------------------------------------------- |
-| F1   | 启动与初始化       | 启动服务时加载 Notion 中的 RSS 配置，初始化抓取器           |
-| F2   | 手动触发抓取任务   | 提供接口用于手动调用抓取流程，从 RSS 获取内容并缓存         |
-| F3   | 手动触发上传任务   | 提供接口用于上传缓存中的内容至 Notion Database              |
-| F4   | 任务执行状态反馈   | 接口响应应包含成功数量、失败提示等执行结果数据              |
-| F5   | 错误处理与日志记录 | 捕捉异常、输出日志，便于排查和监控                          |
-| F6   | 健康检查接口       | 提供 `/health` 接口用于存活探测，响应稳定，适合部署监控使用 |
-| F7   | 配置管理           | 提供配置状态查询、配置刷新、配置验证等管理功能              |
-| F8   | CLI 工具支持       | 提供 `octopus_service` 命令行工具，支持灵活的启动参数配置   |
+| 编号 | 功能名称                 | 描述                                                                |
+| ---- | ------------------------ | ------------------------------------------------------------------- |
+| F1   | 启动与初始化             | 启动服务时加载 Notion 中的 RSS 配置，初始化抓取器                   |
+| F2   | 手动触发抓取任务         | 提供接口用于手动调用抓取流程，从 RSS 获取内容并缓存                 |
+| F3   | 手动触发上传任务         | 提供接口用于上传缓存中的内容至 Notion Database                      |
+| F4   | 任务执行状态反馈         | 接口响应应包含成功数量、失败提示等执行结果数据                      |
+| F5   | 错误处理与日志记录       | 捕捉异常、输出日志，便于排查和监控                                  |
+| F6   | 企业级健康检查系统       | 提供三层健康检查：全面检查、存活探针、就绪探针，支持智能缓存和性能监控 |
+| F7   | 配置管理                 | 提供配置状态查询、配置刷新、配置验证等管理功能                      |
+| F8   | CLI 工具支持             | 提供 `octopus_service` 命令行工具，支持灵活的启动参数配置           |
 
 ---
 
@@ -97,21 +97,113 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 }
 ```
 
-### GET /health
+### 健康检查接口
 
-- 描述：检查服务运行是否正常
-- 请求参数：无
-- 响应示例：
+OctopusService 提供企业级三层健康检查体系，支持不同的监控场景：
+
+#### GET /health
+
+- **描述**：全面的系统健康检查，包含依赖项验证、配置状态、性能指标
+- **参数**：
+  - `cache` (可选): `true`/`false` - 是否使用缓存（30秒），默认 `true`
+- **响应示例**：
 
 ```json
 {
-  "status": "ok"
+  "status": "healthy",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.3",
+    "uptime_seconds": 1234.56
+  },
+  "dependencies": {
+    "notion_api": {
+      "status": "healthy",
+      "scrapers_database": {
+        "id": "your_scrapers_db_id",
+        "accessible": true
+      },
+      "content_database": {
+        "id": "your_content_db_id",
+        "accessible": true
+      }
+    },
+    "octopus_instance": {
+      "status": "healthy",
+      "scrapers_configured": 3,
+      "fetched_contents_cached": 15
+    }
+  },
+  "configuration": {
+    "status": "healthy",
+    "last_check": "2025-07-18T15:56:20.123456",
+    "version": "v20250718_155620_abc123",
+    "scrapers_count": 3,
+    "active_scrapers": 2
+  },
+  "performance": {
+    "response_time_ms": 45.67,
+    "memory_usage": {
+      "rss_mb": 128.5
+    }
+  },
+  "cached": false
 }
 ```
 
-- 状态码
-  - 200: OK 服务健康
-  - 500: 服务异常
+#### GET /health/liveness
+
+- **描述**：轻量级存活探针，适用于容器环境的 liveness probe
+- **响应示例**：
+
+```json
+{
+  "status": "alive",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.3"
+  }
+}
+```
+
+#### GET /health/readiness
+
+- **描述**：就绪探针，检查服务是否准备好接收流量
+- **参数**：
+  - `skip_notion` (可选): `true`/`false` - 是否跳过 Notion API 检查，默认 `false`
+- **响应示例**：
+
+```json
+{
+  "status": "ready",
+  "timestamp": "2025-07-18T15:56:22.080523",
+  "service": {
+    "name": "OctopusService",
+    "version": "0.1.3"
+  },
+  "dependencies": {
+    "notion_api": {
+      "status": "healthy",
+      "checked": true
+    },
+    "octopus_instance": {
+      "status": "healthy"
+    }
+  }
+}
+```
+
+**状态码说明**：
+- **200 OK**: 健康/就绪/存活
+- **503 Service Unavailable**: 不健康/未就绪
+- **500 Internal Server Error**: 检查过程出错
+
+**特性**：
+- 🚀 **智能缓存**：全面健康检查支持 30 秒缓存，减少性能开销
+- 🔍 **实时监控**：内存使用、响应时间、依赖项状态跟踪
+- 🏥 **容器友好**：专为 Docker 等容器环境设计的探针
 
 ### 配置管理接口
 
@@ -181,13 +273,25 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 
 ```json
 {
-  "status": "ok"
+  "status": "healthy",
+  "timestamp": "2025-07-18T10:30:00Z",
+  "uptime": 3600.5,
+  "version": "0.1.3",
+  "dependencies": {
+    "config_manager": "healthy",
+    "data_storage": "healthy"
+  },
+  "metrics": {
+    "memory_usage_mb": 128.5,
+    "cpu_usage_percent": 15.2
+  }
 }
 ```
 
 - 状态码
-  - 200: OK 服务健康
-  - 500: 服务异常
+  - 200: 服务健康
+  - 503: 服务不健康
+  - 500: 服务错误
 
 ## 七、CLI 工具设计
 
