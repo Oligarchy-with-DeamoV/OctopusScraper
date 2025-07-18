@@ -1,12 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
+import time
 
 import structlog
 from dacite import from_dict
 
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
 from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig, NotionStorage
+from octopus_scraper.task_manager import TaskManager, ScraperTask, TaskBatch
 
 logger = structlog.getLogger(__name__)
 
@@ -22,6 +24,8 @@ class OctopusConfig:
     scrapers_config_with_fetch_params: List[ScraperRuntimeConfig]
     notion_api_config: NotionAPIConfig
     max_concurrent_scrapers: int = 5  # 默认最大并发数为5
+    use_task_manager: bool = False  # 是否使用新的任务管理器
+    task_manager_config: Optional[Dict[str, Any]] = None  # 任务管理器配置
 
 
 class Octopus:
@@ -32,6 +36,21 @@ class Octopus:
         self._notion_api: NotionStorage = NotionStorage(
             asdict(self._config.notion_api_config)
         )
+
+        # Initialize task manager if enabled
+        self._task_manager: Optional[TaskManager] = None
+        if self._config.use_task_manager:
+            task_manager_config = self._config.task_manager_config or {}
+            self._task_manager = TaskManager(
+                max_concurrent_tasks=task_manager_config.get(
+                    "max_concurrent_tasks", self._config.max_concurrent_scrapers
+                ),
+                max_queue_size=task_manager_config.get("max_queue_size", 1000),
+                result_retention_hours=task_manager_config.get(
+                    "result_retention_hours", 24
+                ),
+            )
+            self._task_manager.set_storage(self._notion_api)
 
         try:
             self._setup()
@@ -68,7 +87,51 @@ class Octopus:
         pass
 
     def trigger_scraper(self):
-        """触发一次 Scraper - 并发执行"""
+        """触发一次 Scraper - 支持新旧两种执行方式"""
+        if self._config.use_task_manager and self._task_manager:
+            return self._trigger_scraper_with_task_manager()
+        else:
+            return self._trigger_scraper_legacy()
+
+    def _trigger_scraper_with_task_manager(self) -> str:
+        """使用任务管理器触发抓取"""
+        logger.info("Using TaskManager for scraper execution")
+
+        # 创建任务批次
+        tasks = []
+        for scraper, params in self._scrapers:
+            # 从 scraper 配置中提取信息
+            scraper_config = {
+                "name": getattr(scraper.config, "fetcher_name", "unknown"),
+                "fetcher_name": scraper.config.fetcher_name,
+                "fetcher_config": scraper.config.fetcher_config,
+                "content_processor_configs": scraper.config.content_processor_configs,
+            }
+
+            task = ScraperTask.from_scraper_config(scraper_config, params)
+            tasks.append(task)
+
+        # 提交任务批次
+        batch = TaskBatch(
+            batch_id=f"scraper_batch_{int(time.time())}",
+            tasks=tasks,
+            name="Manual Scraper Trigger",
+            description="Manually triggered scraper batch execution",
+        )
+
+        submitted_task_ids = self._task_manager.submit_batch(batch)
+
+        logger.info(
+            "Scraper tasks submitted to TaskManager",
+            batch_id=batch.batch_id,
+            task_count=len(tasks),
+            submitted_count=len(submitted_task_ids),
+        )
+
+        return batch.batch_id
+
+    def _trigger_scraper_legacy(self):
+        """传统的并发执行方式"""
         max_workers = getattr(self._config, "max_concurrent_scrapers", 5)
 
         def scrape_single(scraper_params_tuple):
@@ -115,3 +178,140 @@ class Octopus:
                 fetched_contents=self._fetched_contents,
             )
             raise RuntimeError(f"Failed to upload contents to Notion: {e}")
+
+    # Task Management Methods (when using TaskManager)
+
+    def get_task_manager(self) -> Optional[TaskManager]:
+        """获取任务管理器实例"""
+        return self._task_manager
+
+    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """获取任务状态"""
+        if not self._task_manager:
+            return None
+
+        result = self._task_manager.get_task_result(task_id)
+        if not result:
+            return None
+
+        return {
+            "task_id": result.task_id,
+            "status": result.status.value,
+            "start_time": result.start_time.isoformat(),
+            "end_time": result.end_time.isoformat() if result.end_time else None,
+            "duration_seconds": result.duration_seconds,
+            "items_fetched": result.items_fetched,
+            "items_processed": result.items_processed,
+            "items_uploaded": result.items_uploaded,
+            "error_message": result.error_message,
+            "metadata": result.metadata,
+        }
+
+    def list_tasks(
+        self, status: Optional[str] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """列出任务"""
+        if not self._task_manager:
+            return []
+
+        from octopus_scraper.task_manager.models import TaskStatus
+
+        task_status = None
+        if status:
+            try:
+                task_status = TaskStatus(status)
+            except ValueError:
+                logger.warning(f"Invalid task status: {status}")
+
+        results = self._task_manager.list_tasks(status=task_status, limit=limit)
+
+        return [
+            {
+                "task_id": result.task_id,
+                "status": result.status.value,
+                "start_time": result.start_time.isoformat(),
+                "end_time": result.end_time.isoformat() if result.end_time else None,
+                "duration_seconds": result.duration_seconds,
+                "items_fetched": result.items_fetched,
+                "items_processed": result.items_processed,
+                "items_uploaded": result.items_uploaded,
+                "error_message": result.error_message,
+                "metadata": result.metadata,
+            }
+            for result in results
+        ]
+
+    def cancel_task(self, task_id: str) -> bool:
+        """取消任务"""
+        if not self._task_manager:
+            return False
+        return self._task_manager.cancel_task(task_id)
+
+    def get_task_manager_statistics(self) -> Dict[str, Any]:
+        """获取任务管理器统计信息"""
+        if not self._task_manager:
+            return {"error": "TaskManager not enabled"}
+        return self._task_manager.get_statistics()
+
+    def submit_individual_scraper_task(
+        self,
+        scraper_name: str,
+        scraper_config: Dict[str, Any],
+        fetch_params: Dict[str, Any],
+    ) -> Optional[str]:
+        """提交单个抓取任务"""
+        if not self._task_manager:
+            logger.warning("TaskManager not enabled, cannot submit individual task")
+            return None
+
+        task = ScraperTask.from_scraper_config(scraper_config, fetch_params)
+        task.scraper_name = scraper_name
+
+        return self._task_manager.submit_task(task)
+
+    def wait_for_batch_completion(
+        self, batch_id: str, timeout_seconds: int = 300
+    ) -> Dict[str, Any]:
+        """等待批次任务完成"""
+        if not self._task_manager:
+            return {"error": "TaskManager not enabled"}
+
+        start_time = time.time()
+        completed_tasks = []
+        failed_tasks = []
+
+        # Note: This is a simplified implementation
+        # In a production system, you'd want proper batch tracking
+        while time.time() - start_time < timeout_seconds:
+            # Check task results with batch_id in metadata
+            tasks = self._task_manager.list_tasks(limit=1000)
+            batch_tasks = [
+                task
+                for task in tasks
+                if task.get("metadata", {}).get("batch_id") == batch_id
+            ]
+
+            running_tasks = [
+                t for t in batch_tasks if t["status"] in ["pending", "running"]
+            ]
+            completed_tasks = [t for t in batch_tasks if t["status"] == "completed"]
+            failed_tasks = [t for t in batch_tasks if t["status"] == "failed"]
+
+            if not running_tasks:
+                break
+
+            time.sleep(1)
+
+        return {
+            "batch_id": batch_id,
+            "completed": len(completed_tasks),
+            "failed": len(failed_tasks),
+            "total_items_fetched": sum(t["items_fetched"] for t in completed_tasks),
+            "timeout": time.time() - start_time >= timeout_seconds,
+        }
+
+    def cleanup_task_manager(self):
+        """清理任务管理器"""
+        if self._task_manager:
+            self._task_manager.stop()
+            logger.info("TaskManager stopped and cleaned up")

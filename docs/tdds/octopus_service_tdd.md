@@ -55,12 +55,36 @@ Octopus 模块已具备读取 Notion 上配置信息，从多个 RSS 源抓取�
 - 提供 `octopus_service` 命令行工具
 - 支持灵活的启动参数配置
 
+### F9. 任务管理系统
+
+- 提供统一的任务队列管理，支持优先级调度
+- 实现并发控制，可配置工作线程数量
+- 提供任务状态监控和统计信息
+- 支持任务重试机制，包括指数退避策略
+
+### F10. 定时任务调度
+
+- 基于 Cron 表达式的自动任务调度
+- 支持添加、删除、暂停调度任务
+- 提供调度器状态查询和管理接口
+
+### F11. 任务重试机制
+
+- 智能重试机制，支持指数退避
+- 可配置的最大重试次数和延迟策略
+- 失败任务的详细错误记录和分析
+
 ## 四、模块结构设计
 
 ```
 src/octopus_scraper/
 ├── cli/                     # CLI 工具模块
 │   └── __init__.py         # 包含 run_octopus_service 函数
+├── task_manager/           # 任务管理系统
+│   ├── __init__.py        # 模块导出
+│   ├── models.py          # 任务数据模型
+│   ├── task_manager.py    # 任务管理器
+│   └── scheduler.py       # 任务调度器
 ├── octopus_service.py      # Sanic 服务主入口
 └── service_models.py       # 响应数据结构（dataclasses）
 ```
@@ -155,7 +179,84 @@ class HealthCheckResponse:
 
 验证当前配置的有效性，不应用更改。
 
-### 5.5 CLI 工具接口
+### 5.5 任务管理接口
+
+#### GET /tasks/stats
+
+获取任务统计信息，包括总任务数、完成数、失败数、队列大小等。
+
+```python
+@dataclass
+class TaskStatsResponse:
+    status: str
+    data: Dict[str, Any]  # 包含各种统计信息
+```
+
+#### GET /tasks/active
+
+获取当前正在执行的任务列表。
+
+```python
+@dataclass
+class ActiveTasksResponse:
+    status: str
+    data: Dict[str, List[Dict[str, Any]]]  # active_tasks 列表
+```
+
+#### POST /tasks/submit
+
+提交新的抓取任务到队列。
+
+```python
+@dataclass
+class SubmitTaskRequest:
+    name: str
+    scraper_name: str
+    priority: str = "normal"
+    timeout: int = 120
+    max_retries: int = 2
+    params: Optional[Dict[str, Any]] = None
+
+@dataclass
+class SubmitTaskResponse:
+    status: str
+    message: str
+    data: Dict[str, Any]  # 包含 task_id, created_at 等信息
+```
+
+#### GET /scheduler/status
+
+获取调度器状态和所有调度任务信息。
+
+```python
+@dataclass
+class SchedulerStatusResponse:
+    status: str
+    data: Dict[str, Any]  # 包含 scheduler_running, schedules_count 等
+```
+
+#### POST /scheduler/add
+
+添加新的定时任务调度。
+
+```python
+@dataclass
+class AddScheduleRequest:
+    name: str
+    scraper_name: str
+    cron_expression: str
+    priority: str = "normal"
+    timeout: int = 300
+    max_retries: int = 1
+
+@dataclass
+class AddScheduleResponse:
+    status: str
+    message: str
+    data: Dict[str, Any]  # 包含 name, next_run 等信息
+```
+
+### 5.6 CLI 工具接口
 
 ```python
 def run_octopus_service():
@@ -300,7 +401,132 @@ stop
 @enduml
 ```
 
-## 十、CLI 工具技术实现
+## 十、任务管理系统技术实现
+
+### 10.1 任务管理器架构
+
+```python
+class TaskManager:
+    """任务管理器，负责任务队列管理和并发控制"""
+
+    def __init__(self, max_workers: int = 4, max_queue_size: int = 1000):
+        self.max_workers = max_workers
+        self.max_queue_size = max_queue_size
+        self._priority_queue = PriorityQueue()
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._workers = []
+        self._stats = TaskStatistics()
+        self._running = False
+
+    def submit_task(self, task: ScraperTask) -> str:
+        """提交任务到优先级队列"""
+        # 实现任务提交逻辑
+
+    def start(self):
+        """启动任务管理器"""
+        # 实现工作线程启动逻辑
+
+    def stop(self):
+        """停止任务管理器"""
+        # 实现优雅关闭逻辑
+```
+
+### 10.2 任务调度器实现
+
+```python
+class TaskScheduler:
+    """基于Cron表达式的任务调度器"""
+
+    def __init__(self, task_manager: TaskManager):
+        self.task_manager = task_manager
+        self._schedules: Dict[str, TaskScheduleConfig] = {}
+        self._scheduler_thread = None
+        self._running = False
+
+    def add_schedule(self, config: TaskScheduleConfig):
+        """添加定时任务配置"""
+        # 实现调度配置添加逻辑
+
+    def start(self):
+        """启动调度器"""
+        # 实现调度器启动逻辑
+
+    def _schedule_loop(self):
+        """调度器主循环"""
+        # 实现Cron表达式解析和任务调度逻辑
+```
+
+### 10.3 任务模型设计
+
+```python
+@dataclass
+class ScraperTask:
+    """抓取任务数据模型"""
+    id: str
+    name: str
+    scraper_name: str
+    status: TaskStatus
+    priority: TaskPriority
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    timeout: int = 300
+    retry_count: int = 0
+    max_retries: int = 3
+    error_message: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
+
+    def __lt__(self, other):
+        """支持优先级队列比较"""
+        return self.priority.value < other.priority.value
+```
+
+### 10.4 任务统计和监控
+
+```python
+class TaskStatistics:
+    """任务统计信息"""
+
+    def __init__(self):
+        self.total_tasks = 0
+        self.completed_tasks = 0
+        self.failed_tasks = 0
+        self.start_time = datetime.now()
+        self._lock = threading.Lock()
+
+    def update_stats(self, task_result: TaskResult):
+        """更新统计信息"""
+        with self._lock:
+            if task_result.status == TaskStatus.COMPLETED:
+                self.completed_tasks += 1
+            elif task_result.status == TaskStatus.FAILED:
+                self.failed_tasks += 1
+```
+
+### 10.5 重试机制实现
+
+```python
+class RetryStrategy:
+    """任务重试策略"""
+
+    def __init__(self, max_retries: int = 3, base_delay: int = 5,
+                 max_delay: int = 300, backoff_factor: float = 2.0):
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+
+    def get_retry_delay(self, retry_count: int) -> int:
+        """计算重试延迟时间（指数退避）"""
+        delay = self.base_delay * (self.backoff_factor ** retry_count)
+        return min(delay, self.max_delay)
+
+    def should_retry(self, task: ScraperTask, error: Exception) -> bool:
+        """判断是否应该重试"""
+        return task.retry_count < self.max_retries
+```
+
+## 十一、CLI 工具技术实现
 
 ### 10.1 命令行参数解析
 
@@ -442,6 +668,11 @@ graph TD
 | `OCTOPUS_HOST` | 服务监听地址 | `0.0.0.0` |
 | `OCTOPUS_PORT` | 服务监听端口 | `8000` |
 | `OCTOPUS_DEBUG` | 调试模式 | `false` |
+| `TASK_MANAGER_MAX_WORKERS` | 任务管理器最大工作线程数 | `4` |
+| `TASK_MANAGER_MAX_QUEUE_SIZE` | 任务队列最大大小 | `1000` |
+| `TASK_MANAGER_ENABLE_RETRY` | 是否启用任务重试 | `true` |
+| `TASK_MANAGER_MAX_RETRY_ATTEMPTS` | 最大重试次数 | `3` |
+| `SCHEDULER_ENABLED` | 是否启用任务调度器 | `true` |
 | `OCTOPUS_LOG_LEVEL` | 日志级别 | `INFO` |
 | `OCTOPUS_LOG_FORMAT` | 日志格式 | `plain` |
 | `OCTOPUS_WORKERS` | 工作进程数 | `1` |
@@ -765,6 +996,28 @@ service:
 performance:
   scraper_timeout: 30
   upload_timeout: 30
+
+# 任务管理系统配置
+task_management:
+  enabled: true
+  max_workers: 2  # 开发环境使用较少线程
+  max_queue_size: 100
+  enable_retry: true
+  max_retry_attempts: 2
+  retry_delay: 5
+  max_retry_delay: 60
+  retry_backoff_factor: 2.0
+
+# 调度器配置
+scheduler:
+  enabled: true
+  schedules:
+    - name: "dev_test"
+      scraper_name: "test_scraper"
+      cron_expression: "*/5 * * * *"  # 每5分钟测试
+      priority: "normal"
+      timeout: 30
+      max_retries: 1
 ```
 
 ### 生产环境配置
@@ -782,6 +1035,35 @@ performance:
   scraper_timeout: 10
   upload_timeout: 15
   upload_max_retries: 3
+
+# 任务管理系统配置
+task_management:
+  enabled: true
+  max_workers: 4  # 生产环境使用更多线程
+  max_queue_size: 1000
+  enable_retry: true
+  max_retry_attempts: 3
+  retry_delay: 5
+  max_retry_delay: 300
+  retry_backoff_factor: 2.0
+
+# 调度器配置
+scheduler:
+  enabled: true
+  schedules:
+    - name: "daily_news"
+      scraper_name: "news_scraper"
+      cron_expression: "0 8 * * *"  # 每天8点
+      priority: "high"
+      timeout: 300
+      max_retries: 2
+
+    - name: "hourly_updates"
+      scraper_name: "update_scraper"
+      cron_expression: "0 * * * *"  # 每小时
+      priority: "normal"
+      timeout: 120
+      max_retries: 1
 ```
 
 ## 12.13 扩展性设计考虑

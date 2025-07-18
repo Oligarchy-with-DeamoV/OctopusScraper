@@ -20,7 +20,7 @@ from octopus_scraper.config.models import (
     ScraperConfig,
     ServiceConfig,
 )
-from .notion_config import NotionConfigClient
+from octopus_scraper.config.notion_config import NotionConfigClient
 
 logger = structlog.get_logger(__name__)
 

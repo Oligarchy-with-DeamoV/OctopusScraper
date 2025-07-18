@@ -20,6 +20,10 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 🛠️ **易于扩展**: 模块化设计，支持自定义处理器和存储后端
 - 📱 **CLI 工具**: 提供 `octopus_go` 和 `octopus_service` 命令行工具
 - ⚙️ **配置热更新**: 支持动态配置刷新，无需重启服务
+- 🎛️ **任务管理系统**: 统一的任务队列、优先级调度、并发控制和监控
+- 📅 **定时调度**: 基于 Cron 表达式的自动任务调度
+- 🔄 **任务重试**: 智能重试机制，支持指数退避和最大重试次数
+- 📊 **任务监控**: 实时任务状态跟踪、统计信息和性能指标
 
 ## 📋 目录
 
@@ -27,6 +31,10 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - [快速开始](#快速开始)
 - [配置](#配置)
 - [使用方法](#使用方法)
+- [任务管理系统](#任务管理系统)
+  - [TaskManager](#taskmanager)
+  - [TaskScheduler](#taskscheduler)
+  - [配置示例](#任务管理配置示例)
 - [API 文档](#api-文档)
 - [部署配置](#部署配置)
 - [开发指南](#开发指南)
@@ -144,6 +152,28 @@ service:
   host: "0.0.0.0"
   port: 8000
   debug: false
+
+# 任务管理配置
+task_management:
+  enabled: true
+  max_workers: 4
+  max_queue_size: 1000
+  enable_retry: true
+  max_retry_attempts: 3
+  retry_delay: 5
+  max_retry_delay: 300
+  retry_backoff_factor: 2.0
+
+# 调度器配置
+scheduler:
+  enabled: true
+  schedules:
+    - name: "daily_news"
+      scraper_name: "news_scraper"
+      cron_expression: "0 8 * * *"
+      priority: "high"
+      timeout: 300
+      max_retries: 2
 ```
 
 #### Notion 数据库配置
@@ -207,6 +237,151 @@ poetry run python src/octopus_scraper/octopus_service.py
 
 # 或使用环境变量
 SERVICE_HOST=0.0.0.0 SERVICE_PORT=8080 DEBUG=true poetry run python src/octopus_scraper/octopus_service.py
+```
+
+## 🎛️ 任务管理系统
+
+OctopusScraper 提供了一个强大的任务管理系统，支持统一的任务队列、优先级调度、并发控制和监控。
+
+### TaskManager
+
+TaskManager 是任务管理系统的核心组件，提供基于优先级队列的并发任务执行。
+
+#### 主要特性
+
+- **优先级队列**: 支持高、中、低三种优先级
+- **并发控制**: 可配置的工作线程数量
+- **任务重试**: 智能重试机制，支持指数退避
+- **统计监控**: 实时任务状态跟踪和性能指标
+- **生命周期钩子**: 任务开始、完成、失败时的回调
+
+#### 使用示例
+
+```python
+from octopus_scraper.task_manager import TaskManager, ScraperTask, TaskPriority
+
+# 创建任务管理器
+task_manager = TaskManager(
+    max_workers=4,
+    max_queue_size=1000,
+    enable_retry=True,
+    max_retry_attempts=3
+)
+
+# 创建任务
+task = ScraperTask(
+    name="example_task",
+    scraper_name="example_scraper",
+    priority=TaskPriority.HIGH,
+    timeout=60,
+    retry_count=0,
+    max_retries=3
+)
+
+# 提交任务
+task_manager.submit_task(task)
+
+# 启动任务管理器
+task_manager.start()
+
+# 获取统计信息
+stats = task_manager.get_stats()
+print(f"已完成任务: {stats.completed_tasks}")
+print(f"失败任务: {stats.failed_tasks}")
+```
+
+### TaskScheduler
+
+TaskScheduler 提供基于 Cron 表达式的自动任务调度功能。
+
+#### 主要特性
+
+- **Cron 表达式**: 支持标准的 Cron 时间表达式
+- **任务调度**: 自动创建和提交定时任务
+- **调度管理**: 添加、删除、暂停调度任务
+- **优雅关闭**: 正确处理调度器关闭和清理
+
+#### 使用示例
+
+```python
+from octopus_scraper.task_manager import TaskScheduler, TaskScheduleConfig
+
+# 创建任务调度器
+scheduler = TaskScheduler(task_manager)
+
+# 创建调度配置
+schedule_config = TaskScheduleConfig(
+    name="daily_scrape",
+    scraper_name="daily_scraper",
+    cron_expression="0 8 * * *",  # 每天8点执行
+    priority=TaskPriority.NORMAL,
+    timeout=300,
+    max_retries=2
+)
+
+# 添加调度任务
+scheduler.add_schedule(schedule_config)
+
+# 启动调度器
+scheduler.start()
+
+# 便捷方法：添加每日任务
+scheduler.add_daily_task(
+    name="morning_news",
+    scraper_name="news_scraper",
+    hour=9,
+    minute=0
+)
+```
+
+### 任务管理配置示例
+
+在配置文件中启用任务管理系统：
+
+```yaml
+# Task Management Configuration
+task_management:
+  enabled: true
+  max_workers: 4
+  max_queue_size: 1000
+  enable_retry: true
+  max_retry_attempts: 3
+  retry_delay: 5
+  max_retry_delay: 300
+  retry_backoff_factor: 2.0
+
+# Scheduler Configuration
+scheduler:
+  enabled: true
+  schedules:
+    - name: "daily_news"
+      scraper_name: "news_scraper"
+      cron_expression: "0 8 * * *"
+      priority: "high"
+      timeout: 300
+      max_retries: 2
+
+    - name: "hourly_updates"
+      scraper_name: "update_scraper"
+      cron_expression: "0 * * * *"
+      priority: "normal"
+      timeout: 120
+      max_retries: 1
+```
+
+### 任务状态监控
+
+通过 Web API 获取任务状态和统计信息：
+
+```bash
+# 获取任务统计
+curl http://localhost:8080/tasks/stats
+
+# 获取活跃任务
+curl http://localhost:8080/tasks/active
+
+# 获取调度器状态
+curl http://localhost:8080/scheduler/status
 ```
 
 ## 🔌 API 文档
@@ -402,6 +577,156 @@ POST /admin/config/validate    # 验证配置
 }
 ```
 
+### 任务管理 API
+
+#### 获取任务统计信息
+
+```http
+GET /tasks/stats
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "data": {
+    "total_tasks": 150,
+    "completed_tasks": 120,
+    "failed_tasks": 5,
+    "pending_tasks": 25,
+    "active_tasks": 3,
+    "queue_size": 22,
+    "workers_count": 4,
+    "uptime_seconds": 3600,
+    "tasks_per_minute": 2.5,
+    "average_task_duration": 45.2,
+    "success_rate": 0.96
+  }
+}
+```
+
+#### 获取活跃任务列表
+
+```http
+GET /tasks/active
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "data": {
+    "active_tasks": [
+      {
+        "id": "task_123",
+        "name": "news_scraper",
+        "scraper_name": "daily_news",
+        "status": "running",
+        "priority": "high",
+        "started_at": "2025-01-20T10:30:00Z",
+        "timeout": 300,
+        "retry_count": 0,
+        "worker_id": "worker_1"
+      }
+    ]
+  }
+}
+```
+
+#### 提交新任务
+
+```http
+POST /tasks/submit
+```
+
+**请求体：**
+```json
+{
+  "name": "custom_task",
+  "scraper_name": "example_scraper",
+  "priority": "normal",
+  "timeout": 120,
+  "max_retries": 2,
+  "params": {
+    "custom_param": "value"
+  }
+}
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Task submitted successfully",
+  "data": {
+    "task_id": "task_456",
+    "name": "custom_task",
+    "status": "queued",
+    "priority": "normal",
+    "created_at": "2025-01-20T10:35:00Z"
+  }
+}
+```
+
+#### 获取调度器状态
+
+```http
+GET /scheduler/status
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "data": {
+    "scheduler_running": true,
+    "schedules_count": 3,
+    "next_run_times": [
+      {
+        "name": "daily_news",
+        "next_run": "2025-01-21T08:00:00Z",
+        "cron_expression": "0 8 * * *"
+      },
+      {
+        "name": "hourly_updates",
+        "next_run": "2025-01-20T11:00:00Z",
+        "cron_expression": "0 * * * *"
+      }
+    ]
+  }
+}
+```
+
+#### 添加调度任务
+
+```http
+POST /scheduler/add
+```
+
+**请求体：**
+```json
+{
+  "name": "weekly_report",
+  "scraper_name": "report_scraper",
+  "cron_expression": "0 9 * * 1",
+  "priority": "normal",
+  "timeout": 600,
+  "max_retries": 1
+}
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Schedule added successfully",
+  "data": {
+    "name": "weekly_report",
+    "next_run": "2025-01-27T09:00:00Z"
+  }
+}
+```
+
 ## 🛠️ 开发指南
 
 ### 项目结构
@@ -421,6 +746,11 @@ src/octopus_scraper/
 │   │   ├── rsshub.py     # RSSHub 抓取
 │   │   └── tools.py      # 通用工具
 │   └── scraper.py        # 抓取器基类
+├── task_manager/          # 任务管理系统
+│   ├── __init__.py       # 模块导出
+│   ├── models.py         # 任务数据模型
+│   ├── task_manager.py   # 任务管理器
+│   └── scheduler.py      # 任务调度器
 ├── octopus.py            # 核心抓取逻辑
 ├── octopus_service.py    # Web 服务
 └── service_models.py     # 服务模型

@@ -1,7 +1,9 @@
 # OctopusScraper 配置文件示例
 # 复制此文件为 config.yml 并修改相应配置
 
-# 抓取器配置
+# =============================================================================
+# 抓取器配置 (传统格式，向后兼容)
+# =============================================================================
 scrapers:
   # RSS 抓取器示例
   - name: "技术博客示例"
@@ -22,15 +24,102 @@ scrapers:
     fetch_params:
       limit: 5
 
+# =============================================================================
+# 新任务管理系统配置 (推荐使用)
+# =============================================================================
+# 使用新的任务管理系统配置格式
+scrapers_config_with_fetch_params:
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/github/issues/microsoft/vscode"
+      content_processor_configs: {}
+    fetch_params:
+      limit: 20
+
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/sspai/matrix"
+      content_processor_configs: {}
+    fetch_params:
+      limit: 10
+
+  - scraper_config:
+      fetcher_name: "direct_rss"
+      fetcher_config:
+        hub_root: "https://example.com"
+        route: "/feed.xml"
+      content_processor_configs: {}
+    fetch_params:
+      limit: 15
+      filter_hours: 24
+
+# =============================================================================
 # Notion 配置
+# =============================================================================
+# 传统格式（向后兼容）
 notion:
   api_key: "${NOTION_API_KEY}" # 从环境变量获取
   content_database_id: "${NOTION_CONTENT_DATABASE_ID}"
 
+# 新格式（推荐使用）
+notion_api_config:
+  api_key: "${NOTION_API_KEY}"
+  database_id: "${NOTION_CONTENT_DATABASE_ID}"
+
+# =============================================================================
 # 并发配置
+# =============================================================================
+# 传统设置
 max_concurrent_scrapers: 5 # 最大并发抓取器数量，默认为5
 
+# 新任务管理系统设置
+use_task_manager: true  # 启用新的任务管理系统
+
+task_manager_config:
+  max_concurrent_tasks: 8        # 最大并发任务数（会覆盖 max_concurrent_scrapers）
+  max_queue_size: 1000          # 任务队列最大大小
+  result_retention_hours: 48     # 任务结果在内存中保留时间（小时）
+
+# =============================================================================
+# 任务调度器配置 (可选)
+# =============================================================================
+# 如果要使用自动调度功能，请取消注释以下配置
+# scheduler_config:
+#   enabled: true
+#   schedules:
+#     # 每日定时抓取 VS Code Issues
+#     - schedule_id: "daily_vscode_issues"
+#       scraper_name: "vscode_issues"
+#       cron_expression: "0 8 * * *"  # 每天上午8点
+#       enabled: true
+#       max_concurrent_runs: 1
+#       timeout_seconds: 600
+#       fetch_params:
+#         limit: 50
+#       metadata:
+#         source: "github"
+#         category: "issues"
+#
+#     # 每小时抓取少数派热门内容
+#     - schedule_id: "hourly_sspai"
+#       scraper_name: "sspai_matrix"
+#       cron_expression: "0 * * * *"  # 每小时
+#       enabled: true
+#       max_concurrent_runs: 1
+#       timeout_seconds: 300
+#       fetch_params:
+#         limit: 10
+#       metadata:
+#         source: "sspai"
+#         category: "matrix"
+
+# =============================================================================
 # 服务配置 (可选，仅在 Web 服务模式下使用)
+# =============================================================================
 service:
   host: "0.0.0.0"
   port: 8000
@@ -40,3 +129,14 @@ service:
   scraper_timeout: 10 # 抓取超时时间（秒）
   upload_timeout: 15 # 上传超时时间（秒）
   upload_max_retries: 3 # 上传最大重试次数
+
+# =============================================================================
+# 使用说明
+# =============================================================================
+# 1. 如果你想使用传统模式，请配置 scrapers 和 notion 部分
+# 2. 如果你想使用新的任务管理系统，请：
+#    - 设置 use_task_manager: true
+#    - 配置 scrapers_config_with_fetch_params 和 notion_api_config
+#    - 配置 task_manager_config 部分
+# 3. 如果需要自动调度，请启用 scheduler_config
+# 4. 服务配置仅在以 Web 服务模式运行时需要
