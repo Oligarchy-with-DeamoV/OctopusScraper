@@ -38,7 +38,7 @@ async def test_service_functions_work_with_mock(mock_octopus):
         response = await health_check(mock_request)
         assert response.status == 200
         response_data = response.body.decode("utf-8")
-        assert '"status":"ok"' in response_data
+        assert '"status":"healthy"' in response_data
 
 
 async def test_trigger_functions_with_manual_setup(mock_octopus):
