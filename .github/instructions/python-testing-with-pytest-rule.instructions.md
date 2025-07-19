@@ -5,3 +5,4 @@ globs: /tests/**/*.*
 
 - Use pytest for comprehensive testing.
 - Caution use poetry to run pytest for comprehensive testing.
+- Pay attention if the project uses poetry, running test should use poetry run pytest.

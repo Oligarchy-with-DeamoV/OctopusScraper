@@ -14,7 +14,8 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 📊 **智能存储**: 自动去重，支持 Notion 数据库存储
 - 🎯 **智能内容处理**: 可配置的摘要长度控制，内容回退机制
 - 🔄 **实时监控**: 内置 Web 服务，提供配置管理和状态监控
-- 🏥 **企业级健康检查**: 三层健康检查体系，支持容器环境存活/就绪探针，智能缓存机制
+- �️ **管理界面**: 完整的 Web 管理界面，支持配置热重载、抓取器测试、系统监控
+- �🏥 **企业级健康检查**: 三层健康检查体系，支持容器环境存活/就绪探针，智能缓存机制
 - 📈 **性能监控**: 内存使用监控、响应时间跟踪、依赖项状态检查
 - 🧪 **高测试覆盖**: 82%+ 测试覆盖率，确保代码质量
 - 🛠️ **易于扩展**: 模块化设计，支持自定义处理器和存储后端
@@ -85,68 +86,109 @@ pip install -r requirements.txt
 1. **获取 Notion API 密钥**: 参考 [官方文档](https://developers.notion.com/docs/create-a-notion-integration)
 2. **获取数据库 ID**: 参考 [官方文档](https://developers.notion.com/docs/working-with-databases)
 
-### 2. 环境变量配置
+### 2. 配置设置
 
 ```bash
+# 复制配置文件
+cp config.example.yml config.yml
+
 # 设置环境变量
 export NOTION_API_KEY="your_notion_api_key"
-export NOTION_SCRAPERS_DATABASE_ID="your_scrapers_database_id"
-export NOTION_CONTENT_DATABASE_ID="your_content_database_id"
+export NOTION_CONTENT_DATABASE_ID="your_database_id"
 
 # 可选：配置内容处理参数
 export OCTOPUS_SUMMARY_MAX_LENGTH="500"  # RSS 摘要最大长度
 ```
 
-### 3. 运行示例
+### 3. 启动服务
 
 ```bash
+# 启动 Web 服务 (推荐)
+poetry run octopus_service
+
+# 或者直接运行抓取
+poetry run octopus_go --config config.yml --notion_upload
+
 # 查看 CLI 工具帮助信息
 poetry run octopus_go --help
 poetry run octopus_service --help
+```
 
-# 仅抓取内容（不上传）
-poetry run octopus_go --config ./tests/octopus_scraper/cli/octopus_test_config.yml
+### 4. 管理界面
 
-# 抓取内容并上传到 Notion
-poetry run octopus_go --config ./tests/octopus_scraper/cli/octopus_test_config.yml --notion_upload
+服务启动后，访问以下端点：
 
-# 启动 Web 服务 (推荐使用命令行工具)
-poetry run octopus_service
+- **管理界面**: http://localhost:8000/admin
+- **健康检查**: http://localhost:8000/health
+- **API 文档**: 参考下方 [API 文档](#api-文档) 部分
 
-# 启动 Web 服务 (自定义配置)
-poetry run octopus_service --host 127.0.0.1 --port 8080 --debug --single-process
+### 5. 默认配置说明
 
-# 或者直接运行服务文件 (不推荐)
-poetry run python src/octopus_scraper/octopus_service.py
+`config.example.yml` 包含以下开箱即用的配置：
+
+#### 默认抓取器
+- **VS Code Issues**: GitHub Issues 抓取
+- **少数派热门**: 热门文章抓取
+- **技术博客**: 阮一峰的博客 RSS
+- **HackerNews**: 热门新闻
+
+#### 任务管理配置
+- 最大并发任务数: 8
+- 队列大小: 1000
+- 结果保留时间: 48小时
+
+#### 服务配置
+- 监听地址: 0.0.0.0:8000
+- 日志级别: INFO
+- 配置刷新间隔: 5分钟
+
+### 6. 自定义配置
+
+修改 `config.yml` 中的 `scrapers_config_with_fetch_params` 部分添加你自己的抓取源：
+
+```yaml
+scrapers_config_with_fetch_params:
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/your/custom/route"
+      content_processor_configs: {}
+    fetch_params:
+      limit: 10
 ```
 
 ## ⚙️ 配置
 
 ### 配置文件结构
 
-OctopusScraper 支持两种配置方式：
+OctopusScraper 使用现代化的任务管理系统配置格式。推荐直接复制 [config.example.yml](config.example.yml) 文件开始使用。
 
-1. **YAML 配置文件** (适用于 CLI 模式)
-2. **Notion 数据库配置** (适用于 Web 服务模式)
-
-#### YAML 配置示例
-
-参考 [config.example.yml](config.example.yml) 文件：
+#### 推荐配置（现代格式）
 
 ```yaml
-# config.yml
-scrapers:
-  - name: "示例抓取器"
-    fetcher: "rsshub"
-    hub_root: "https://rsshub.app"
-    route: "/example/route"
-    priority: 1
+# 使用最新任务管理系统的配置格式
+scrapers_config_with_fetch_params:
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/github/issues/microsoft/vscode"
+      content_processor_configs: {}
     fetch_params:
-      limit: 10
+      limit: 20
 
-notion:
+# Notion 配置
+notion_api_config:
   api_key: "${NOTION_API_KEY}"
-  content_database_id: "${NOTION_CONTENT_DATABASE_ID}"
+  database_id: "${NOTION_CONTENT_DATABASE_ID}"
+
+# 任务管理配置
+use_task_manager: true
+task_manager_config:
+  max_concurrent_tasks: 8
+  max_queue_size: 1000
+  result_retention_hours: 48
 
 service:
   host: "0.0.0.0"
@@ -541,6 +583,7 @@ POST /trigger_upload     # 触发上传
 GET /admin/config/status       # 获取配置状态
 POST /admin/config/refresh     # 刷新配置
 POST /admin/config/validate    # 验证配置
+POST /admin/config/hotreload   # 热重载配置
 ```
 
 **配置状态响应示例：**
@@ -564,6 +607,59 @@ POST /admin/config/validate    # 验证配置
     }
   ]
 }
+```
+
+### 管理接口
+
+#### 管理面板概览
+```http
+GET /admin                     # 管理界面概览
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "service_info": {
+    "name": "OctopusService",
+    "version": "0.1.4",
+    "uptime_seconds": 3600
+  },
+  "quick_stats": {
+    "scrapers_configured": 4,
+    "tasks_completed": 120,
+    "active_tasks": 3,
+    "health_status": "healthy"
+  },
+  "available_actions": [
+    "config_hotreload",
+    "clear_cache",
+    "force_gc",
+    "test_scrapers"
+  ]
+}
+```
+
+#### 抓取器管理
+```http
+GET /admin/runtime/scrapers    # 获取运行时抓取器列表
+POST /admin/scrapers/test/{scraper_name}  # 测试指定抓取器
+```
+
+#### 系统管理
+```http
+POST /admin/cache/clear        # 清理缓存
+POST /admin/system/gc          # 强制垃圾回收
+GET /admin/system/state        # 导出系统状态
+POST /admin/config/watcher/restart  # 重启配置监控
+```
+
+#### 监控接口
+```http
+GET /admin/monitoring/metrics  # 获取监控指标
+GET /admin/tasks/stats         # 任务统计信息
+GET /admin/tasks/list          # 任务列表
+POST /admin/tasks/submit       # 提交单个任务
 ```
 
 **配置刷新响应示例：**

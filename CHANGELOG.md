@@ -5,6 +5,71 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且该项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [0.1.4] - 2025-07-19
+
+### � 重大功能新增：管理接口系统
+- 🛠️ **全面的 Admin API 接口**：
+  - **配置管理接口**：`/admin/config/status`, `/admin/config/refresh`, `/admin/config/validate`, `/admin/config/hotreload`
+  - **系统信息接口**：`/admin/system/info` - 获取服务、配置、任务管理器等综合系统信息
+  - **抓取器管理接口**：`/admin/scrapers/list`, `/admin/scrapers/<name>/test` - 抓取器列表和测试功能
+  - **任务管理接口**：`/admin/tasks/stats`, `/admin/tasks/list`, `/admin/tasks/<id>`, `/admin/tasks/<id>/cancel`, `/admin/tasks/submit`
+  - **监控指标接口**：`/admin/monitoring/metrics` - 全面的服务性能和状态监控
+  - **运行时管理接口**：`/admin/cache/clear`, `/admin/runtime/gc`, `/admin/runtime/config-watcher`
+  - **调试接口**：`/admin/debug/dump-state` - 服务状态转储（敏感数据已脱敏）
+
+### 🔧 高级功能实现
+- ⚡ **热重载配置**：
+  - 支持从 Notion 热重载配置，无需重启服务
+  - 配置版本跟踪和变更摘要
+  - 最小服务中断的配置更新机制
+- 🧪 **抓取器测试框架**：
+  - 在线测试单个抓取器，无需存储结果
+  - 支持自定义参数和超时控制
+  - 详细的执行统计和示例数据返回
+- 📊 **任务管理集成**：
+  - 完整的任务生命周期管理（提交、查询、取消）
+  - 任务统计和性能指标
+  - 支持按状态过滤和分页查询
+- 🗂️ **缓存管理**：
+  - 健康检查缓存、内容缓存、任务结果缓存的独立清理
+  - 垃圾回收手动触发和内存使用监控
+  - 配置监视器的启停控制
+
+### �🐛 Bug 修复
+- 🔧 **测试框架兼容性修复**：
+  - 修复 `octopus_service.py` 中 `test_scraper` 函数被 pytest 误识别为测试用例的问题
+  - 将函数名从 `test_scraper` 重命名为 `run_scraper_test`，避免与 pytest 测试发现机制冲突
+  - 保持 API 路由路径 `/admin/scrapers/<scraper_name>/test` 不变，确保对外接口兼容性
+
+### 📈 架构改进
+- 🏗️ **企业级管理界面**：
+  - 15+ 专业管理端点，涵盖配置、监控、调试全流程
+  - 统一的错误处理和响应格式
+  - 详细的操作日志和审计信息
+- 🔍 **深度监控能力**：
+  - 实时内存使用情况、响应时间统计
+  - Notion API 连接状态监控
+  - 任务队列利用率和工作线程状态
+  - 配置刷新间隔和版本跟踪
+- 🛡️ **生产就绪特性**：
+  - 敏感数据自动脱敏
+  - 可配置的健康检查行为
+  - 支持容器环境的优雅关闭
+  - 详细的错误边界处理
+
+### 📚 文档完善
+- 📖 **管理接口文档**：
+  - 新增完整的 Admin API 文档和测试指南
+  - 更新 README.md，增加管理界面使用说明
+  - 修正测试文档中错误的路由路径引用
+  - 确保所有文档与实际实现保持一致
+
+### 🧪 测试覆盖
+- ✅ **管理接口测试**：
+  - 19 个专门的管理接口测试用例，100% 通过率
+  - 覆盖配置管理、任务操作、系统监控等核心功能
+  - Mock 集成测试，确保接口稳定性
+
 ## [0.1.3] - 2025-07-18
 
 ### 🏥 健康检查系统重大升级
