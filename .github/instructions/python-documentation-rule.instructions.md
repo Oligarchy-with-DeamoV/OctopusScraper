@@ -4,3 +4,4 @@ globs: /**/*.py
 ---
 
 - Provide detailed documentation using docstrings and README files.
+- Other comprehensive documents should be stored in the `docs` directory.

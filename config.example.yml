@@ -1,34 +1,11 @@
-# OctopusScraper 配置文件示例
+# OctopusScraper 配置文件
 # 复制此文件为 config.yml 并修改相应配置
 
 # =============================================================================
-# 抓取器配置 (传统格式，向后兼容)
+# 抓取器配置 (使用最新任务管理系统)
 # =============================================================================
-scrapers:
-  # RSS 抓取器示例
-  - name: "技术博客示例"
-    fetcher: "direct_rss"
-    hub_root: "https://example.com"
-    route: "/feed.xml"
-    priority: 1
-    fetch_params:
-      limit: 10
-      filter_hours: 24 # 仅获取24小时内的内容
-
-  # RSSHub 抓取器示例
-  - name: "少数派热门"
-    fetcher: "rsshub"
-    hub_root: "https://rsshub.app"
-    route: "/sspai/matrix"
-    priority: 2
-    fetch_params:
-      limit: 5
-
-# =============================================================================
-# 新任务管理系统配置 (推荐使用)
-# =============================================================================
-# 使用新的任务管理系统配置格式
 scrapers_config_with_fetch_params:
+  # VS Code GitHub Issues 抓取
   - scraper_config:
       fetcher_name: "rsshub"
       fetcher_config:
@@ -38,6 +15,7 @@ scrapers_config_with_fetch_params:
     fetch_params:
       limit: 20
 
+  # 少数派热门文章
   - scraper_config:
       fetcher_name: "rsshub"
       fetcher_config:
@@ -47,96 +25,107 @@ scrapers_config_with_fetch_params:
     fetch_params:
       limit: 10
 
+  # 技术博客 RSS 示例
   - scraper_config:
       fetcher_name: "direct_rss"
       fetcher_config:
-        hub_root: "https://example.com"
-        route: "/feed.xml"
+        hub_root: "https://ruanyifeng.com"
+        route: "/blog/atom.xml"
       content_processor_configs: {}
     fetch_params:
       limit: 15
       filter_hours: 24
 
-# =============================================================================
-# Notion 配置
-# =============================================================================
-# 传统格式（向后兼容）
-notion:
-  api_key: "${NOTION_API_KEY}" # 从环境变量获取
-  content_database_id: "${NOTION_CONTENT_DATABASE_ID}"
+  # HackerNews 热门
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/hackernews/best"
+      content_processor_configs: {}
+    fetch_params:
+      limit: 10
 
-# 新格式（推荐使用）
+# =============================================================================
+# Notion API 配置
+# =============================================================================
 notion_api_config:
-  api_key: "${NOTION_API_KEY}"
-  database_id: "${NOTION_CONTENT_DATABASE_ID}"
+  api_key: "${NOTION_API_KEY}"  # 请设置环境变量或直接填写
+  database_id: "${NOTION_CONTENT_DATABASE_ID}"  # Notion 数据库 ID
 
 # =============================================================================
-# 并发配置
+# 任务管理系统配置
 # =============================================================================
-# 传统设置
-max_concurrent_scrapers: 5 # 最大并发抓取器数量，默认为5
-
-# 新任务管理系统设置
-use_task_manager: true  # 启用新的任务管理系统
+use_task_manager: true  # 启用任务管理系统
 
 task_manager_config:
-  max_concurrent_tasks: 8        # 最大并发任务数（会覆盖 max_concurrent_scrapers）
+  max_concurrent_tasks: 8        # 最大并发任务数
   max_queue_size: 1000          # 任务队列最大大小
-  result_retention_hours: 48     # 任务结果在内存中保留时间（小时）
+  result_retention_hours: 48     # 任务结果保留时间（小时）
 
 # =============================================================================
-# 任务调度器配置 (可选)
-# =============================================================================
-# 如果要使用自动调度功能，请取消注释以下配置
-# scheduler_config:
-#   enabled: true
-#   schedules:
-#     # 每日定时抓取 VS Code Issues
-#     - schedule_id: "daily_vscode_issues"
-#       scraper_name: "vscode_issues"
-#       cron_expression: "0 8 * * *"  # 每天上午8点
-#       enabled: true
-#       max_concurrent_runs: 1
-#       timeout_seconds: 600
-#       fetch_params:
-#         limit: 50
-#       metadata:
-#         source: "github"
-#         category: "issues"
-#
-#     # 每小时抓取少数派热门内容
-#     - schedule_id: "hourly_sspai"
-#       scraper_name: "sspai_matrix"
-#       cron_expression: "0 * * * *"  # 每小时
-#       enabled: true
-#       max_concurrent_runs: 1
-#       timeout_seconds: 300
-#       fetch_params:
-#         limit: 10
-#       metadata:
-#         source: "sspai"
-#         category: "matrix"
-
-# =============================================================================
-# 服务配置 (可选，仅在 Web 服务模式下使用)
+# 服务配置 (Web API 服务)
 # =============================================================================
 service:
   host: "0.0.0.0"
   port: 8000
   debug: false
   log_level: "INFO"
-  config_refresh_interval: 300 # 配置刷新间隔（秒）
-  scraper_timeout: 10 # 抓取超时时间（秒）
-  upload_timeout: 15 # 上传超时时间（秒）
-  upload_max_retries: 3 # 上传最大重试次数
+  log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  config_refresh_interval: 300  # 配置刷新间隔（秒）
+  scraper_timeout: 300          # 抓取超时时间（秒）
+  upload_timeout: 60            # 上传超时时间（秒）
+  upload_max_retries: 3         # 上传最大重试次数
 
 # =============================================================================
-# 使用说明
+# 任务调度器配置 (可选 - 自动定时任务)
 # =============================================================================
-# 1. 如果你想使用传统模式，请配置 scrapers 和 notion 部分
-# 2. 如果你想使用新的任务管理系统，请：
-#    - 设置 use_task_manager: true
-#    - 配置 scrapers_config_with_fetch_params 和 notion_api_config
-#    - 配置 task_manager_config 部分
-# 3. 如果需要自动调度，请启用 scheduler_config
-# 4. 服务配置仅在以 Web 服务模式运行时需要
+scheduler_config:
+  enabled: false  # 设为 true 启用自动调度
+  schedules:
+    # 每日定时抓取示例
+    - schedule_id: "daily_vscode_issues"
+      scraper_name: "vscode_issues"
+      cron_expression: "0 8 * * *"  # 每天上午8点
+      enabled: false
+      max_concurrent_runs: 1
+      timeout_seconds: 600
+      fetch_params:
+        limit: 50
+      metadata:
+        source: "github"
+        category: "issues"
+
+    # 每2小时抓取少数派
+    - schedule_id: "bi_hourly_sspai"
+      scraper_name: "sspai_matrix"
+      cron_expression: "0 */2 * * *"  # 每2小时
+      enabled: false
+      max_concurrent_runs: 1
+      timeout_seconds: 300
+      fetch_params:
+        limit: 10
+      metadata:
+        source: "sspai"
+        category: "matrix"
+
+# =============================================================================
+# 快速开始指南
+# =============================================================================
+# 1. 设置环境变量:
+#    export NOTION_API_KEY="your_notion_api_key"
+#    export NOTION_CONTENT_DATABASE_ID="your_database_id"
+#
+# 2. 或者直接在上面的 notion_api_config 中填写实际值
+#
+# 3. 启动服务:
+#    poetry run octopus_service
+#
+# 4. 访问管理界面:
+#    http://localhost:8000/admin
+#
+# 5. 手动触发抓取:
+#    curl -X POST http://localhost:8000/trigger/scraper
+#
+# 6. 查看健康状态:
+#    curl http://localhost:8000/health
