@@ -127,20 +127,23 @@ poetry run octopus_service --help
 `config.example.yml` 包含以下开箱即用的配置：
 
 #### 默认抓取器
+
 - **VS Code Issues**: GitHub Issues 抓取
 - **少数派热门**: 热门文章抓取
 - **技术博客**: 阮一峰的博客 RSS
 - **HackerNews**: 热门新闻
 
 #### 任务管理配置
+
 - 最大并发任务数: 8
 - 队列大小: 1000
-- 结果保留时间: 48小时
+- 结果保留时间: 48 小时
 
 #### 服务配置
+
 - 监听地址: 0.0.0.0:8000
 - 日志级别: INFO
-- 配置刷新间隔: 5分钟
+- 配置刷新间隔: 5 分钟
 
 ### 6. 自定义配置
 
@@ -222,15 +225,15 @@ scheduler:
 
 在 Notion 中创建以下结构的数据库：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| Name | Title | 抓取器名称 |
-| Status | Select | 状态 (Active/Inactive) |
-| Fetcher | Select | 抓取器类型 (rsshub/direct_rss) |
-| Hub Root | URL | 根 URL |
-| Route | Rich Text | 路由路径 |
-| Priority | Number | 优先级 |
-| Fetch Params | Rich Text | JSON 格式的参数 |
+| 字段名       | 类型      | 说明                           |
+| ------------ | --------- | ------------------------------ |
+| Name         | Title     | 抓取器名称                     |
+| Status       | Select    | 状态 (Active/Inactive)         |
+| Fetcher      | Select    | 抓取器类型 (rsshub/direct_rss) |
+| Hub Root     | URL       | 根 URL                         |
+| Route        | Rich Text | 路由路径                       |
+| Priority     | Number    | 优先级                         |
+| Fetch Params | Rich Text | JSON 格式的参数                |
 
 ## 📖 使用方法
 
@@ -435,6 +438,7 @@ Web 服务提供以下 API 端点：
 OctopusScraper 提供了三个专业的健康检查端点，适用于不同的监控场景：
 
 #### 1. 全面健康检查
+
 ```http
 GET /health
 ```
@@ -442,9 +446,11 @@ GET /health
 提供完整的系统健康状态，包括依赖项检查、配置状态、性能指标等。
 
 **查询参数：**
+
 - `cache` (可选): `true`/`false` - 是否使用缓存，默认 `true`
 
 **响应示例：**
+
 ```json
 {
   "status": "healthy",
@@ -492,6 +498,7 @@ GET /health
 ```
 
 #### 2. 存活探针 (Liveness Probe)
+
 ```http
 GET /health/liveness
 ```
@@ -499,6 +506,7 @@ GET /health/liveness
 轻量级健康检查，适用于 Docker 等容器环境的存活探针。
 
 **响应示例：**
+
 ```json
 {
   "status": "alive",
@@ -511,6 +519,7 @@ GET /health/liveness
 ```
 
 #### 3. 就绪探针 (Readiness Probe)
+
 ```http
 GET /health/readiness
 ```
@@ -518,9 +527,11 @@ GET /health/readiness
 检查服务是否准备好接收流量，包含关键依赖项验证。
 
 **查询参数：**
+
 - `skip_notion` (可选): `true`/`false` - 是否跳过 Notion API 检查，默认 `false`
 
 **响应示例：**
+
 ```json
 {
   "status": "ready",
@@ -542,20 +553,23 @@ GET /health/readiness
 ```
 
 **健康检查状态码：**
+
 - `200 OK`: 健康/就绪
 - `503 Service Unavailable`: 不健康/未就绪
 - `500 Internal Server Error`: 检查过程出错
 
 **缓存机制：**
-全面健康检查支持智能缓存（30秒），减少重复检查的性能开销。可通过 `?cache=false` 参数禁用缓存获取实时状态。
+全面健康检查支持智能缓存（30 秒），减少重复检查的性能开销。可通过 `?cache=false` 参数禁用缓存获取实时状态。
 
 ### 抓取器管理
+
 ```http
 POST /trigger_scraper    # 触发抓取
 POST /trigger_upload     # 触发上传
 ```
 
 **抓取器响应示例：**
+
 ```json
 {
   "status": "success",
@@ -568,6 +582,7 @@ POST /trigger_upload     # 触发上传
 ```
 
 **上传响应示例：**
+
 ```json
 {
   "status": "success",
@@ -579,6 +594,7 @@ POST /trigger_upload     # 触发上传
 ```
 
 ### 配置管理
+
 ```http
 GET /admin/config/status       # 获取配置状态
 POST /admin/config/refresh     # 刷新配置
@@ -587,6 +603,7 @@ POST /admin/config/hotreload   # 热重载配置
 ```
 
 **配置状态响应示例：**
+
 ```json
 {
   "is_healthy": true,
@@ -612,11 +629,13 @@ POST /admin/config/hotreload   # 热重载配置
 ### 管理接口
 
 #### 管理面板概览
+
 ```http
 GET /admin                     # 管理界面概览
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -641,12 +660,14 @@ GET /admin                     # 管理界面概览
 ```
 
 #### 抓取器管理
+
 ```http
 GET /admin/runtime/scrapers    # 获取运行时抓取器列表
 POST /admin/scrapers/test/{scraper_name}  # 测试指定抓取器
 ```
 
 #### 系统管理
+
 ```http
 POST /admin/cache/clear        # 清理缓存
 POST /admin/system/gc          # 强制垃圾回收
@@ -655,6 +676,7 @@ POST /admin/config/watcher/restart  # 重启配置监控
 ```
 
 #### 监控接口
+
 ```http
 GET /admin/monitoring/metrics  # 获取监控指标
 GET /admin/tasks/stats         # 任务统计信息
@@ -663,6 +685,7 @@ POST /admin/tasks/submit       # 提交单个任务
 ```
 
 **配置刷新响应示例：**
+
 ```json
 {
   "status": "success",
@@ -682,6 +705,7 @@ GET /tasks/stats
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -708,6 +732,7 @@ GET /tasks/active
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -736,6 +761,7 @@ POST /tasks/submit
 ```
 
 **请求体：**
+
 ```json
 {
   "name": "custom_task",
@@ -750,6 +776,7 @@ POST /tasks/submit
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -771,6 +798,7 @@ GET /scheduler/status
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -800,6 +828,7 @@ POST /scheduler/add
 ```
 
 **请求体：**
+
 ```json
 {
   "name": "weekly_report",
@@ -812,6 +841,7 @@ POST /scheduler/add
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -855,11 +885,13 @@ src/octopus_scraper/
 ### 开发环境设置
 
 1. **安装开发依赖**
+
    ```bash
    poetry install --with dev
    ```
 
 2. **安装 Pre-commit Hook**
+
    ```bash
    brew install pre-commit  # macOS
    pre-commit install
@@ -923,7 +955,7 @@ docker run -d \
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   octopus-service:
@@ -953,10 +985,10 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 256M
-          cpus: '0.25'
+          cpus: "0.25"
 
     # 重启策略
     restart: unless-stopped
@@ -1022,7 +1054,7 @@ docker-compose down
 
 **可选的 Nginx 配置 (nginx.conf)：**
 
-```nginx
+````nginx
 events {
     worker_connections 1024;
 }
@@ -1101,7 +1133,7 @@ health_check() {
 # 执行检查
 echo "=== OctopusService Health Check ==="
 liveness_check && readiness_check && echo "=== Full Health Status ===" && health_check
-```
+````
 
 #### Prometheus 监控 (可选)
 
@@ -1109,20 +1141,20 @@ liveness_check && readiness_check && echo "=== Full Health Status ===" && health
 
 ```yaml
 # 在 docker-compose.yml 中添加 Prometheus
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: octopus-prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-    networks:
-      - octopus-network
+prometheus:
+  image: prom/prometheus:latest
+  container_name: octopus-prometheus
+  ports:
+    - "9090:9090"
+  volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  command:
+    - "--config.file=/etc/prometheus/prometheus.yml"
+    - "--storage.tsdb.path=/prometheus"
+    - "--web.console.libraries=/etc/prometheus/console_libraries"
+    - "--web.console.templates=/etc/prometheus/consoles"
+  networks:
+    - octopus-network
 ```
 
 **prometheus.yml 配置：**
@@ -1133,12 +1165,12 @@ global:
   scrape_interval: 30s
 
 scrape_configs:
-  - job_name: 'octopus-service'
+  - job_name: "octopus-service"
     static_configs:
-      - targets: ['octopus-service:8000']
-    metrics_path: '/health'
+      - targets: ["octopus-service:8000"]
+    metrics_path: "/health"
     params:
-      cache: ['false']  # 获取实时状态
+      cache: ["false"] # 获取实时状态
     scrape_interval: 30s
 ```
 
@@ -1173,43 +1205,43 @@ poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under
 
 ### 基础配置
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `NOTION_API_KEY` | Notion API 密钥 | 是 | - |
-| `NOTION_SCRAPERS_DATABASE_ID` | 抓取器配置数据库 ID | 是 | - |
-| `NOTION_CONTENT_DATABASE_ID` | 内容存储数据库 ID | 是 | - |
+| 变量名                        | 说明                | 必需 | 默认值 |
+| ----------------------------- | ------------------- | ---- | ------ |
+| `NOTION_API_KEY`              | Notion API 密钥     | 是   | -      |
+| `NOTION_SCRAPERS_DATABASE_ID` | 抓取器配置数据库 ID | 是   | -      |
+| `NOTION_CONTENT_DATABASE_ID`  | 内容存储数据库 ID   | 是   | -      |
 
 ### 服务配置 (CLI 工具)
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `OCTOPUS_HOST` | 服务监听地址 (CLI) | 否 | `0.0.0.0` |
-| `OCTOPUS_PORT` | 服务监听端口 (CLI) | 否 | `8000` |
-| `OCTOPUS_DEBUG` | 调试模式 (CLI) | 否 | `false` |
-| `OCTOPUS_LOG_LEVEL` | 日志级别 (CLI) | 否 | `INFO` |
-| `OCTOPUS_LOG_FORMAT` | 日志格式 (CLI) | 否 | `plain` |
-| `OCTOPUS_WORKERS` | 工作进程数 (CLI) | 否 | `1` |
-| `OCTOPUS_SINGLE_PROCESS` | 单进程模式 (CLI) | 否 | `false` |
+| 变量名                   | 说明               | 必需 | 默认值    |
+| ------------------------ | ------------------ | ---- | --------- |
+| `OCTOPUS_HOST`           | 服务监听地址 (CLI) | 否   | `0.0.0.0` |
+| `OCTOPUS_PORT`           | 服务监听端口 (CLI) | 否   | `8000`    |
+| `OCTOPUS_DEBUG`          | 调试模式 (CLI)     | 否   | `false`   |
+| `OCTOPUS_LOG_LEVEL`      | 日志级别 (CLI)     | 否   | `INFO`    |
+| `OCTOPUS_LOG_FORMAT`     | 日志格式 (CLI)     | 否   | `plain`   |
+| `OCTOPUS_WORKERS`        | 工作进程数 (CLI)   | 否   | `1`       |
+| `OCTOPUS_SINGLE_PROCESS` | 单进程模式 (CLI)   | 否   | `false`   |
 
 ### 服务配置 (直接启动)
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `SERVICE_HOST` | 服务监听地址 | 否 | `0.0.0.0` |
-| `SERVICE_PORT` | 服务监听端口 | 否 | `8000` |
-| `DEBUG` | 调试模式 | 否 | `false` |
-| `LOG_LEVEL` | 日志级别 (DEBUG/INFO/WARNING/ERROR) | 否 | `INFO` |
-| `LOG_FORMAT` | 日志格式 (plain/json) | 否 | `plain` |
-| `CONFIG_REFRESH_INTERVAL` | 配置刷新间隔(秒) | 否 | `300` |
-| `SCRAPER_TIMEOUT` | 抓取超时时间(秒) | 否 | `10` |
-| `UPLOAD_TIMEOUT` | 上传超时时间(秒) | 否 | `15` |
-| `UPLOAD_MAX_RETRIES` | 上传最大重试次数 | 否 | `3` |
+| 变量名                    | 说明                                | 必需 | 默认值    |
+| ------------------------- | ----------------------------------- | ---- | --------- |
+| `SERVICE_HOST`            | 服务监听地址                        | 否   | `0.0.0.0` |
+| `SERVICE_PORT`            | 服务监听端口                        | 否   | `8000`    |
+| `DEBUG`                   | 调试模式                            | 否   | `false`   |
+| `LOG_LEVEL`               | 日志级别 (DEBUG/INFO/WARNING/ERROR) | 否   | `INFO`    |
+| `LOG_FORMAT`              | 日志格式 (plain/json)               | 否   | `plain`   |
+| `CONFIG_REFRESH_INTERVAL` | 配置刷新间隔(秒)                    | 否   | `300`     |
+| `SCRAPER_TIMEOUT`         | 抓取超时时间(秒)                    | 否   | `10`      |
+| `UPLOAD_TIMEOUT`          | 上传超时时间(秒)                    | 否   | `15`      |
+| `UPLOAD_MAX_RETRIES`      | 上传最大重试次数                    | 否   | `3`       |
 
 ### 内容处理配置
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否 | `500` |
+| 变量名                       | 说明                   | 必需 | 默认值 |
+| ---------------------------- | ---------------------- | ---- | ------ |
+| `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否   | `500`  |
 
 > 💡 **说明**: 当 RSS 摘要超过指定长度时，将设为空并交由 LLM 处理器生成摘要。
 

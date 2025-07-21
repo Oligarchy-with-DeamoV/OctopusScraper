@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  octopus-service:
+    build: .
+    image: octopus-scraper:latest
+    container_name: octopus-service
+    ports:
+      - "8000:8000"
+    environment:
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
+      - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - CONFIG_REFRESH_INTERVAL=${CONFIG_REFRESH_INTERVAL:-300}
+      - USE_TASK_MANAGER=${USE_TASK_MANAGER:-true}
+      - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-8}
+      - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
+      - SERVICE_HOST=${SERVICE_HOST:-0.0.0.0}
+      - SERVICE_PORT=${SERVICE_PORT:-8000}
+      - DEBUG=${DEBUG:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 挂载日志目录
+    volumes:
+      - ./logs:/app/logs
+
+    # 网络配置
+    networks:
+      - octopus-network
+
+  # 可选：添加 Nginx 代理
+  nginx:
+    image: nginx:alpine
+    container_name: octopus-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      octopus-service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - octopus-network
+
+networks:
+  octopus-network:
+    driver: bridge
+
+volumes:
+  logs:
