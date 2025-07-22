@@ -79,14 +79,105 @@ pip install -r requirements.txt
 
 ## ⚡ 快速开始
 
-### 1. 准备 Notion 配置
+### 🐳 推荐方式：Docker Compose 部署
+
+**推荐使用 Docker Compose 进行一键部署，简单快捷，包含完整的服务栈（OctopusScraper + RSSHub + Redis + Browserless）。**
+
+#### 1. 准备 Notion 配置
 
 首先需要获取 Notion API 密钥和数据库 ID：
 
 1. **获取 Notion API 密钥**: 参考 [官方文档](https://developers.notion.com/docs/create-a-notion-integration)
 2. **获取数据库 ID**: 参考 [官方文档](https://developers.notion.com/docs/working-with-databases)
 
-### 2. 配置设置
+#### 2. 克隆项目并配置环境变量
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/OctopusScraper.git
+cd OctopusScraper
+
+# 创建 .env 文件
+cp .env.example .env
+```
+
+编辑 `.env` 文件，填入您的 Notion 配置：
+
+```env
+# Notion 配置 (必需)
+NOTION_API_KEY=your_notion_api_key_here
+NOTION_SCRAPERS_DATABASE_ID=your_scrapers_database_id
+NOTION_CONTENT_DATABASE_ID=your_content_database_id
+
+# 服务配置 (可选，有默认值)
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+CONFIG_REFRESH_INTERVAL=300
+USE_TASK_MANAGER=true
+TASK_MANAGER_MAX_CONCURRENT=8
+TASK_MANAGER_MAX_QUEUE_SIZE=1000
+SERVICE_HOST=0.0.0.0
+SERVICE_PORT=8000
+DEBUG=false
+ENVIRONMENT=production
+```
+
+#### 3. 一键启动服务
+
+```bash
+# 启动完整服务栈 (推荐)
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f octopus-service
+```
+
+#### 4. 访问服务
+
+服务启动后，访问以下端点：
+
+- **管理界面**: http://localhost:8000/admin
+- **健康检查**: http://localhost:8000/health
+- **RSSHub 服务**: http://localhost:1200 (可选，用于 RSS 数据源)
+
+#### 5. 在 Notion 中配置抓取器
+
+在抓取器配置数据库中添加记录，例如：
+
+| Name          | Status | Fetcher | Hub Root           | Route                           | Priority | Fetch Params  |
+| ------------- | ------ | ------- | ------------------ | ------------------------------- | -------- | ------------- |
+| VSCode Issues | Active | rsshub  | http://rsshub:1200 | /github/issues/microsoft/vscode | 1        | {"limit": 20} |
+| 少数派热门    | Active | rsshub  | http://rsshub:1200 | /sspai/matrix                   | 2        | {"limit": 15} |
+
+### 🛠️ 本地开发方式
+
+如果您需要进行开发或自定义，可以使用以下方式：
+
+#### 1. 准备 Notion 配置
+
+首先需要获取 Notion API 密钥和数据库 ID：
+
+1. **获取 Notion API 密钥**: 参考 [官方文档](https://developers.notion.com/docs/create-a-notion-integration)
+2. **获取数据库 ID**: 参考 [官方文档](https://developers.notion.com/docs/working-with-databases)
+
+#### 2. 本地环境设置
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/OctopusScraper.git
+cd OctopusScraper
+
+# 安装依赖
+poetry install
+
+# 激活虚拟环境
+poetry shell
+```
+
+#### 3. 配置设置
 
 ```bash
 # 复制配置文件
@@ -100,7 +191,7 @@ export NOTION_CONTENT_DATABASE_ID="your_database_id"
 export OCTOPUS_SUMMARY_MAX_LENGTH="500"  # RSS 摘要最大长度
 ```
 
-### 3. 启动服务
+#### 4. 启动服务
 
 ```bash
 # 启动 Web 服务 (推荐)
@@ -127,20 +218,23 @@ poetry run octopus_service --help
 `config.example.yml` 包含以下开箱即用的配置：
 
 #### 默认抓取器
+
 - **VS Code Issues**: GitHub Issues 抓取
 - **少数派热门**: 热门文章抓取
 - **技术博客**: 阮一峰的博客 RSS
 - **HackerNews**: 热门新闻
 
 #### 任务管理配置
+
 - 最大并发任务数: 8
 - 队列大小: 1000
-- 结果保留时间: 48小时
+- 结果保留时间: 48 小时
 
 #### 服务配置
+
 - 监听地址: 0.0.0.0:8000
 - 日志级别: INFO
-- 配置刷新间隔: 5分钟
+- 配置刷新间隔: 5 分钟
 
 ### 6. 自定义配置
 
@@ -222,15 +316,15 @@ scheduler:
 
 在 Notion 中创建以下结构的数据库：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| Name | Title | 抓取器名称 |
-| Status | Select | 状态 (Active/Inactive) |
-| Fetcher | Select | 抓取器类型 (rsshub/direct_rss) |
-| Hub Root | URL | 根 URL |
-| Route | Rich Text | 路由路径 |
-| Priority | Number | 优先级 |
-| Fetch Params | Rich Text | JSON 格式的参数 |
+| 字段名       | 类型      | 说明                           |
+| ------------ | --------- | ------------------------------ |
+| Name         | Title     | 抓取器名称                     |
+| Status       | Select    | 状态 (Active/Inactive)         |
+| Fetcher      | Select    | 抓取器类型 (rsshub/direct_rss) |
+| Hub Root     | URL       | 根 URL                         |
+| Route        | Rich Text | 路由路径                       |
+| Priority     | Number    | 优先级                         |
+| Fetch Params | Rich Text | JSON 格式的参数                |
 
 ## 📖 使用方法
 
@@ -435,6 +529,7 @@ Web 服务提供以下 API 端点：
 OctopusScraper 提供了三个专业的健康检查端点，适用于不同的监控场景：
 
 #### 1. 全面健康检查
+
 ```http
 GET /health
 ```
@@ -442,9 +537,11 @@ GET /health
 提供完整的系统健康状态，包括依赖项检查、配置状态、性能指标等。
 
 **查询参数：**
+
 - `cache` (可选): `true`/`false` - 是否使用缓存，默认 `true`
 
 **响应示例：**
+
 ```json
 {
   "status": "healthy",
@@ -492,6 +589,7 @@ GET /health
 ```
 
 #### 2. 存活探针 (Liveness Probe)
+
 ```http
 GET /health/liveness
 ```
@@ -499,6 +597,7 @@ GET /health/liveness
 轻量级健康检查，适用于 Docker 等容器环境的存活探针。
 
 **响应示例：**
+
 ```json
 {
   "status": "alive",
@@ -511,6 +610,7 @@ GET /health/liveness
 ```
 
 #### 3. 就绪探针 (Readiness Probe)
+
 ```http
 GET /health/readiness
 ```
@@ -518,9 +618,11 @@ GET /health/readiness
 检查服务是否准备好接收流量，包含关键依赖项验证。
 
 **查询参数：**
+
 - `skip_notion` (可选): `true`/`false` - 是否跳过 Notion API 检查，默认 `false`
 
 **响应示例：**
+
 ```json
 {
   "status": "ready",
@@ -542,20 +644,23 @@ GET /health/readiness
 ```
 
 **健康检查状态码：**
+
 - `200 OK`: 健康/就绪
 - `503 Service Unavailable`: 不健康/未就绪
 - `500 Internal Server Error`: 检查过程出错
 
 **缓存机制：**
-全面健康检查支持智能缓存（30秒），减少重复检查的性能开销。可通过 `?cache=false` 参数禁用缓存获取实时状态。
+全面健康检查支持智能缓存（30 秒），减少重复检查的性能开销。可通过 `?cache=false` 参数禁用缓存获取实时状态。
 
 ### 抓取器管理
+
 ```http
 POST /trigger_scraper    # 触发抓取
 POST /trigger_upload     # 触发上传
 ```
 
 **抓取器响应示例：**
+
 ```json
 {
   "status": "success",
@@ -568,6 +673,7 @@ POST /trigger_upload     # 触发上传
 ```
 
 **上传响应示例：**
+
 ```json
 {
   "status": "success",
@@ -579,6 +685,7 @@ POST /trigger_upload     # 触发上传
 ```
 
 ### 配置管理
+
 ```http
 GET /admin/config/status       # 获取配置状态
 POST /admin/config/refresh     # 刷新配置
@@ -587,6 +694,7 @@ POST /admin/config/hotreload   # 热重载配置
 ```
 
 **配置状态响应示例：**
+
 ```json
 {
   "is_healthy": true,
@@ -612,11 +720,13 @@ POST /admin/config/hotreload   # 热重载配置
 ### 管理接口
 
 #### 管理面板概览
+
 ```http
 GET /admin                     # 管理界面概览
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -641,12 +751,14 @@ GET /admin                     # 管理界面概览
 ```
 
 #### 抓取器管理
+
 ```http
 GET /admin/runtime/scrapers    # 获取运行时抓取器列表
 POST /admin/scrapers/test/{scraper_name}  # 测试指定抓取器
 ```
 
 #### 系统管理
+
 ```http
 POST /admin/cache/clear        # 清理缓存
 POST /admin/system/gc          # 强制垃圾回收
@@ -655,6 +767,7 @@ POST /admin/config/watcher/restart  # 重启配置监控
 ```
 
 #### 监控接口
+
 ```http
 GET /admin/monitoring/metrics  # 获取监控指标
 GET /admin/tasks/stats         # 任务统计信息
@@ -663,6 +776,7 @@ POST /admin/tasks/submit       # 提交单个任务
 ```
 
 **配置刷新响应示例：**
+
 ```json
 {
   "status": "success",
@@ -682,6 +796,7 @@ GET /tasks/stats
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -708,6 +823,7 @@ GET /tasks/active
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -736,6 +852,7 @@ POST /tasks/submit
 ```
 
 **请求体：**
+
 ```json
 {
   "name": "custom_task",
@@ -750,6 +867,7 @@ POST /tasks/submit
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -771,6 +889,7 @@ GET /scheduler/status
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -800,6 +919,7 @@ POST /scheduler/add
 ```
 
 **请求体：**
+
 ```json
 {
   "name": "weekly_report",
@@ -812,6 +932,7 @@ POST /scheduler/add
 ```
 
 **响应示例：**
+
 ```json
 {
   "status": "success",
@@ -855,11 +976,13 @@ src/octopus_scraper/
 ### 开发环境设置
 
 1. **安装开发依赖**
+
    ```bash
    poetry install --with dev
    ```
 
 2. **安装 Pre-commit Hook**
+
    ```bash
    brew install pre-commit  # macOS
    pre-commit install
@@ -886,143 +1009,126 @@ class CustomScraper(Scraper):
 
 ## 🚀 部署配置
 
-### Docker 部署
+### 🐳 推荐方式：Docker Compose 部署
 
-使用 Docker 部署 OctopusService：
+**Docker Compose 是推荐的部署方式**，提供完整的服务栈，包括：
 
-```dockerfile
-# Dockerfile
-FROM python:3.10-slim
+- **OctopusScraper**: 主服务
+- **RSSHub**: RSS 数据源服务
+- **Redis**: 缓存服务
+- **Browserless**: 浏览器服务 (用于复杂网页抓取)
 
-WORKDIR /app
-COPY . .
-
-RUN pip install poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-dev
-
-EXPOSE 8000
-
-CMD ["poetry", "run", "octopus_service"]
-```
+#### 快速部署
 
 ```bash
-# 构建和运行
-docker build -t octopus-scraper .
+# 1. 克隆项目
+git clone https://github.com/your-repo/OctopusScraper.git
+cd OctopusScraper
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入你的 Notion 配置
+
+# 3. 启动服务栈
+docker-compose up -d
+
+# 4. 查看服务状态
+docker-compose ps
+
+# 5. 查看日志
+docker-compose logs -f octopus-service
+```
+
+#### 环境变量配置
+
+创建 `.env` 文件：
+
+```env
+# Notion 配置 (必需)
+NOTION_API_KEY=your_notion_api_key_here
+NOTION_SCRAPERS_DATABASE_ID=your_scrapers_database_id
+NOTION_CONTENT_DATABASE_ID=your_content_database_id
+
+# 服务配置 (可选，有默认值)
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+CONFIG_REFRESH_INTERVAL=300
+USE_TASK_MANAGER=true
+TASK_MANAGER_MAX_CONCURRENT=8
+TASK_MANAGER_MAX_QUEUE_SIZE=1000
+SERVICE_HOST=0.0.0.0
+SERVICE_PORT=8000
+DEBUG=false
+ENVIRONMENT=production
+```
+
+#### 服务访问
+
+- **OctopusScraper 管理界面**: http://localhost:8000/admin
+- **健康检查**: http://localhost:8000/health
+- **RSSHub 服务**: http://localhost:1200（需要手动 expose 端口）
+
+#### 服务管理
+
+```bash
+# 停止服务
+docker-compose down
+
+# 重启服务
+docker-compose restart
+
+# 更新服务 (重新构建)
+docker-compose up -d --build
+
+# 查看特定服务日志
+docker-compose logs -f octopus-service
+docker-compose logs -f rsshub
+
+# 清理未使用的资源
+docker-compose down -v  # 包含数据卷
+```
+
+### 🐳 单容器 Docker 部署
+
+如果您只需要 OctopusScraper 服务，可以使用单容器部署：
+
+```bash
+# 构建镜像
+docker build -f dockerfiles/Dockerfile -t octopus-scraper .
+
+# 运行容器
 docker run -d \
   --name octopus-service \
   -p 8000:8000 \
   -e NOTION_API_KEY="your_api_key" \
-  -e NOTION_SCRAPERS_DATABASE_ID="your_db_id" \
+  -e NOTION_SCRAPERS_DATABASE_ID="your_scrapers_db_id" \
+  -e NOTION_CONTENT_DATABASE_ID="your_content_db_id" \
+  -v $(pwd)/logs:/app/logs \
   octopus-scraper
 ```
 
-### Docker Compose 部署
+### 🛠️ 本地开发部署
 
-使用 Docker Compose 进行单机部署，配置健康检查：
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  octopus-service:
-    build: .
-    image: octopus-scraper:latest
-    container_name: octopus-service
-    ports:
-      - "8000:8000"
-    environment:
-      - NOTION_API_KEY=${NOTION_API_KEY}
-      - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
-      - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-      - CONFIG_REFRESH_INTERVAL=300
-
-    # 健康检查配置
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-    # 资源限制
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-
-    # 重启策略
-    restart: unless-stopped
-
-    # 挂载日志目录
-    volumes:
-      - ./logs:/app/logs
-
-    # 网络配置
-    networks:
-      - octopus-network
-
-  # 可选：添加 Nginx 代理
-  nginx:
-    image: nginx:alpine
-    container_name: octopus-nginx
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      octopus-service:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - octopus-network
-
-networks:
-  octopus-network:
-    driver: bridge
-
-volumes:
-  logs:
-```
-
-**环境变量配置文件 (.env)：**
-
-```env
-# .env
-NOTION_API_KEY=your_notion_api_key_here
-NOTION_SCRAPERS_DATABASE_ID=your_scrapers_database_id
-NOTION_CONTENT_DATABASE_ID=your_content_database_id
-```
-
-**启动服务：**
+对于开发环境，推荐使用本地 Python 环境：
 
 ```bash
-# 启动服务
-docker-compose up -d
+# 使用 Poetry (推荐)
+poetry install
+poetry shell
+poetry run octopus_service
 
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f octopus-service
-
-# 检查健康状态
-curl http://localhost:8000/health
-
-# 停止服务
-docker-compose down
+# 或使用 pip
+pip install -r requirements.txt
+python -m octopus_scraper.octopus_service
 ```
 
-**可选的 Nginx 配置 (nginx.conf)：**
+### ⚙️ 生产环境配置
 
-```nginx
+#### Nginx 反向代理配置
+
+如果您需要使用 Nginx 作为反向代理，可以取消注释 docker-compose.yml 中的 nginx 服务：
+
+````nginx
 events {
     worker_connections 1024;
 }
@@ -1101,7 +1207,7 @@ health_check() {
 # 执行检查
 echo "=== OctopusService Health Check ==="
 liveness_check && readiness_check && echo "=== Full Health Status ===" && health_check
-```
+````
 
 #### Prometheus 监控 (可选)
 
@@ -1109,20 +1215,20 @@ liveness_check && readiness_check && echo "=== Full Health Status ===" && health
 
 ```yaml
 # 在 docker-compose.yml 中添加 Prometheus
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: octopus-prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-    networks:
-      - octopus-network
+prometheus:
+  image: prom/prometheus:latest
+  container_name: octopus-prometheus
+  ports:
+    - "9090:9090"
+  volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  command:
+    - "--config.file=/etc/prometheus/prometheus.yml"
+    - "--storage.tsdb.path=/prometheus"
+    - "--web.console.libraries=/etc/prometheus/console_libraries"
+    - "--web.console.templates=/etc/prometheus/consoles"
+  networks:
+    - octopus-network
 ```
 
 **prometheus.yml 配置：**
@@ -1133,12 +1239,12 @@ global:
   scrape_interval: 30s
 
 scrape_configs:
-  - job_name: 'octopus-service'
+  - job_name: "octopus-service"
     static_configs:
-      - targets: ['octopus-service:8000']
-    metrics_path: '/health'
+      - targets: ["octopus-service:8000"]
+    metrics_path: "/health"
     params:
-      cache: ['false']  # 获取实时状态
+      cache: ["false"] # 获取实时状态
     scrape_interval: 30s
 ```
 
@@ -1173,43 +1279,43 @@ poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under
 
 ### 基础配置
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `NOTION_API_KEY` | Notion API 密钥 | 是 | - |
-| `NOTION_SCRAPERS_DATABASE_ID` | 抓取器配置数据库 ID | 是 | - |
-| `NOTION_CONTENT_DATABASE_ID` | 内容存储数据库 ID | 是 | - |
+| 变量名                        | 说明                | 必需 | 默认值 |
+| ----------------------------- | ------------------- | ---- | ------ |
+| `NOTION_API_KEY`              | Notion API 密钥     | 是   | -      |
+| `NOTION_SCRAPERS_DATABASE_ID` | 抓取器配置数据库 ID | 是   | -      |
+| `NOTION_CONTENT_DATABASE_ID`  | 内容存储数据库 ID   | 是   | -      |
 
 ### 服务配置 (CLI 工具)
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `OCTOPUS_HOST` | 服务监听地址 (CLI) | 否 | `0.0.0.0` |
-| `OCTOPUS_PORT` | 服务监听端口 (CLI) | 否 | `8000` |
-| `OCTOPUS_DEBUG` | 调试模式 (CLI) | 否 | `false` |
-| `OCTOPUS_LOG_LEVEL` | 日志级别 (CLI) | 否 | `INFO` |
-| `OCTOPUS_LOG_FORMAT` | 日志格式 (CLI) | 否 | `plain` |
-| `OCTOPUS_WORKERS` | 工作进程数 (CLI) | 否 | `1` |
-| `OCTOPUS_SINGLE_PROCESS` | 单进程模式 (CLI) | 否 | `false` |
+| 变量名                   | 说明               | 必需 | 默认值    |
+| ------------------------ | ------------------ | ---- | --------- |
+| `OCTOPUS_HOST`           | 服务监听地址 (CLI) | 否   | `0.0.0.0` |
+| `OCTOPUS_PORT`           | 服务监听端口 (CLI) | 否   | `8000`    |
+| `OCTOPUS_DEBUG`          | 调试模式 (CLI)     | 否   | `false`   |
+| `OCTOPUS_LOG_LEVEL`      | 日志级别 (CLI)     | 否   | `INFO`    |
+| `OCTOPUS_LOG_FORMAT`     | 日志格式 (CLI)     | 否   | `plain`   |
+| `OCTOPUS_WORKERS`        | 工作进程数 (CLI)   | 否   | `1`       |
+| `OCTOPUS_SINGLE_PROCESS` | 单进程模式 (CLI)   | 否   | `false`   |
 
 ### 服务配置 (直接启动)
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `SERVICE_HOST` | 服务监听地址 | 否 | `0.0.0.0` |
-| `SERVICE_PORT` | 服务监听端口 | 否 | `8000` |
-| `DEBUG` | 调试模式 | 否 | `false` |
-| `LOG_LEVEL` | 日志级别 (DEBUG/INFO/WARNING/ERROR) | 否 | `INFO` |
-| `LOG_FORMAT` | 日志格式 (plain/json) | 否 | `plain` |
-| `CONFIG_REFRESH_INTERVAL` | 配置刷新间隔(秒) | 否 | `300` |
-| `SCRAPER_TIMEOUT` | 抓取超时时间(秒) | 否 | `10` |
-| `UPLOAD_TIMEOUT` | 上传超时时间(秒) | 否 | `15` |
-| `UPLOAD_MAX_RETRIES` | 上传最大重试次数 | 否 | `3` |
+| 变量名                    | 说明                                | 必需 | 默认值    |
+| ------------------------- | ----------------------------------- | ---- | --------- |
+| `SERVICE_HOST`            | 服务监听地址                        | 否   | `0.0.0.0` |
+| `SERVICE_PORT`            | 服务监听端口                        | 否   | `8000`    |
+| `DEBUG`                   | 调试模式                            | 否   | `false`   |
+| `LOG_LEVEL`               | 日志级别 (DEBUG/INFO/WARNING/ERROR) | 否   | `INFO`    |
+| `LOG_FORMAT`              | 日志格式 (plain/json)               | 否   | `plain`   |
+| `CONFIG_REFRESH_INTERVAL` | 配置刷新间隔(秒)                    | 否   | `300`     |
+| `SCRAPER_TIMEOUT`         | 抓取超时时间(秒)                    | 否   | `10`      |
+| `UPLOAD_TIMEOUT`          | 上传超时时间(秒)                    | 否   | `15`      |
+| `UPLOAD_MAX_RETRIES`      | 上传最大重试次数                    | 否   | `3`       |
 
 ### 内容处理配置
 
-| 变量名 | 说明 | 必需 | 默认值 |
-|--------|------|------|--------|
-| `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否 | `500` |
+| 变量名                       | 说明                   | 必需 | 默认值 |
+| ---------------------------- | ---------------------- | ---- | ------ |
+| `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否   | `500`  |
 
 > 💡 **说明**: 当 RSS 摘要超过指定长度时，将设为空并交由 LLM 处理器生成摘要。
 

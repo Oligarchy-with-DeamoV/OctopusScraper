@@ -1,0 +1,118 @@
+version: "3.8"
+
+services:
+  octopus-service:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile
+    image: octopus-scraper:latest
+    container_name: octopus-service
+    ports:
+      - "8000:8000"
+    environment:
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
+      - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - CONFIG_REFRESH_INTERVAL=${CONFIG_REFRESH_INTERVAL:-300}
+      - USE_TASK_MANAGER=${USE_TASK_MANAGER:-true}
+      - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-8}
+      - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
+      - SERVICE_HOST=${SERVICE_HOST:-0.0.0.0}
+      - SERVICE_PORT=${SERVICE_PORT:-8000}
+      - DEBUG=${DEBUG:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+
+    restart: unless-stopped
+
+    volumes:
+      - ./logs:/app/logs
+
+    networks:
+      - octopus-network
+
+  rsshub:
+        # two ways to enable puppeteer:
+        # * comment out marked lines, then use this image instead: diygod/rsshub:chromium-bundled
+        # * (consumes more disk space and memory) leave everything unchanged
+        image: diygod/rsshub
+        restart: always
+        environment:
+            NODE_ENV: production
+            CACHE_TYPE: redis
+            REDIS_URL: "redis://redis:6379/"
+            PUPPETEER_WS_ENDPOINT: "ws://browserless:3000" # marked
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        depends_on:
+            - redis
+            - browserless # marked
+
+  browserless: # marked
+      image: browserless/chrome # marked
+      restart: always # marked
+      ulimits: # marked
+          core: # marked
+              hard: 0 # marked
+              soft: 0 # marked
+      healthcheck: # marked
+          test: ["CMD", "curl", "-f", "http://localhost:3000/pressure"] # marked
+          interval: 30s # marked
+          timeout: 10s # marked
+          retries: 3 # marked
+
+  redis:
+      image: redis:alpine
+      restart: always
+      volumes:
+          - redis-data:/data
+      healthcheck:
+          test: ["CMD", "redis-cli", "ping"]
+          interval: 30s
+          timeout: 10s
+          retries: 5
+          start_period: 5s
+
+  # 可选：添加 Nginx 代理
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: octopus-nginx
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     octopus-service:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - octopus-network
+
+networks:
+  octopus-network:
+    driver: bridge
+
+volumes:
+  logs:
+  redis-data:
