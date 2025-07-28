@@ -5,6 +5,62 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且该项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [0.1.6] - 2025-07-28
+
+### 🔄 重大架构变更：TaskManager 统一执行引擎
+
+- **TaskManager 强制启用**：
+  - 🎯 **统一任务执行**：TaskManager 现已成为所有抓取操作的唯一执行方式
+  - ❌ **移除 Legacy 代码**：完全移除传统抓取方式，简化代码库
+  - ⚙️ **简化配置**：不再需要手动设置 `use_task_manager=true`
+  - 🚀 **默认启用**：所有 CLI 和 Web 服务启动都自动使用 TaskManager
+
+### 📋 配置系统优化
+
+- **环境变量更新**：
+  - 🔄 **变量重命名**：`TASK_MANAGER_MAX_CONCURRENT` → `MAX_CONCURRENT_TASKS`
+  - 📊 **新增配置**：`RESULT_RETENTION_HOURS` 支持任务结果保留时间配置
+  - 🗑️ **移除冗余**：删除 `USE_TASK_MANAGER` 环境变量
+  - 📝 **配置简化**：配置文件中无需 `use_task_manager` 参数
+
+### 🧪 测试系统全面更新
+
+- **测试用例修复**：
+  - ✅ **228 个测试全部通过**：修复所有因架构变更导致的测试失败
+  - 🔧 **Mock 配置更新**：更新测试中的 TaskManager 相关 Mock
+  - 📦 **Fixture 优化**：简化测试 Fixture，移除 Legacy 相关代码
+  - 🚀 **集成测试验证**：确保 TaskManager 集成功能正常
+
+### 📚 文档全面更新
+
+- **README 重构**：
+
+  - 🎯 **突出统一架构**：强调 TaskManager 作为统一执行引擎的地位
+  - 📝 **简化配置说明**：更新配置示例，移除复杂的条件配置
+  - 🔄 **环境变量更新**：更新所有环境变量表格和示例
+  - 💡 **迁移指导**：添加从旧版本迁移的详细说明
+
+- **技术文档增强**：
+  - 📖 **TaskManager 架构更新指南**：新增 `docs/TASK_MANAGER_UPDATES.md`
+  - 🏗️ **系统集成说明**：详细说明 TaskManager 与 Octopus/OctopusService 的集成
+  - 🔍 **API 使用示例**：提供简化的 API 使用示例
+  - 📊 **监控指南**：更新任务监控和统计相关文档
+
+### 🛠️ 开发体验改进
+
+- **API 简化**：
+  - 🎛️ **自动初始化**：TaskManager 自动集成到 Octopus 和 OctopusService
+  - 📊 **统一统计接口**：通过 `octopus.get_task_manager_stats()` 获取任务统计
+  - 🚀 **透明集成**：用户无需关心 TaskManager 的启停，自动管理生命周期
+
+### 🎯 用户体验提升
+
+- **零配置启动**：
+  - 🔧 **开箱即用**：无需额外配置即可享受 TaskManager 的所有优势
+  - 📈 **性能优化**：统一的并发控制和资源管理
+  - 🔍 **完整监控**：自动获得任务状态跟踪和性能指标
+  - ⚡ **智能重试**：内置的错误恢复和重试机制
+
 ## [0.1.5] - 2025-07-22
 
 ### 🐳 重大部署优化：Docker Compose 生产就绪

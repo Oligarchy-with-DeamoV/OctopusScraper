@@ -778,10 +778,21 @@ class TestAdminEndpoints:
         mock_octopus._fetched_contents = ["content1", "content2"]
         mock_octopus._config = Mock()
         mock_octopus._config.max_concurrent_scrapers = 5
-        mock_octopus._config.use_task_manager = False
+        mock_octopus._config.use_task_manager = True  # TaskManager 现在默认启用
 
-        # Mock TaskManager (disabled by default)
-        mock_octopus._task_manager = None
+        # Mock TaskManager (always enabled now)
+        mock_task_manager = Mock()
+        mock_task_manager.get_statistics.return_value = {
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "failed_tasks": 0,
+            "running_tasks_count": 0,
+            "current_queue_size": 0,
+            "max_concurrent_tasks": 8,
+            "queue_capacity": 1000,
+        }
+        mock_octopus._task_manager = mock_task_manager
+        mock_octopus.get_task_manager.return_value = mock_task_manager
 
         mock_app.ctx.config_manager = mock_config_manager
         mock_app.ctx.octopus = mock_octopus
