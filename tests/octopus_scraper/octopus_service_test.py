@@ -7,30 +7,29 @@ import pytest
 from sanic import Sanic
 
 from octopus_scraper.config import NotionDatabaseConfig, ServiceConfig
-from octopus_scraper.octopus_service import (
+from octopus_scraper.octopus_service import (  # New admin interface functions
+    admin_overview,
     app,
     cleanup_octopus,
+    clear_cache,
     create_config_from_env,
+    dump_service_state,
+    force_garbage_collection,
     get_config_status,
+    get_monitoring_metrics,
+    get_task_stats,
     health_check,
+    hotreload_config,
+    list_scrapers,
+    list_tasks,
+    manage_config_watcher,
     refresh_config,
     reload_octopus_config,
     setup_octopus,
+    submit_individual_task,
     trigger_scraper,
     trigger_upload,
     validate_config,
-    # New admin interface functions
-    admin_overview,
-    hotreload_config,
-    list_scrapers,
-    get_task_stats,
-    list_tasks,
-    submit_individual_task,
-    clear_cache,
-    force_garbage_collection,
-    manage_config_watcher,
-    dump_service_state,
-    get_monitoring_metrics,
 )
 
 
@@ -38,7 +37,7 @@ class TestConfigCreation:
     def test_create_config_from_env_with_defaults(self):
         """Test config creation with default values."""
         with patch.dict("os.environ", {}, clear=True):
-            notion_config, service_config = create_config_from_env()
+            notion_config, service_config, task_manager_config = create_config_from_env()
 
             assert notion_config.api_key == ""
             assert notion_config.scrapers_database_id == ""
@@ -49,6 +48,11 @@ class TestConfigCreation:
             assert service_config.debug == False
             assert service_config.log_level == "INFO"
             assert service_config.config_refresh_interval == 300
+            
+            # Test TaskManager config defaults
+            assert task_manager_config["max_concurrent_tasks"] == 8
+            assert task_manager_config["max_queue_size"] == 1000
+            assert task_manager_config["result_retention_hours"] == 48
 
     def test_create_config_from_env_with_values(self):
         """Test config creation with environment variables."""
@@ -61,10 +65,13 @@ class TestConfigCreation:
             "DEBUG": "true",
             "LOG_LEVEL": "DEBUG",
             "CONFIG_REFRESH_INTERVAL": "600",
+            "MAX_CONCURRENT_TASKS": "12",
+            "MAX_QUEUE_SIZE": "2000",
+            "RESULT_RETENTION_HOURS": "72",
         }
 
         with patch.dict("os.environ", env_vars):
-            notion_config, service_config = create_config_from_env()
+            notion_config, service_config, task_manager_config = create_config_from_env()
 
             assert notion_config.api_key == "test_key"
             assert notion_config.scrapers_database_id == "test_scrapers_db"
@@ -75,6 +82,11 @@ class TestConfigCreation:
             assert service_config.debug == True
             assert service_config.log_level == "DEBUG"
             assert service_config.config_refresh_interval == 600
+            
+            # Test TaskManager config with custom values
+            assert task_manager_config["max_concurrent_tasks"] == 12
+            assert task_manager_config["max_queue_size"] == 2000
+            assert task_manager_config["result_retention_hours"] == 72
 
 
 class TestServiceLifecycle:
@@ -110,6 +122,11 @@ class TestServiceLifecycle:
             mock_create_config.return_value = (
                 NotionDatabaseConfig("test_key", "test_db", "test_content_db"),
                 ServiceConfig(),
+                {
+                    "max_concurrent_tasks": 8,
+                    "max_queue_size": 1000,
+                    "result_retention_hours": 48,
+                },
             )
             mock_config_class.return_value = mock_config_manager
             mock_octopus_class.return_value = Mock()
@@ -694,12 +711,13 @@ class TestAdminEndpoints:
     @pytest.fixture
     def mock_app_with_full_context(self):
         """Create a mock app with complete context for admin tests."""
-        from octopus_scraper.config.models import (
-            ScraperConfig,
-            ConfigVersion,
-            ConfigStatus,
-        )
         from datetime import datetime
+
+        from octopus_scraper.config.models import (
+            ConfigStatus,
+            ConfigVersion,
+            ScraperConfig,
+        )
 
         mock_app = Mock()
 
@@ -920,43 +938,24 @@ class TestAdminEndpoints:
             assert "not found" in str(data).lower()
 
     @pytest.mark.asyncio
-    async def test_task_stats_no_task_manager(self, mock_app_with_full_context):
-        """Test task stats when task manager is disabled."""
-        from octopus_scraper.octopus_service import get_task_stats
-
-        mock_request = Mock()
-
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            response = await get_task_stats(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "task_manager_enabled" in str(data)
-            assert "false" in str(data).lower()
-            assert "legacy_mode" in str(data)
-
-    @pytest.mark.asyncio
     async def test_task_stats_with_task_manager(self, mock_app_with_full_context):
-        """Test task stats when task manager is enabled."""
+        """Test task stats when task manager is enabled (always enabled now)."""
         from octopus_scraper.octopus_service import get_task_stats
 
         mock_request = Mock()
 
-        # Enable task manager
+        # Mock task manager statistics
         mock_task_manager = Mock()
         mock_task_manager.get_statistics.return_value = {
-            "total_tasks_submitted": 10,
-            "total_tasks_completed": 8,
-            "total_tasks_failed": 1,
-            "total_tasks_cancelled": 1,
-            "running_tasks_count": 0,
-            "current_queue_size": 0,
+            "total_tasks": 5,
+            "completed_tasks": 3,
+            "failed_tasks": 1,
+            "running_tasks_count": 1,
+            "current_queue_size": 2,
+            "max_concurrent_tasks": 4,
             "queue_capacity": 100,
-            "max_concurrent_tasks": 5,
-            "success_rate_percent": 80.0,
-            "average_task_duration_seconds": 15.5,
         }
-        mock_app_with_full_context.ctx.octopus._task_manager = mock_task_manager
+        mock_app_with_full_context.ctx.octopus.get_task_manager.return_value = mock_task_manager
 
         with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
             response = await get_task_stats(mock_request)
@@ -965,7 +964,8 @@ class TestAdminEndpoints:
             data = response.body
             assert "task_manager_enabled" in str(data)
             assert "true" in str(data).lower()
-            assert "statistics" in str(data)
+            assert "legacy_mode" in str(data)
+            assert "false" in str(data).lower()
 
     @pytest.mark.asyncio
     async def test_clear_cache(self, mock_app_with_full_context):
@@ -1004,8 +1004,9 @@ class TestAdminEndpoints:
     @pytest.mark.asyncio
     async def test_manage_config_watcher_get(self, mock_app_with_full_context):
         """Test getting config watcher status."""
-        from octopus_scraper.octopus_service import manage_config_watcher
         from datetime import datetime
+
+        from octopus_scraper.octopus_service import manage_config_watcher
 
         mock_request = Mock()
         mock_request.method = "GET"
@@ -1064,8 +1065,9 @@ class TestAdminEndpoints:
     @pytest.mark.asyncio
     async def test_dump_service_state(self, mock_app_with_full_context):
         """Test service state dumping."""
-        from octopus_scraper.octopus_service import dump_service_state
         from sanic.response import json
+
+        from octopus_scraper.octopus_service import dump_service_state
 
         mock_request = Mock()
         mock_request.json = {"include_sensitive": False, "include_task_details": False}
@@ -1107,21 +1109,25 @@ class TestAdminEndpoints:
             assert "configuration" in str(data)
 
     @pytest.mark.asyncio
-    async def test_submit_individual_task_no_task_manager(
+    async def test_submit_individual_task_with_task_manager(
         self, mock_app_with_full_context
     ):
-        """Test task submission when task manager is disabled."""
+        """Test task submission when task manager is enabled (always enabled now)."""
         from octopus_scraper.octopus_service import submit_individual_task
 
         mock_request = Mock()
         mock_request.json = {"scraper_name": "test_scraper"}
 
+        # Mock the submit method to return a proper task ID
+        mock_app_with_full_context.ctx.octopus.submit_individual_scraper_task.return_value = "task_123"
+
         with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
             response = await submit_individual_task(mock_request)
 
-            assert response.status == 400
+            assert response.status == 200
             data = response.body
-            assert "not enabled" in str(data).lower()
+            assert "success" in str(data).lower()
+            assert "task_123" in str(data)
 
     @pytest.mark.asyncio
     async def test_submit_individual_task_success(self, mock_app_with_full_context):
@@ -1150,8 +1156,8 @@ class TestAdminEndpoints:
             assert "task_123" in str(data)
 
     @pytest.mark.asyncio
-    async def test_list_tasks_no_task_manager(self, mock_app_with_full_context):
-        """Test task listing when task manager is disabled."""
+    async def test_list_tasks_with_task_manager_enabled(self, mock_app_with_full_context):
+        """Test task listing when task manager is enabled (always enabled now)."""
         from octopus_scraper.octopus_service import list_tasks
 
         mock_request = Mock()
@@ -1159,13 +1165,21 @@ class TestAdminEndpoints:
             side_effect=lambda key, default=None: {"limit": "10"}.get(key, default)
         )
 
+        # Mock the list_tasks method to return a proper list
+        task_list = [
+            {"task_id": "task_1", "status": "completed"},
+            {"task_id": "task_2", "status": "running"},
+        ]
+        mock_app_with_full_context.ctx.octopus.list_tasks = Mock(return_value=task_list)
+
         with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
             response = await list_tasks(mock_request)
 
             assert response.status == 200
             data = response.body
             assert "task_manager_enabled" in str(data)
-            assert "false" in str(data).lower()
+            assert "true" in str(data).lower()
+            assert "tasks" in str(data)
 
     @pytest.mark.asyncio
     async def test_list_tasks_with_task_manager(self, mock_app_with_full_context):

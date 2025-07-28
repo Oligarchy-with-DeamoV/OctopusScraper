@@ -219,7 +219,7 @@ class TestServiceIntegration:
                     from octopus_scraper.octopus_service import create_config_from_env
 
                     # Test config creation from environment
-                    notion_config, service_config = create_config_from_env()
+                    notion_config, service_config, task_manager_config = create_config_from_env()
                     assert notion_config.api_key == "test_key"
                     assert notion_config.scrapers_database_id == "test_db"
 

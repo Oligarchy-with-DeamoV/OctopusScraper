@@ -71,7 +71,7 @@ def _get_memory_usage():
         return {"rss_mb": "unavailable"}
 
 
-def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig]:
+def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]:
     """Create configuration objects from environment variables."""
     # Notion database configuration
     notion_config = NotionDatabaseConfig(
@@ -96,7 +96,14 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig]:
         upload_max_retries=int(os.getenv("UPLOAD_MAX_RETRIES", "3")),
     )
 
-    return notion_config, service_config
+    # TaskManager configuration - always enabled
+    task_manager_config = {
+        "max_concurrent_tasks": int(os.getenv("MAX_CONCURRENT_TASKS", "8")),
+        "max_queue_size": int(os.getenv("MAX_QUEUE_SIZE", "1000")),
+        "result_retention_hours": int(os.getenv("RESULT_RETENTION_HOURS", "48")),
+    }
+
+    return notion_config, service_config, task_manager_config
 
 
 @app.listener("before_server_start")
@@ -104,7 +111,7 @@ async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
     try:
         # Create configuration from environment variables
-        notion_config, service_config = create_config_from_env()
+        notion_config, service_config, task_manager_config = create_config_from_env()
 
         # Validate required configuration
         if not notion_config.api_key or not notion_config.scrapers_database_id:
@@ -124,7 +131,7 @@ async def setup_octopus(app, _):
         # Load initial configuration from Notion
         scrapers_config = await config_manager.load_initial_config()
 
-        # Create base config for Octopus
+        # Create base config for Octopus with TaskManager enabled
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -146,6 +153,9 @@ async def setup_octopus(app, _):
                 "database_id": notion_config.content_database_id
                 or notion_config.scrapers_database_id,
             },
+            "use_task_manager": True,  # Always enable TaskManager
+            "task_manager_config": task_manager_config,
+            "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
         }
 
         # Initialize Octopus with loaded configuration
@@ -153,11 +163,13 @@ async def setup_octopus(app, _):
         app.ctx.octopus = octopus
 
         logger.info(
-            "Octopus instance initialized successfully with dynamic configuration",
+            "Octopus instance initialized successfully with TaskManager enabled",
             scraper_count=len(scrapers_config),
             config_version=config_manager.get_current_version().version_id
             if config_manager.get_current_version()
             else "initial",
+            task_manager_enabled=True,
+            max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
         # Start configuration monitoring
@@ -179,9 +191,16 @@ async def setup_octopus(app, _):
 async def cleanup_octopus(app, _):
     """Clean up resources before server stops."""
     try:
+        # Stop ConfigManager
         if hasattr(app.ctx, "config_manager"):
             app.ctx.config_manager.stop_config_watcher()
             logger.info("ConfigManager stopped successfully")
+        
+        # Clean up TaskManager in Octopus
+        if hasattr(app.ctx, "octopus"):
+            app.ctx.octopus.cleanup_task_manager()
+            logger.info("Octopus TaskManager cleaned up successfully")
+            
     except Exception as e:
         logger.error("Error during cleanup", error=str(e))
 
@@ -192,7 +211,10 @@ async def reload_octopus_config(app):
         config_manager: ConfigManager = app.ctx.config_manager
         current_scrapers = config_manager.get_current_scrapers()
 
-        # Create new Octopus configuration
+        # Get TaskManager configuration from environment
+        _, _, task_manager_config = create_config_from_env()
+
+        # Create new Octopus configuration with TaskManager enabled
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -210,16 +232,26 @@ async def reload_octopus_config(app):
                 for scraper in current_scrapers
             ],
             "notion_api_config": app.ctx.octopus._notion_api_config,  # Keep existing notion config
+            "use_task_manager": True,  # Always enable TaskManager
+            "task_manager_config": task_manager_config,
+            "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
         }
+
+        # Clean up old Octopus instance
+        old_octopus = app.ctx.octopus
+        if hasattr(old_octopus, '_task_manager') and old_octopus._task_manager:
+            old_octopus.cleanup_task_manager()
 
         # Replace the Octopus instance with new configuration
         new_octopus = Octopus(octopus_config)
         app.ctx.octopus = new_octopus
 
         logger.info(
-            "Octopus configuration reloaded successfully",
+            "Octopus configuration reloaded successfully with TaskManager",
             scraper_count=len(current_scrapers),
             config_version=config_manager.get_current_version().version_id,
+            task_manager_enabled=True,
+            max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
         return True
@@ -729,7 +761,7 @@ async def get_system_info(request):
                 "max_concurrent_scrapers": getattr(
                     octopus._config, "max_concurrent_scrapers", 5
                 ),
-                "use_task_manager": getattr(octopus._config, "use_task_manager", False),
+                "use_task_manager": True,  # Always enabled now
             },
             "notion_config": {
                 "api_key_configured": bool(config_manager.notion_config.api_key),
@@ -740,16 +772,13 @@ async def get_system_info(request):
             "timestamp": datetime.now().isoformat(),
         }
 
-        # Add task manager info if available
-        if hasattr(octopus, "_task_manager") and octopus._task_manager:
-            task_manager = octopus._task_manager
-            task_stats = task_manager.get_statistics()
-            system_info["task_manager"] = {
-                "enabled": True,
-                "statistics": task_stats,
-            }
-        else:
-            system_info["task_manager"] = {"enabled": False}
+        # Add task manager info - always available now
+        task_manager = octopus.get_task_manager()
+        task_stats = task_manager.get_statistics()
+        system_info["task_manager"] = {
+            "enabled": True,
+            "statistics": task_stats,
+        }
 
         return json(
             {
@@ -881,8 +910,9 @@ async def run_scraper_test(request, scraper_name):
         timeout = request_data.get("timeout", 30)
 
         # Create test scraper instance
-        from octopus_scraper.scrapers.scraper import Scraper
         from dataclasses import asdict
+
+        from octopus_scraper.scrapers.scraper import Scraper
 
         test_scraper_config = {
             "fetcher_name": target_scraper_config.fetcher,
@@ -969,18 +999,7 @@ async def get_task_stats(request):
     """Get task manager statistics and performance metrics."""
     try:
         octopus: Octopus = app.ctx.octopus
-
-        if not hasattr(octopus, "_task_manager") or not octopus._task_manager:
-            return json(
-                {
-                    "status": "success",
-                    "message": "Task manager is not enabled",
-                    "task_manager_enabled": False,
-                    "legacy_mode": True,
-                }
-            )
-
-        task_manager = octopus._task_manager
+        task_manager = octopus.get_task_manager()
         stats = task_manager.get_statistics()
 
         # Add additional runtime information
@@ -1015,16 +1034,6 @@ async def list_tasks(request):
     """List tasks with optional filtering."""
     try:
         octopus: Octopus = app.ctx.octopus
-
-        if not hasattr(octopus, "_task_manager") or not octopus._task_manager:
-            return json(
-                {
-                    "status": "success",
-                    "message": "Task manager is not enabled",
-                    "tasks": [],
-                    "task_manager_enabled": False,
-                }
-            )
 
         # Parse query parameters
         status_filter = request.args.get("status")
@@ -1061,15 +1070,6 @@ async def get_task_details(request, task_id):
     try:
         octopus: Octopus = app.ctx.octopus
 
-        if not hasattr(octopus, "_task_manager") or not octopus._task_manager:
-            return json(
-                {
-                    "status": "error",
-                    "message": "Task manager is not enabled",
-                },
-                status=400,
-            )
-
         # Get task details from Octopus
         task_details = octopus.get_task_status(task_id)
 
@@ -1102,15 +1102,6 @@ async def cancel_task(request, task_id):
     """Cancel a specific task."""
     try:
         octopus: Octopus = app.ctx.octopus
-
-        if not hasattr(octopus, "_task_manager") or not octopus._task_manager:
-            return json(
-                {
-                    "status": "error",
-                    "message": "Task manager is not enabled",
-                },
-                status=400,
-            )
 
         # Cancel task through Octopus
         cancelled = octopus.cancel_task(task_id)
@@ -1148,16 +1139,6 @@ async def submit_individual_task(request):
     """Submit an individual scraper task."""
     try:
         octopus: Octopus = app.ctx.octopus
-
-        if not hasattr(octopus, "_task_manager") or not octopus._task_manager:
-            return json(
-                {
-                    "status": "error",
-                    "message": "Task manager is not enabled",
-                },
-                status=400,
-            )
-
         request_data = request.json or {}
 
         # Validate required fields
