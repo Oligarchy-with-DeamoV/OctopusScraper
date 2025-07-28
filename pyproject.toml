@@ -1,6 +1,6 @@
 [project]
 name = "octopus-scraper"
-version = "0.1.5"
+version = "0.1.6"
 description = "OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。"
 authors = [
     {name = "Duan-JM",email = "vincent.duan95@gmail.com"}

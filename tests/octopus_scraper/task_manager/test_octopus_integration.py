@@ -2,14 +2,16 @@
 Integration tests for enhanced Octopus with TaskManager.
 """
 
-import pytest
 import time
 from datetime import datetime
 from unittest.mock import Mock, patch
 
+import pytest
+
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.task_manager.models import TaskStatus, TaskPriority
 from octopus_scraper.scrapers.scraper import Content
+from octopus_scraper.task_manager.models import TaskPriority, TaskStatus
+from octopus_scraper.task_manager.task_manager import TaskManager
 
 
 @pytest.fixture
@@ -53,33 +55,6 @@ def octopus_config_with_task_manager():
             "max_queue_size": 100,
             "result_retention_hours": 2,
         },
-    }
-
-
-@pytest.fixture
-def octopus_config_legacy():
-    """Create Octopus configuration with legacy execution."""
-    return {
-        "scrapers_config_with_fetch_params": [
-            {
-                "scraper_config": {
-                    "fetcher_name": "rsshub",
-                    "fetcher_config": {
-                        "hub_root": "https://rsshub.app",
-                        "route": "/test",
-                        "fetch_params": {},
-                    },
-                    "content_processor_configs": {},
-                },
-                "fetch_params": {"limit": 10},
-            }
-        ],
-        "notion_api_config": {
-            "api_key": "test_api_key",
-            "database_id": "test_database_id",
-        },
-        "max_concurrent_scrapers": 3,
-        "use_task_manager": False,
     }
 
 
@@ -140,18 +115,6 @@ class TestOctopusTaskManagerIntegration:
         octopus.cleanup_task_manager()
 
     @patch("octopus_scraper.octopus.NotionStorage")
-    def test_octopus_initialization_legacy(
-        self, mock_notion_class, octopus_config_legacy
-    ):
-        """Test Octopus initialization with legacy execution."""
-        mock_notion_class.return_value = Mock()
-
-        octopus = Octopus(octopus_config_legacy)
-
-        # Verify TaskManager is not initialized
-        assert octopus._task_manager is None
-
-    @patch("octopus_scraper.octopus.NotionStorage")
     @patch("octopus_scraper.scrapers.scraper.Scraper")
     def test_trigger_scraper_with_task_manager(
         self,
@@ -181,22 +144,6 @@ class TestOctopusTaskManagerIntegration:
 
         # Clean up
         octopus.cleanup_task_manager()
-
-    @patch("octopus_scraper.octopus.NotionStorage")
-    def test_trigger_scraper_legacy(self, mock_notion_class, octopus_config_legacy):
-        """Test triggering scraper with legacy execution."""
-        mock_notion_class.return_value = Mock()
-
-        with patch("octopus_scraper.scrapers.scraper.Scraper") as mock_scraper_class:
-            mock_scraper = Mock()
-            mock_scraper.scrap_contents.return_value = []
-            mock_scraper_class.return_value = mock_scraper
-
-            octopus = Octopus(octopus_config_legacy)
-
-            # Trigger scraper - should not return batch ID
-            result = octopus.trigger_scraper()
-            assert result is None  # Legacy mode doesn't return batch ID
 
     @patch("octopus_scraper.octopus.NotionStorage")
     def test_get_task_manager_methods(
@@ -229,28 +176,6 @@ class TestOctopusTaskManagerIntegration:
 
         # Clean up
         octopus.cleanup_task_manager()
-
-    @patch("octopus_scraper.octopus.NotionStorage")
-    def test_task_manager_methods_without_task_manager(
-        self, mock_notion_class, octopus_config_legacy
-    ):
-        """Test TaskManager methods when TaskManager is not enabled."""
-        mock_notion_class.return_value = Mock()
-
-        octopus = Octopus(octopus_config_legacy)
-
-        # Methods should handle gracefully when TaskManager is not enabled
-        assert octopus.get_task_manager() is None
-        assert octopus.get_task_status("task_123") is None
-        assert octopus.list_tasks() == []
-        assert octopus.cancel_task("task_123") is False
-
-        stats = octopus.get_task_manager_statistics()
-        assert "error" in stats
-        assert stats["error"] == "TaskManager not enabled"
-
-        submit_result = octopus.submit_individual_scraper_task("test", {}, {})
-        assert submit_result is None
 
     @patch("octopus_scraper.octopus.NotionStorage")
     @patch("octopus_scraper.scrapers.scraper.Scraper")
@@ -440,15 +365,3 @@ class TestOctopusErrorHandling:
 
         # Clean up
         octopus.cleanup_task_manager()
-
-    @patch("octopus_scraper.octopus.NotionStorage")
-    def test_cleanup_task_manager_when_none(
-        self, mock_notion_class, octopus_config_legacy
-    ):
-        """Test cleanup when TaskManager is None."""
-        mock_notion_class.return_value = Mock()
-
-        octopus = Octopus(octopus_config_legacy)
-
-        # Should not raise error when TaskManager is None
-        octopus.cleanup_task_manager()  # Should complete without error

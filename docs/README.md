@@ -2,19 +2,27 @@
 
 欢迎使用 OctopusScraper 文档。本文档采用分层组织结构，分为**接口文档**和**模型文档**两大类别，帮助您快速了解和使用 OctopusScraper。
 
+> 📢 **重要更新**: TaskManager 现已成为统一的任务执行引擎，详见 [TaskManager 架构更新指南](./TASK_MANAGER_UPDATES.md)
+
 ## 文档结构
 
 ```
 docs/
-├── interface/          # 接口文档 - 外部交互接口
-│   ├── web_service/    # Web 服务接口
-│   └── cli/           # 命令行接口
-└── models/            # 模型文档 - 内部代码结构
-    ├── config/        # 配置管理模型
-    ├── task_manager/  # 任务管理模型
-    ├── scrapers/      # 抓取器模型
-    └── service/       # 服务数据模型
+├── TASK_MANAGER_UPDATES.md  # 📢 TaskManager 架构更新指南
+├── interface/               # 接口文档 - 外部交互接口
+│   ├── web_service/        # Web 服务接口
+│   └── cli/               # 命令行接口
+└── models/                # 模型文档 - 内部代码结构
+    ├── config/            # 配置管理模型
+    ├── task_manager/      # 任务管理模型 (统一执行引擎)
+    ├── scrapers/          # 抓取器模型
+    └── service/           # 服务数据模型
 ```
+
+## 📢 快速开始
+
+- **[主要 README](../README.md)** - 完整的安装和使用指南
+- **[配置示例](../config.example.yml)** - 推荐的配置文件模板
 
 ## 接口文档 (Interface)
 
@@ -26,6 +34,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - **[管理接口测试](./interface/web_service/admin-interface-testing.md)** - Web API 的测试方法和用例
 
 **主要功能：**
+
 - 🔧 配置管理 API (15+ 端点)
 - 📊 任务管理和监控 API
 - 🕷️ 抓取器控制 API
@@ -33,6 +42,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - 🔒 安全认证和权限控制
 
 **适用场景：**
+
 - Web 界面集成
 - 第三方系统集成
 - 远程管理和监控
@@ -45,6 +55,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - **[CLI 接口文档](./interface/cli/cli-interface.md)** - 完整的命令行工具参考
 
 **主要功能：**
+
 - ⚙️ 配置管理命令 (`config`)
 - 🕷️ 抓取器管理命令 (`scraper`)
 - 📋 任务管理命令 (`task`)
@@ -52,6 +63,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - 📊 状态查看命令 (`status`)
 
 **适用场景：**
+
 - 本地开发和调试
 - 自动化脚本集成
 - 系统运维操作
@@ -67,6 +79,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - **[ConfigManager 测试](./models/config/config-manager-testing.md)** - 配置系统的测试策略和用例
 
 **核心组件：**
+
 - `ConfigManager` - 配置加载、验证、更新
 - `ConfigModel` - 配置数据结构定义
 - `NotionConfig` - Notion 集成配置
@@ -74,16 +87,17 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 
 ### 任务管理模型
 
-任务系统负责异步执行、调度、监控所有后台操作：
+TaskManager 现已成为 OctopusScraper 的统一任务执行引擎，负责所有后台操作的异步执行、调度和监控：
 
-- **[TaskManager 模型](./models/task_manager/task-manager.md)** - 任务管理器和调度系统
-- **[TaskManager 测试](./models/task_manager/task-manager-testing.md)** - 任务系统的测试覆盖
+- **[TaskManager 模型](./models/task_manager/task-manager.md)** - 统一任务管理器和调度系统
+- **[TaskManager 测试](./models/task_manager/task-manager-testing.md)** - 任务系统的全面测试覆盖
 
 **核心组件：**
-- `TaskManager` - 任务队列、执行、监控
-- `TaskScheduler` - 定时任务和 Cron 调度
-- `Task` - 任务基类和状态管理
-- `TaskResult` - 任务结果和统计信息
+
+- `TaskManager` - 统一任务队列、执行引擎、监控系统（默认启用）
+- `TaskScheduler` - 定时任务和 Cron 表达式调度
+- `Task` - 任务基类和完整生命周期管理
+- `TaskResult` - 任务结果、统计信息和性能指标
 
 ### 抓取器模型
 
@@ -93,6 +107,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - **[Scrapers 测试](./models/scrapers/scrapers-testing.md)** - 抓取器的测试方法
 
 **核心组件：**
+
 - `BaseScraper` - 抓取器基类和接口
 - `DirectRssScraper` - RSS 直接抓取器
 - `RsshubScraper` - RSSHub 集成抓取器
@@ -107,6 +122,7 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 - **[Service Models 测试](./models/service/service-models-testing.md)** - 数据模型的测试覆盖
 
 **核心组件：**
+
 - `ScrapingItem` - 抓取项目数据模型
 - `ScrapingResult` - 抓取结果数据模型
 - `TaskModel` - 任务数据模型
@@ -268,6 +284,7 @@ External Sources → Scrapers → TaskManager → Models → Storage
 ---
 
 **导航提示：**
+
 - 📖 **新用户**：推荐从 [CLI 接口文档](./interface/cli/cli-interface.md) 开始
 - 🔧 **开发者**：推荐从 [管理接口文档](./interface/web_service/admin-interface.md) 开始
 - 🏗️ **贡献者**：推荐从 [ConfigManager 模型](./models/config/config-manager.md) 开始

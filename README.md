@@ -6,6 +6,8 @@
 
 OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。它隶属于 [Podcast 矩阵生成项目](https://www.notion.so/1a2fee3943728058be3be79b782e1cf4?pvs=4)，但具备广泛的应用潜力，可以作为中间件为其他项目提供数据抓取和分析能力。OctopusScraper 灵活高效，能够为后续项目提供强大的支持，助力快速实现数据整合与分析，为各类项目赋能。
 
+> 📢 **架构升级**: TaskManager 现已成为统一的任务执行引擎，为所有抓取操作提供优先级调度、并发控制和实时监控。详见 [TaskManager 更新指南](docs/TASK_MANAGER_UPDATES.md)
+
 ## ✨ 特性
 
 - 🕷️ **多源数据抓取**: 支持 RSS、RSSHub、直接网页抓取等多种数据源
@@ -21,9 +23,9 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 🛠️ **易于扩展**: 模块化设计，支持自定义处理器和存储后端
 - 📱 **CLI 工具**: 提供 `octopus_go` 和 `octopus_service` 命令行工具
 - ⚙️ **配置热更新**: 支持动态配置刷新，无需重启服务
-- 🎛️ **任务管理系统**: 统一的任务队列、优先级调度、并发控制和监控
+- 🎛️ **统一任务管理**: 默认启用的 TaskManager 系统，提供任务队列、优先级调度、并发控制和监控
 - 📅 **定时调度**: 基于 Cron 表达式的自动任务调度
-- 🔄 **任务重试**: 智能重试机制，支持指数退避和最大重试次数
+- 🔄 **智能重试**: 支持指数退避和最大重试次数的智能重试机制
 - 📊 **任务监控**: 实时任务状态跟踪、统计信息和性能指标
 
 ## 📋 目录
@@ -113,9 +115,10 @@ NOTION_CONTENT_DATABASE_ID=your_content_database_id
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 CONFIG_REFRESH_INTERVAL=300
-USE_TASK_MANAGER=true
-TASK_MANAGER_MAX_CONCURRENT=8
-TASK_MANAGER_MAX_QUEUE_SIZE=1000
+# TaskManager 配置 (默认启用)
+MAX_CONCURRENT_TASKS=8
+MAX_QUEUE_SIZE=1000
+RESULT_RETENTION_HOURS=48
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 DEBUG=false
@@ -256,12 +259,14 @@ scrapers_config_with_fetch_params:
 
 ### 配置文件结构
 
-OctopusScraper 使用现代化的任务管理系统配置格式。推荐直接复制 [config.example.yml](config.example.yml) 文件开始使用。
+OctopusScraper 使用统一的任务管理系统，TaskManager 现已成为默认且唯一的任务执行方式。推荐直接复制 [config.example.yml](config.example.yml) 文件开始使用。
 
-#### 推荐配置（现代格式）
+> 🔧 **重要更新**: 从最新版本开始，TaskManager 已成为默认且唯一的任务管理方式，不再需要手动配置 `use_task_manager` 参数。
+
+#### 基础配置
 
 ```yaml
-# 使用最新任务管理系统的配置格式
+# 抓取器配置 - 使用统一的任务管理系统
 scrapers_config_with_fetch_params:
   - scraper_config:
       fetcher_name: "rsshub"
@@ -277,8 +282,7 @@ notion_api_config:
   api_key: "${NOTION_API_KEY}"
   database_id: "${NOTION_CONTENT_DATABASE_ID}"
 
-# 任务管理配置
-use_task_manager: true
+# TaskManager 配置 (默认启用)
 task_manager_config:
   max_concurrent_tasks: 8
   max_queue_size: 1000
@@ -289,20 +293,20 @@ service:
   port: 8000
   debug: false
 
-# 任务管理配置
+# TaskManager 配置 (默认启用，无需手动开启)
 task_management:
-  enabled: true
-  max_workers: 4
-  max_queue_size: 1000
-  enable_retry: true
-  max_retry_attempts: 3
-  retry_delay: 5
-  max_retry_delay: 300
-  retry_backoff_factor: 2.0
+  # TaskManager 现已默认启用，以下为高级配置选项
+  max_workers: 4 # 工作线程数
+  max_queue_size: 1000 # 队列最大容量
+  enable_retry: true # 启用任务重试
+  max_retry_attempts: 3 # 最大重试次数
+  retry_delay: 5 # 重试间隔(秒)
+  max_retry_delay: 300 # 最大重试间隔(秒)
+  retry_backoff_factor: 2.0 # 重试退避因子
 
-# 调度器配置
+# 调度器配置 (可选)
 scheduler:
-  enabled: true
+  enabled: true # 启用定时调度
   schedules:
     - name: "daily_news"
       scraper_name: "news_scraper"
@@ -377,53 +381,58 @@ SERVICE_HOST=0.0.0.0 SERVICE_PORT=8080 DEBUG=true poetry run python src/octopus_
 
 ## 🎛️ 任务管理系统
 
-OctopusScraper 提供了一个强大的任务管理系统，支持统一的任务队列、优先级调度、并发控制和监控。
+OctopusScraper 采用统一的任务管理系统，TaskManager 已成为默认且唯一的任务执行方式，为所有抓取操作提供优先级调度、并发控制和监控功能。
+
+> 📢 **架构更新**: 从最新版本开始，TaskManager 已完全替代传统抓取方式，成为统一的任务执行引擎。无需手动配置启用，所有任务都将通过 TaskManager 执行。
 
 ### TaskManager
 
-TaskManager 是任务管理系统的核心组件，提供基于优先级队列的并发任务执行。
+TaskManager 是任务管理系统的核心组件，现已成为 OctopusScraper 的默认任务执行引擎。
 
 #### 主要特性
 
-- **优先级队列**: 支持高、中、低三种优先级
-- **并发控制**: 可配置的工作线程数量
-- **任务重试**: 智能重试机制，支持指数退避
-- **统计监控**: 实时任务状态跟踪和性能指标
-- **生命周期钩子**: 任务开始、完成、失败时的回调
+- **统一任务执行**: 所有抓取操作都通过 TaskManager 执行
+- **优先级队列**: 支持高、中、低三种优先级调度
+- **并发控制**: 可配置的工作线程数量和队列容量
+- **智能重试**: 支持指数退避的重试机制
+- **实时监控**: 任务状态跟踪和性能指标统计
+- **生命周期管理**: 完整的任务开始、完成、失败回调
+
+#### 配置示例
+
+TaskManager 现已默认启用，可通过环境变量或配置文件进行调优：
+
+```python
+# 环境变量配置
+MAX_CONCURRENT_TASKS=8        # 最大并发任务数
+MAX_QUEUE_SIZE=1000          # 队列最大容量
+RESULT_RETENTION_HOURS=48    # 结果保留时间
+
+# 配置文件配置
+task_manager_config:
+  max_concurrent_tasks: 8
+  max_queue_size: 1000
+  result_retention_hours: 48
+```
 
 #### 使用示例
 
+TaskManager 现已自动集成到所有抓取操作中：
+
 ```python
-from octopus_scraper.task_manager import TaskManager, ScraperTask, TaskPriority
+from octopus_scraper import Octopus
 
-# 创建任务管理器
-task_manager = TaskManager(
-    max_workers=4,
-    max_queue_size=1000,
-    enable_retry=True,
-    max_retry_attempts=3
-)
+# TaskManager 已自动启用，无需手动配置
+octopus = Octopus(config_path="config.yml")
 
-# 创建任务
-task = ScraperTask(
-    name="example_task",
-    scraper_name="example_scraper",
-    priority=TaskPriority.HIGH,
-    timeout=60,
-    retry_count=0,
-    max_retries=3
-)
+# 所有抓取操作都将通过 TaskManager 执行
+# 支持优先级调度、并发控制和监控
+contents = await octopus.trigger_scraper()
 
-# 提交任务
-task_manager.submit_task(task)
-
-# 启动任务管理器
-task_manager.start()
-
-# 获取统计信息
-stats = task_manager.get_stats()
+# 获取任务统计信息
+stats = octopus.get_task_manager_stats()
 print(f"已完成任务: {stats.completed_tasks}")
-print(f"失败任务: {stats.failed_tasks}")
+print(f"活跃任务: {stats.active_tasks}")
 ```
 
 ### TaskScheduler
@@ -511,13 +520,15 @@ scheduler:
 
 ```bash
 # 获取任务统计
-curl http://localhost:8080/tasks/stats
+curl http://localhost:8000/admin/tasks/stats
 
-# 获取活跃任务
-curl http://localhost:8080/tasks/active
+# 获取任务列表
+curl http://localhost:8000/admin/tasks/list
 
-# 获取调度器状态
-curl http://localhost:8080/scheduler/status
+# 提交新任务
+curl -X POST http://localhost:8000/admin/tasks/submit \
+  -H "Content-Type: application/json" \
+  -d '{"scraper_name": "example_scraper", "fetch_params": {"limit": 10}}'
 ```
 
 ## 🔌 API 文档
@@ -753,26 +764,27 @@ GET /admin                     # 管理界面概览
 #### 抓取器管理
 
 ```http
-GET /admin/runtime/scrapers    # 获取运行时抓取器列表
+GET /admin/scrapers/list           # 获取抓取器列表
 POST /admin/scrapers/test/{scraper_name}  # 测试指定抓取器
 ```
 
 #### 系统管理
 
 ```http
-POST /admin/cache/clear        # 清理缓存
-POST /admin/system/gc          # 强制垃圾回收
-GET /admin/system/state        # 导出系统状态
-POST /admin/config/watcher/restart  # 重启配置监控
+POST /admin/cache/clear            # 清理缓存
+POST /admin/runtime/gc             # 强制垃圾回收
+POST /admin/debug/dump-state       # 导出系统状态
+GET /admin/runtime/config-watcher  # 获取配置监控状态
+POST /admin/runtime/config-watcher # 重启配置监控
 ```
 
 #### 监控接口
 
 ```http
-GET /admin/monitoring/metrics  # 获取监控指标
-GET /admin/tasks/stats         # 任务统计信息
-GET /admin/tasks/list          # 任务列表
-POST /admin/tasks/submit       # 提交单个任务
+GET /admin/monitoring/metrics      # 获取监控指标
+GET /admin/tasks/stats            # 任务统计信息
+GET /admin/tasks/list             # 任务列表
+POST /admin/tasks/submit          # 提交单个任务
 ```
 
 **配置刷新响应示例：**
@@ -792,7 +804,7 @@ POST /admin/tasks/submit       # 提交单个任务
 #### 获取任务统计信息
 
 ```http
-GET /tasks/stats
+GET /admin/tasks/stats
 ```
 
 **响应示例：**
@@ -800,26 +812,34 @@ GET /tasks/stats
 ```json
 {
   "status": "success",
-  "data": {
+  "statistics": {
     "total_tasks": 150,
     "completed_tasks": 120,
     "failed_tasks": 5,
     "pending_tasks": 25,
-    "active_tasks": 3,
-    "queue_size": 22,
-    "workers_count": 4,
+    "running_tasks_count": 3,
+    "current_queue_size": 22,
+    "max_concurrent_tasks": 8,
+    "queue_capacity": 1000,
     "uptime_seconds": 3600,
     "tasks_per_minute": 2.5,
     "average_task_duration": 45.2,
-    "success_rate": 0.96
+    "success_rate": 0.96,
+    "task_manager_enabled": true,
+    "legacy_mode": false,
+    "uptime_info": {
+      "queue_capacity_usage": "22/1000",
+      "worker_utilization": "3/8"
+    },
+    "timestamp": "2025-07-28T10:30:00.123456"
   }
 }
 ```
 
-#### 获取活跃任务列表
+#### 获取任务列表
 
 ```http
-GET /tasks/active
+GET /admin/tasks/list
 ```
 
 **响应示例：**
@@ -827,40 +847,41 @@ GET /tasks/active
 ```json
 {
   "status": "success",
-  "data": {
-    "active_tasks": [
-      {
-        "id": "task_123",
-        "name": "news_scraper",
-        "scraper_name": "daily_news",
-        "status": "running",
-        "priority": "high",
-        "started_at": "2025-01-20T10:30:00Z",
-        "timeout": 300,
-        "retry_count": 0,
-        "worker_id": "worker_1"
-      }
-    ]
-  }
+  "tasks": [
+    {
+      "task_id": "task_123",
+      "name": "news_scraper",
+      "scraper_name": "daily_news",
+      "status": "running",
+      "priority": "high",
+      "created_at": "2025-01-20T10:30:00Z",
+      "started_at": "2025-01-20T10:30:05Z",
+      "timeout": 300,
+      "retry_count": 0
+    }
+  ],
+  "filters": {
+    "status": null,
+    "limit": 50
+  },
+  "total_returned": 1,
+  "task_manager_enabled": true
 }
 ```
 
 #### 提交新任务
 
 ```http
-POST /tasks/submit
+POST /admin/tasks/submit
 ```
 
 **请求体：**
 
 ```json
 {
-  "name": "custom_task",
   "scraper_name": "example_scraper",
-  "priority": "normal",
-  "timeout": 120,
-  "max_retries": 2,
-  "params": {
+  "fetch_params": {
+    "limit": 20,
     "custom_param": "value"
   }
 }
@@ -872,20 +893,19 @@ POST /tasks/submit
 {
   "status": "success",
   "message": "Task submitted successfully",
-  "data": {
-    "task_id": "task_456",
-    "name": "custom_task",
-    "status": "queued",
-    "priority": "normal",
-    "created_at": "2025-01-20T10:35:00Z"
+  "task_id": "task_456",
+  "scraper_name": "example_scraper",
+  "fetch_params": {
+    "limit": 20,
+    "custom_param": "value"
   }
 }
 ```
 
-#### 获取调度器状态
+#### 获取任务详情
 
 ```http
-GET /scheduler/status
+GET /admin/tasks/{task_id}
 ```
 
 **响应示例：**
@@ -893,42 +913,25 @@ GET /scheduler/status
 ```json
 {
   "status": "success",
-  "data": {
-    "scheduler_running": true,
-    "schedules_count": 3,
-    "next_run_times": [
-      {
-        "name": "daily_news",
-        "next_run": "2025-01-21T08:00:00Z",
-        "cron_expression": "0 8 * * *"
-      },
-      {
-        "name": "hourly_updates",
-        "next_run": "2025-01-20T11:00:00Z",
-        "cron_expression": "0 * * * *"
-      }
-    ]
+  "task": {
+    "task_id": "task_123",
+    "name": "news_scraper",
+    "scraper_name": "daily_news",
+    "status": "completed",
+    "priority": "high",
+    "created_at": "2025-01-20T10:30:00Z",
+    "started_at": "2025-01-20T10:30:05Z",
+    "completed_at": "2025-01-20T10:32:15Z",
+    "retry_count": 0,
+    "result": "Task completed successfully"
   }
 }
 ```
 
-#### 添加调度任务
+#### 取消任务
 
 ```http
-POST /scheduler/add
-```
-
-**请求体：**
-
-```json
-{
-  "name": "weekly_report",
-  "scraper_name": "report_scraper",
-  "cron_expression": "0 9 * * 1",
-  "priority": "normal",
-  "timeout": 600,
-  "max_retries": 1
-}
+POST /admin/tasks/{task_id}/cancel
 ```
 
 **响应示例：**
@@ -936,13 +939,17 @@ POST /scheduler/add
 ```json
 {
   "status": "success",
-  "message": "Schedule added successfully",
-  "data": {
+  "message": "Task 'task_123' cancelled successfully",
+  "task_id": "task_123",
+  "cancelled": true
+}
     "name": "weekly_report",
     "next_run": "2025-01-27T09:00:00Z"
   }
 }
 ```
+
+> **注意**: TaskScheduler 调度功能目前通过配置文件管理，暂未提供 Web API 接口。调度任务可通过配置文件中的 `scheduler.schedules` 部分进行配置。
 
 ## 🛠️ 开发指南
 
@@ -1053,9 +1060,10 @@ NOTION_CONTENT_DATABASE_ID=your_content_database_id
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 CONFIG_REFRESH_INTERVAL=300
-USE_TASK_MANAGER=true
-TASK_MANAGER_MAX_CONCURRENT=8
-TASK_MANAGER_MAX_QUEUE_SIZE=1000
+# TaskManager 配置 (默认启用)
+MAX_CONCURRENT_TASKS=8
+MAX_QUEUE_SIZE=1000
+RESULT_RETENTION_HOURS=48
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 DEBUG=false
@@ -1310,6 +1318,14 @@ poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under
 | `SCRAPER_TIMEOUT`         | 抓取超时时间(秒)                    | 否   | `10`      |
 | `UPLOAD_TIMEOUT`          | 上传超时时间(秒)                    | 否   | `15`      |
 | `UPLOAD_MAX_RETRIES`      | 上传最大重试次数                    | 否   | `3`       |
+
+### TaskManager 配置 (默认启用)
+
+| 变量名                   | 说明                   | 必需 | 默认值 |
+| ------------------------ | ---------------------- | ---- | ------ |
+| `MAX_CONCURRENT_TASKS`   | 最大并发任务数         | 否   | `8`    |
+| `MAX_QUEUE_SIZE`         | 任务队列最大容量       | 否   | `1000` |
+| `RESULT_RETENTION_HOURS` | 任务结果保留时间(小时) | 否   | `48`   |
 
 ### 内容处理配置
 

@@ -1,15 +1,26 @@
 # TaskManager 测试文档
 
+## 📢 重要更新
+
+**TaskManager 现已成为默认且唯一的任务执行方式**。所有测试都基于这一架构更新：
+
+- ✅ **默认启用**: TaskManager 在所有测试中自动启用
+- ❌ **移除传统测试**: 不再测试 `use_task_manager=false` 的情况
+- 🔄 **测试更新**: 所有测试用例都假设 TaskManager 已启用
+- 🚀 **简化配置**: 测试配置中无需设置 `use_task_manager: true`
+
 ## 概述
 
-TaskManager 的测试覆盖了任务提交、执行、监控、调度等核心功能，确保任务管理系统的可靠性和性能。
+TaskManager 的测试覆盖了任务提交、执行、监控、调度等核心功能，确保任务管理系统的可靠性和性能。由于 TaskManager 现已成为唯一的任务执行方式，所有测试都围绕这一统一架构进行。
 
 ## 测试文件位置
 
 - **核心测试**: `tests/octopus_scraper/task_manager/task_manager_test.py`
 - **调度器测试**: `tests/octopus_scraper/task_manager/scheduler_test.py`
 - **模型测试**: `tests/octopus_scraper/task_manager/models_test.py`
-- **集成测试**: `tests/octopus_scraper/octopus_service_test.py` (任务管理部分)
+- **Octopus 集成测试**: `tests/octopus_scraper/task_manager/test_octopus_integration.py`
+- **Octopus 核心测试**: `tests/octopus_scraper/octopus_test.py`
+- **Web 服务集成测试**: `tests/octopus_scraper/octopus_service_test.py` (任务管理部分)
 
 ## 测试结构
 
@@ -381,6 +392,139 @@ class TestTaskManagementEndpoints:
         """测试任务详情端点"""
 ```
 
+## Octopus 集成测试
+
+### TaskManager 与 Octopus 集成
+
+位置: `tests/octopus_scraper/task_manager/test_octopus_integration.py`
+
+#### 测试 Octopus 初始化
+
+```python
+@patch("octopus_scraper.octopus.NotionStorage")
+def test_octopus_initialization_with_task_manager(
+    mock_notion_class, octopus_config_with_task_manager
+):
+    """测试 Octopus 初始化时 TaskManager 自动启用"""
+    mock_notion_class.return_value = Mock()
+
+    octopus = Octopus(octopus_config_with_task_manager)
+
+    # 验证 TaskManager 已初始化且配置正确
+    assert octopus._task_manager is not None
+    assert octopus._task_manager.max_concurrent_tasks == 4
+    assert octopus._task_manager.max_queue_size == 100
+    assert octopus._task_manager.result_retention_hours == 2
+
+    # 验证存储已设置
+    assert octopus._task_manager._storage is not None
+
+    # 清理
+    octopus.cleanup_task_manager()
+```
+
+#### 测试抓取器触发
+
+```python
+@patch("octopus_scraper.octopus.NotionStorage")
+@patch("octopus_scraper.scrapers.scraper.Scraper")
+def test_trigger_scraper_with_task_manager(
+    mock_scraper_class,
+    mock_notion_class,
+    octopus_config_with_task_manager,
+    sample_contents,
+):
+    """测试通过 TaskManager 触发抓取器"""
+    mock_notion_class.return_value = Mock()
+    mock_scraper = Mock()
+    mock_scraper.scrap_contents.return_value = sample_contents
+    mock_scraper_class.return_value = mock_scraper
+
+    octopus = Octopus(octopus_config_with_task_manager)
+
+    # 触发抓取器
+    batch_id = octopus.trigger_scraper()
+
+    # 验证返回批次ID
+    assert batch_id is not None
+    assert batch_id.startswith("scraper_batch_")
+
+    # 验证任务已提交到 TaskManager
+    stats = octopus.get_task_manager_statistics()
+    assert stats["total_tasks"] == 2  # 配置了两个抓取器
+
+    # 清理
+    octopus.cleanup_task_manager()
+```
+
+#### 测试任务状态和统计
+
+```python
+def test_octopus_task_management_methods(octopus_with_task_manager):
+    """测试 Octopus 任务管理方法"""
+
+    # 测试获取任务管理器
+    task_manager = octopus_with_task_manager.get_task_manager()
+    assert task_manager is not None
+
+    # 测试获取统计信息
+    stats = octopus_with_task_manager.get_task_manager_statistics()
+    assert isinstance(stats, dict)
+    assert "total_tasks" in stats
+    assert "completed_tasks" in stats
+
+    # 测试列出任务
+    tasks = octopus_with_task_manager.list_tasks(limit=10)
+    assert isinstance(tasks, list)
+```
+
+### 配置更新对应的测试
+
+TaskManager 现已默认启用，测试需要反映这一变化：
+
+#### 配置测试示例
+
+```python
+def test_task_manager_always_enabled():
+    """测试 TaskManager 始终启用"""
+    config = {
+        "scrapers_config_with_fetch_params": [...],
+        "notion_api_config": {...},
+        # 注意：不再需要 use_task_manager: true
+        "task_manager_config": {
+            "max_concurrent_tasks": 8,
+            "max_queue_size": 1000,
+            "result_retention_hours": 48,
+        },
+    }
+
+    octopus = Octopus(config)
+
+    # TaskManager 应该始终存在
+    assert octopus._task_manager is not None
+    assert octopus._config.use_task_manager == True  # 强制为 True
+```
+
+#### 环境变量配置测试
+
+```python
+@patch.dict("os.environ", {
+    "MAX_CONCURRENT_TASKS": "12",
+    "MAX_QUEUE_SIZE": "2000",
+    "RESULT_RETENTION_HOURS": "72"
+})
+def test_task_manager_env_config():
+    """测试通过环境变量配置 TaskManager"""
+    from octopus_scraper.octopus_service import create_config_from_env
+
+    notion_config, service_config, task_manager_config = create_config_from_env()
+
+    # 验证环境变量配置正确应用
+    assert task_manager_config["max_concurrent_tasks"] == 12
+    assert task_manager_config["max_queue_size"] == 2000
+    assert task_manager_config["result_retention_hours"] == 72
+```
+
 ## Mock 和 Fixture
 
 ### 通用 Fixture
@@ -433,22 +577,28 @@ def mock_scraper_task():
 
 ## 测试运行
 
-### 运行所有 TaskManager 测试
+### 核心 TaskManager 测试
 
 ```bash
-# 运行核心任务管理测试
+# 运行所有 TaskManager 测试
 poetry run pytest tests/octopus_scraper/task_manager/ -v
 
-# 运行特定测试文件
+# 运行核心 TaskManager 测试
 poetry run pytest tests/octopus_scraper/task_manager/task_manager_test.py -v
 
 # 运行调度器测试
 poetry run pytest tests/octopus_scraper/task_manager/scheduler_test.py -v
 ```
 
-### 运行 Web 服务集成测试
+### 集成测试
 
 ```bash
+# 运行 Octopus 集成测试
+poetry run pytest tests/octopus_scraper/task_manager/test_octopus_integration.py -v
+
+# 运行 Octopus 核心测试 (包含 TaskManager 集成)
+poetry run pytest tests/octopus_scraper/octopus_test.py -v
+
 # 运行任务管理 API 测试
 poetry run pytest tests/octopus_scraper/octopus_service_test.py::TestAdminEndpoints -k "task" -v
 
@@ -464,6 +614,16 @@ poetry run pytest tests/octopus_scraper/task_manager/performance_test.py -v
 
 # 运行负载测试
 poetry run pytest tests/octopus_scraper/task_manager/load_test.py -v
+```
+
+### 测试覆盖率
+
+```bash
+# 生成测试覆盖率报告
+poetry run pytest tests/octopus_scraper/task_manager/ --cov=octopus_scraper.task_manager --cov-report=html
+
+# 查看覆盖率报告
+open htmlcov/index.html
 ```
 
 ## 性能测试
@@ -599,12 +759,14 @@ def assert_task_stats(stats: TaskStatistics, **expected):
 ### 常见测试问题
 
 1. **异步测试超时**
+
    ```python
    # 使用适当的超时时间
    await asyncio.wait_for(task_completion, timeout=10.0)
    ```
 
 2. **资源清理**
+
    ```python
    # 确保在测试后清理 TaskManager
    try:
