@@ -12,7 +12,7 @@ logger = structlog.getLogger()
 
 
 @pytest.mark.need_external_service
-def test_octopus_initialization(octopus_config):
+def test_octopus_initialization(octopus_config, patch_notion):
     octopus = Octopus(octopus_config)
     assert len(octopus._scrapers) == 1
     # Verify TaskManager is always initialized
@@ -22,7 +22,7 @@ def test_octopus_initialization(octopus_config):
 
 
 @pytest.mark.need_external_service
-def test_octopus_initialization_with_scheduler(octopus_config):
+def test_octopus_initialization_with_scheduler(octopus_config, patch_notion):
     """Test Octopus initialization with scheduler enabled."""
     # Enable scheduler in config
     octopus_config["enable_scheduler"] = True
@@ -39,7 +39,7 @@ def test_octopus_initialization_with_scheduler(octopus_config):
 
 
 @pytest.mark.need_external_service
-def test_octopus_initialization_with_auto_start_scheduler(octopus_config):
+def test_octopus_initialization_with_auto_start_scheduler(octopus_config, patch_notion):
     """Test Octopus initialization with auto-start scheduler."""
     # Enable scheduler with auto-start
     octopus_config["enable_scheduler"] = True

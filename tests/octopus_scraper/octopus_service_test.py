@@ -790,6 +790,8 @@ class TestAdminEndpoints:
             "current_queue_size": 0,
             "max_concurrent_tasks": 8,
             "queue_capacity": 1000,
+            "success_rate_percent": 100.0,
+            "average_task_duration_seconds": 1.5,
         }
         mock_octopus._task_manager = mock_task_manager
         mock_octopus.get_task_manager.return_value = mock_task_manager

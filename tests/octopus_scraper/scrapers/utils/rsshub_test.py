@@ -12,7 +12,7 @@ class TestRssHub:
     def sspai_rsshub(self):
         """Fixture to create a mock RssHub instance."""
         config = {
-            "hub_root": "https://rsshub.thzu.xyz",
+            "hub_root": "https://rss.owo.nz",
             "route": "/sspai/matrix",
             "fetch_params": {"limit": 1},
         }

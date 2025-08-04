@@ -1251,8 +1251,6 @@ async def submit_individual_task(request):
 
 
 # ===== Scheduler Management APIs =====
-
-
 @app.route("/admin/scheduler/status", methods=["GET"])
 async def get_scheduler_status(request):
     """Get scheduler status and statistics."""

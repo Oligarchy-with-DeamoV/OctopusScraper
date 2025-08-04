@@ -1,7 +1,7 @@
 """
 Tests for scheduler endpoints in octopus_service.py module.
 """
-
+import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -84,7 +84,7 @@ class TestSchedulerEndpoints:
             response = await get_scheduler_status(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert response_data["data"]["enabled"] is True
         assert response_data["data"]["status"] == "running"
@@ -100,7 +100,7 @@ class TestSchedulerEndpoints:
             response = await start_scheduler(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "started successfully" in response_data["message"]
 
@@ -115,7 +115,7 @@ class TestSchedulerEndpoints:
             response = await stop_scheduler(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "stopped successfully" in response_data["message"]
 
@@ -131,7 +131,7 @@ class TestSchedulerEndpoints:
             response = await list_schedules(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "schedules" in response_data["data"]
         assert response_data["data"]["count"] == 1
@@ -156,7 +156,7 @@ class TestSchedulerEndpoints:
             response = await add_schedule(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert response_data["schedule_id"] == "test_schedule_123"
 
@@ -175,7 +175,7 @@ class TestSchedulerEndpoints:
             response = await add_schedule(mock_request)
 
         assert response.status == 400
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "error"
         assert "Missing required field" in response_data["message"]
 
@@ -190,7 +190,7 @@ class TestSchedulerEndpoints:
             response = await get_schedule(mock_request, "daily_scraper")
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert response_data["data"]["schedule_id"] == "daily_scraper"
 
@@ -205,7 +205,7 @@ class TestSchedulerEndpoints:
             response = await remove_schedule(mock_request, "daily_scraper")
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "removed successfully" in response_data["message"]
 
@@ -220,7 +220,7 @@ class TestSchedulerEndpoints:
             response = await enable_schedule(mock_request, "daily_scraper")
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "enabled successfully" in response_data["message"]
 
@@ -235,7 +235,7 @@ class TestSchedulerEndpoints:
             response = await disable_schedule(mock_request, "daily_scraper")
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert "disabled successfully" in response_data["message"]
 
@@ -250,7 +250,7 @@ class TestSchedulerEndpoints:
             response = await trigger_schedule_now(mock_request, "daily_scraper")
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "success"
         assert response_data["task_id"] == "task_456"
         assert "triggered successfully" in response_data["message"]
@@ -278,7 +278,7 @@ class TestSchedulerEndpoints:
             response = await get_scheduler_status(mock_request)
 
         assert response.status == 200
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["data"]["enabled"] is False
         assert response_data["data"]["status"] == "disabled"
 
@@ -300,6 +300,6 @@ class TestSchedulerEndpoints:
             response = await get_scheduler_status(mock_request)
 
         assert response.status == 500
-        response_data = response.body
+        response_data = json.loads(response.body.decode('utf-8'))
         assert response_data["status"] == "error"
         assert "Failed to get scheduler status" in response_data["message"]
