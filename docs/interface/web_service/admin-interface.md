@@ -277,6 +277,240 @@
 ### POST /admin/tasks/{task_id}/cancel
 取消特定任务。
 
+## 调度器管理接口（仅在启用调度器时可用）
+
+### GET /admin/scheduler/status
+获取调度器运行状态和统计信息。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "scheduler_status": {
+    "is_running": true,
+    "start_time": "2025-08-04T10:00:00.123456",
+    "uptime_seconds": 7200,
+    "total_schedules": 5,
+    "active_schedules": 3,
+    "pending_tasks": 2,
+    "completed_tasks": 48,
+    "failed_tasks": 2,
+    "success_rate": 0.96,
+    "average_execution_time": 45.5,
+    "scheduler_enabled": true,
+    "environment_config": {
+      "enable_scheduler": true,
+      "auto_start_scheduler": true,
+      "max_concurrent_schedules": 5,
+      "schedule_check_interval": 30
+    }
+  },
+  "timestamp": "2025-08-04T12:00:00.123456"
+}
+```
+
+### GET /admin/scheduler/schedules
+列出所有调度任务。
+
+**查询参数：**
+- `status`: 过滤状态（enabled/disabled）
+- `limit`: 限制返回数量（最大100）
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "schedules": [
+    {
+      "schedule_id": "daily-news-001",
+      "name": "每日新闻抓取",
+      "description": "每天早上8点抓取新闻内容",
+      "cron_expression": "0 8 * * *",
+      "is_enabled": true,
+      "scraper_config": {
+        "name": "news_scraper",
+        "fetch_params": {"limit": 20}
+      },
+      "created_at": "2025-08-01T10:00:00.123456",
+      "updated_at": "2025-08-03T15:30:00.654321",
+      "last_run": "2025-08-04T08:00:00.123456",
+      "next_run": "2025-08-05T08:00:00.000000",
+      "run_count": 15,
+      "success_count": 14,
+      "failure_count": 1,
+      "success_rate": 0.93,
+      "last_error": null
+    }
+  ],
+  "total_schedules": 5,
+  "active_schedules": 3,
+  "scheduler_enabled": true
+}
+```
+
+### POST /admin/scheduler/schedules
+创建新的调度任务。
+
+**请求体：**
+```json
+{
+  "schedule_id": "weekly-report-001",
+  "name": "周报数据抓取",
+  "description": "每周一上午9点抓取周报数据",
+  "cron_expression": "0 9 * * 1",
+  "scraper_config": {
+    "name": "report_scraper",
+    "fetch_params": {"report_type": "weekly"}
+  },
+  "is_enabled": true
+}
+```
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Schedule created successfully",
+  "schedule": {
+    "schedule_id": "weekly-report-001",
+    "name": "周报数据抓取",
+    "cron_expression": "0 9 * * 1",
+    "is_enabled": true,
+    "created_at": "2025-08-04T12:00:00.123456",
+    "next_run": "2025-08-05T09:00:00.000000"
+  }
+}
+```
+
+### GET /admin/scheduler/schedules/{schedule_id}
+获取特定调度任务的详细信息。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "schedule": {
+    "schedule_id": "daily-news-001",
+    "name": "每日新闻抓取",
+    "description": "每天早上8点抓取新闻内容",
+    "cron_expression": "0 8 * * *",
+    "is_enabled": true,
+    "scraper_config": {...},
+    "statistics": {
+      "run_count": 15,
+      "success_count": 14,
+      "failure_count": 1,
+      "success_rate": 0.93,
+      "average_execution_time": 42.3
+    },
+    "recent_runs": [
+      {
+        "run_time": "2025-08-04T08:00:00.123456",
+        "success": true,
+        "execution_time": 38.5,
+        "items_processed": 18
+      }
+    ],
+    "next_run": "2025-08-05T08:00:00.000000"
+  }
+}
+```
+
+### PUT /admin/scheduler/schedules/{schedule_id}
+更新调度任务配置。
+
+**请求体：**
+```json
+{
+  "name": "每日新闻抓取（更新版）",
+  "description": "每天早上8点和下午2点抓取新闻内容",
+  "cron_expression": "0 8,14 * * *",
+  "scraper_config": {
+    "name": "news_scraper",
+    "fetch_params": {"limit": 30}
+  }
+}
+```
+
+### DELETE /admin/scheduler/schedules/{schedule_id}
+删除调度任务。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Schedule deleted successfully",
+  "schedule_id": "daily-news-001"
+}
+```
+
+### POST /admin/scheduler/schedules/{schedule_id}/enable
+启用调度任务。
+
+### POST /admin/scheduler/schedules/{schedule_id}/disable
+禁用调度任务。
+
+### POST /admin/scheduler/schedules/{schedule_id}/run-now
+立即执行调度任务（不影响正常调度）。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Schedule executed immediately",
+  "task_id": "manual-task-789",
+  "schedule_id": "daily-news-001"
+}
+```
+
+### POST /admin/scheduler/start
+启动调度器。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Scheduler started successfully",
+  "scheduler_status": {
+    "is_running": true,
+    "start_time": "2025-08-04T12:05:00.123456",
+    "active_schedules": 3
+  }
+}
+```
+
+### POST /admin/scheduler/stop
+停止调度器。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Scheduler stopped successfully",
+  "scheduler_status": {
+    "is_running": false,
+    "stop_time": "2025-08-04T12:10:00.123456",
+    "uptime_seconds": 300
+  }
+}
+```
+
+### POST /admin/scheduler/restart
+重启调度器。
+
+**响应示例：**
+```json
+{
+  "status": "success",
+  "message": "Scheduler restarted successfully",
+  "scheduler_status": {
+    "is_running": true,
+    "start_time": "2025-08-04T12:15:00.123456",
+    "previous_uptime_seconds": 300
+  }
+}
+```
+
 ## 运行时控制接口
 
 ### POST /admin/cache/clear
@@ -361,9 +595,17 @@
 3. **性能优化**: 利用 `/admin/cache/clear` 和 `/admin/runtime/gc` 优化内存使用
 4. **故障排查**: 使用 `/admin/debug/dump-state` 和任务管理接口诊断问题
 5. **抓取器测试**: 在生产部署前使用 `/admin/scrapers/{name}/test` 验证配置
+6. **调度器管理**: 
+   - 使用 `/admin/scheduler/status` 监控调度器健康状态
+   - 通过环境变量配置调度器参数以提高灵活性
+   - 定期检查调度任务的成功率和执行时间
+   - 使用 `/admin/scheduler/schedules/{id}/run-now` 测试调度任务
+   - 合理设置 `MAX_CONCURRENT_SCHEDULES` 避免资源竞争
 
 ## 兼容性说明
 
 - 任务管理相关接口仅在启用任务管理器时可用
+- 调度器管理相关接口仅在启用调度器时可用（通过环境变量 `ENABLE_SCHEDULER=true` 控制）
 - 某些功能依赖于 ConfigManager 和 NotionClient 的正常工作
 - 调试接口可能会暴露敏感信息，建议仅在开发环境或安全环境中使用
+- 调度器功能需要有效的cron表达式，支持标准的五字段格式（分 时 日 月 周）

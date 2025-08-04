@@ -118,6 +118,7 @@ octopus_service [OPTIONS]
 
 所有选项都支持通过环境变量配置：
 
+#### 服务配置
 - `OCTOPUS_HOST`: 对应 --host
 - `OCTOPUS_PORT`: 对应 --port
 - `OCTOPUS_DEBUG`: 对应 --debug
@@ -125,6 +126,12 @@ octopus_service [OPTIONS]
 - `OCTOPUS_SINGLE_PROCESS`: 对应 --single-process
 - `OCTOPUS_LOG_LEVEL`: 对应 --log-level
 - `OCTOPUS_LOG_FORMAT`: 对应 --log-format
+
+#### 调度器配置
+- `ENABLE_SCHEDULER`: 启用/禁用调度器功能 (默认: false)
+- `AUTO_START_SCHEDULER`: 服务启动时自动启动调度器 (默认: false)
+- `MAX_CONCURRENT_SCHEDULES`: 最大并发调度任务数 (默认: 3)
+- `SCHEDULE_CHECK_INTERVAL`: 调度检查间隔秒数 (默认: 60)
 
 ### 示例
 
@@ -165,14 +172,32 @@ octopus_service --host 0.0.0.0 --port 8000 --workers 4 --log-format json --log-l
 octopus_service --single-process --debug
 ```
 
+#### 启用调度器功能
+
+```bash
+# 启用调度器并自动启动
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=5
+export SCHEDULE_CHECK_INTERVAL=30
+
+octopus_service --host 0.0.0.0 --port 8000
+```
+
 ### 环境变量配置
 
 ```bash
-# 通过环境变量配置
+# 通过环境变量配置服务
 export OCTOPUS_HOST=127.0.0.1
 export OCTOPUS_PORT=8080
 export OCTOPUS_DEBUG=true
 export OCTOPUS_LOG_LEVEL=DEBUG
+
+# 配置调度器功能
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=false
+export MAX_CONCURRENT_SCHEDULES=3
+export SCHEDULE_CHECK_INTERVAL=60
 
 octopus_service
 ```
@@ -184,6 +209,7 @@ octopus_service
 - **管理 API**: RESTful API 用于系统管理
 - **抓取器控制**: 配置和运行抓取器
 - **任务管理**: 查看和管理后台任务
+- **调度器管理**: 创建、管理和监控定时抓取任务（可选功能）
 - **系统监控**: 实时状态和统计信息
 - **配置管理**: 在线配置编辑和验证
 
@@ -204,11 +230,40 @@ octopus_service --single-process --debug --log-level DEBUG
 ### 生产部署
 
 ```bash
-# 生产环境：定时任务抓取
+# 生产环境：定时任务抓取（传统方式）
 0 */6 * * * /usr/local/bin/octopus_go --config /etc/octopus/config.yml --notion_upload
 
-# 生产环境：启动服务
+# 生产环境：使用调度器功能（推荐）
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=5
 octopus_service --host 0.0.0.0 --port 8000 --workers 4 --log-format json
+```
+
+### 调度器使用场景
+
+```bash
+# 场景1：启用调度器的Web服务
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=3
+export SCHEDULE_CHECK_INTERVAL=60
+octopus_service --host 0.0.0.0 --port 8000
+
+# 场景2：手动管理调度器
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=false  # 手动启动调度器
+octopus_service --port 8000
+
+# 然后通过API启动调度器：
+# curl -X POST http://localhost:8000/admin/scheduler/start
+
+# 场景3：高频调度配置
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=10
+export SCHEDULE_CHECK_INTERVAL=30  # 30秒检查一次
+octopus_service --port 8000
 ```
 
 ### 自动化脚本
@@ -317,6 +372,10 @@ Environment=OCTOPUS_HOST=0.0.0.0
 Environment=OCTOPUS_PORT=8000
 Environment=OCTOPUS_WORKERS=4
 Environment=OCTOPUS_LOG_FORMAT=json
+Environment=ENABLE_SCHEDULER=true
+Environment=AUTO_START_SCHEDULER=true
+Environment=MAX_CONCURRENT_SCHEDULES=5
+Environment=SCHEDULE_CHECK_INTERVAL=60
 ExecStart=/usr/local/bin/octopus_service
 Restart=always
 RestartSec=3

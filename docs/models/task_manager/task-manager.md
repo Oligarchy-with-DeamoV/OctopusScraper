@@ -84,6 +84,103 @@ RESULT_RETENTION_HOURS=48      # 新增配置
 
 TaskManager 是 OctopusScraper 的统一任务执行引擎，现已成为默认且唯一的任务管理方式。它为所有抓取操作提供异步任务队列、优先级调度、并发控制和监控功能。
 
+## 环境变量配置
+
+### TaskManager 环境变量（默认启用）
+
+| 变量名 | 默认值 | 描述 |
+|--------|--------|------|
+| `MAX_CONCURRENT_TASKS` | `8` | 最大并发任务数 |
+| `MAX_QUEUE_SIZE` | `1000` | 任务队列最大容量 |
+| `RESULT_RETENTION_HOURS` | `48` | 任务结果保留时间（小时） |
+
+### 调度器环境变量（可选）
+
+| 变量名 | 默认值 | 描述 |
+|--------|--------|------|
+| `ENABLE_SCHEDULER` | `false` | 启用/禁用 TaskScheduler 功能 |
+| `AUTO_START_SCHEDULER` | `false` | 服务启动时自动启动调度器 |
+| `MAX_CONCURRENT_SCHEDULES` | `10` | 最大并发调度任务数 |
+| `SCHEDULE_CHECK_INTERVAL` | `60` | 调度检查间隔（秒） |
+
+### 配置示例
+
+#### 基本配置（仅 TaskManager）
+```bash
+# TaskManager 配置
+export MAX_CONCURRENT_TASKS=8
+export MAX_QUEUE_SIZE=1000
+export RESULT_RETENTION_HOURS=48
+```
+
+#### 启用调度器（自动启动）
+```bash
+# TaskManager 配置
+export MAX_CONCURRENT_TASKS=8
+export MAX_QUEUE_SIZE=1000
+export RESULT_RETENTION_HOURS=48
+
+# 调度器配置
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=10
+export SCHEDULE_CHECK_INTERVAL=60
+```
+
+#### 启用调度器（手动控制）
+```bash
+# 启用但不自动启动，通过 API 手动控制
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=false
+export MAX_CONCURRENT_SCHEDULES=5
+export SCHEDULE_CHECK_INTERVAL=30
+```
+
+#### Docker Compose 配置
+```yaml
+version: '3.8'
+services:
+  octopus-service:
+    build: .
+    environment:
+      # Notion 配置
+      - NOTION_API_KEY=your_notion_api_key
+      - NOTION_SCRAPERS_DATABASE_ID=your_database_id
+      - NOTION_CONTENT_DATABASE_ID=your_content_db_id
+      
+      # TaskManager 配置
+      - MAX_CONCURRENT_TASKS=8
+      - MAX_QUEUE_SIZE=1000
+      - RESULT_RETENTION_HOURS=48
+      
+      # 调度器配置
+      - ENABLE_SCHEDULER=true
+      - AUTO_START_SCHEDULER=true
+      - MAX_CONCURRENT_SCHEDULES=10
+      - SCHEDULE_CHECK_INTERVAL=60
+    ports:
+      - "8000:8000"
+```
+
+#### .env 文件配置
+```bash
+# .env
+# TaskManager 配置（默认启用）
+MAX_CONCURRENT_TASKS=8
+MAX_QUEUE_SIZE=1000
+RESULT_RETENTION_HOURS=48
+
+# 调度器配置（可选）
+ENABLE_SCHEDULER=true
+AUTO_START_SCHEDULER=false
+MAX_CONCURRENT_SCHEDULES=3
+SCHEDULE_CHECK_INTERVAL=120
+
+# 其他服务配置
+DEBUG=true
+LOG_LEVEL=DEBUG
+```
+
 ## 核心架构
 
 ### 统一任务执行
@@ -381,6 +478,202 @@ curl -X POST http://localhost:8000/tasks/submit \
   -d '{"name": "test_task", "scraper_name": "example"}'
 ```
 
+### TaskScheduler
+
+位置: `src/octopus_scraper/task_manager/scheduler.py`
+
+TaskScheduler 为 TaskManager 提供定时调度功能，支持基于 Cron 表达式的自动任务执行。
+
+#### 主要功能
+
+- **Cron 调度**: 基于标准 Cron 表达式的时间调度
+- **环境变量配置**: 支持动态启用/禁用调度器
+- **自动启动**: 可配置服务启动时自动启动调度器
+- **并发控制**: 独立的调度任务并发控制
+- **状态管理**: 完整的调度任务状态跟踪
+
+#### 环境变量配置
+
+```bash
+# 调度器基本配置
+ENABLE_SCHEDULER=true              # 启用调度器功能
+AUTO_START_SCHEDULER=true          # 服务启动时自动启动
+MAX_CONCURRENT_SCHEDULES=10        # 最大并发调度任务数
+SCHEDULE_CHECK_INTERVAL=60         # 调度检查间隔（秒）
+```
+
+#### 配置文件配置
+
+```yaml
+# 调度器配置
+scheduler_config:
+  enable_scheduler: true
+  auto_start_scheduler: true
+  max_concurrent_schedules: 10
+  schedule_check_interval: 60
+
+# 在 octopus_service.py 中的配置集成
+octopus_config:
+  use_task_manager: true
+  task_manager_config:
+    max_concurrent_tasks: 8
+    max_queue_size: 1000
+    result_retention_hours: 48
+  # 调度器配置会自动从环境变量读取
+  enable_scheduler: ${ENABLE_SCHEDULER}
+  auto_start_scheduler: ${AUTO_START_SCHEDULER}
+  scheduler_config:
+    max_concurrent_schedules: ${MAX_CONCURRENT_SCHEDULES}
+    schedule_check_interval: ${SCHEDULE_CHECK_INTERVAL}
+```
+
+#### 核心方法
+
+```python
+class TaskScheduler:
+    def __init__(self, task_manager: TaskManager, config: dict = None)
+    
+    def start(self) -> None
+    def stop(self) -> None
+    def is_running(self) -> bool
+    
+    def add_schedule(self, schedule: TaskScheduleConfig) -> str
+    def remove_schedule(self, schedule_id: str) -> bool
+    def enable_schedule(self, schedule_id: str) -> bool
+    def disable_schedule(self, schedule_id: str) -> bool
+    
+    def get_schedule_status(self, schedule_id: str) -> Optional[ScheduleStatus]
+    def list_schedules(self) -> List[TaskScheduleConfig]
+    def get_scheduler_status(self) -> Dict[str, Any]
+```
+
+#### 调度配置模型
+
+```python
+@dataclass
+class TaskScheduleConfig:
+    name: str
+    scraper_name: str
+    cron_expression: str
+    priority: TaskPriority = TaskPriority.NORMAL
+    timeout: int = 300
+    max_retries: int = 3
+    enabled: bool = True
+    fetch_params: Dict[str, Any] = field(default_factory=dict)
+    
+    schedule_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = field(default_factory=datetime.now)
+    next_run: Optional[datetime] = None
+    last_run: Optional[datetime] = None
+    run_count: int = 0
+```
+
+#### 便捷方法
+
+```python
+# 添加每日任务
+scheduler.add_daily_task(
+    name="daily_news",
+    scraper_name="news_scraper",
+    hour=9,
+    minute=0
+)
+
+# 添加每周任务  
+scheduler.add_weekly_task(
+    name="weekly_report",
+    scraper_name="report_scraper",
+    day_of_week=1,  # Monday
+    hour=8,
+    minute=0
+)
+
+# 添加每小时任务
+scheduler.add_hourly_task(
+    name="hourly_check",
+    scraper_name="status_scraper",
+    minute=30
+)
+```
+
+#### 调度器状态
+
+```python
+{
+    "enabled": true,
+    "running": true,
+    "total_schedules": 5,
+    "enabled_schedules": 3,
+    "disabled_schedules": 2,
+    "running_scheduled_tasks": 1,
+    "next_run": "2025-08-04T09:00:00.000Z",
+    "configuration": {
+        "max_concurrent_schedules": 10,
+        "schedule_check_interval": 60,
+        "auto_start_scheduler": true
+    },
+    "schedules_by_status": {
+        "enabled": 3,
+        "disabled": 2
+    }
+}
+```
+
+#### 调度器 API 端点
+
+一旦启用调度器，以下 API 端点将可用：
+
+**调度器管理:**
+- `GET /admin/scheduler/status` - 获取调度器状态
+- `POST /admin/scheduler/start` - 启动调度器
+- `POST /admin/scheduler/stop` - 停止调度器
+- `POST /admin/scheduler/restart` - 重启调度器
+
+**调度任务管理:**
+- `GET /admin/scheduler/schedules` - 列出所有调度任务
+- `POST /admin/scheduler/schedules` - 添加新调度任务
+- `GET /admin/scheduler/schedules/{schedule_id}` - 获取特定调度任务
+- `PUT /admin/scheduler/schedules/{schedule_id}` - 更新调度任务
+- `DELETE /admin/scheduler/schedules/{schedule_id}` - 删除调度任务
+- `POST /admin/scheduler/schedules/{schedule_id}/enable` - 启用调度任务
+- `POST /admin/scheduler/schedules/{schedule_id}/disable` - 禁用调度任务
+- `POST /admin/scheduler/schedules/{schedule_id}/trigger` - 手动触发调度任务
+
+**监控集成:**
+- `GET /admin/monitoring/metrics` - 包含调度器指标（如果启用）
+- `GET /health` - 健康检查包含调度器状态
+
+#### 调度器行为说明
+
+**自动启动行为:**
+- 当 `ENABLE_SCHEDULER=true` 且 `AUTO_START_SCHEDULER=true` 时：
+  - 调度器在服务初始化期间自动创建并启动
+  - 服务日志将显示 "TaskScheduler started automatically"
+
+**手动控制:**
+- 当 `ENABLE_SCHEDULER=true` 且 `AUTO_START_SCHEDULER=false` 时：
+  - 调度器被创建但不启动
+  - 使用 `POST /admin/scheduler/start` 手动启动
+  - 使用 `POST /admin/scheduler/stop` 停止
+
+**禁用状态:**
+- 当 `ENABLE_SCHEDULER=false`（默认）时：
+  - 不提供调度器功能
+  - 调度器 API 端点将返回相应的错误消息
+  - TaskManager 仍正常运行即时任务
+
+**监控和健康检查:**
+- 调度器状态包含在健康检查中
+- `/health` - 在依赖项中包含调度器状态
+- `/admin/monitoring/metrics` - 详细的调度器指标
+
+**关键日志消息:**
+```
+TaskScheduler started automatically
+TaskScheduler stopped and cleaned up
+Octopus instance initialized successfully with TaskManager and optional Scheduler
+```
+
 ## 使用示例
 
 ### 推荐用法 (通过 Octopus)
@@ -480,13 +773,172 @@ print(f"""
 """)
 ```
 
+### 调度器使用示例
+
+#### 1. 通过环境变量配置调度器
+
+```bash
+# 启用调度器
+export ENABLE_SCHEDULER=true
+export AUTO_START_SCHEDULER=true
+export MAX_CONCURRENT_SCHEDULES=10
+export SCHEDULE_CHECK_INTERVAL=60
+
+# 启动服务 (调度器会自动启动)
+python src/octopus_scraper/octopus_service.py
+```
+
+#### 2. 程序中使用调度器
+
+```python
+from octopus_scraper import Octopus
+from octopus_scraper.task_manager import TaskScheduler, TaskScheduleConfig, TaskPriority
+
+# 创建 Octopus 实例 (调度器根据环境变量自动配置)
+octopus = Octopus(config_path="config.yml")
+
+# 获取调度器实例 (如果启用)
+scheduler = octopus.get_scheduler()
+
+if scheduler:
+    # 添加每日新闻抓取调度
+    daily_news_schedule = TaskScheduleConfig(
+        name="daily_news",
+        scraper_name="news_scraper",
+        cron_expression="0 9 * * *",  # 每天上午9点
+        priority=TaskPriority.HIGH,
+        timeout=300,
+        max_retries=2,
+        fetch_params={"limit": 50}
+    )
+    
+    schedule_id = scheduler.add_schedule(daily_news_schedule)
+    print(f"添加调度任务: {schedule_id}")
+    
+    # 添加每周报告调度
+    scheduler.add_weekly_task(
+        name="weekly_summary",
+        scraper_name="summary_scraper",
+        day_of_week=1,  # 每周一
+        hour=8,
+        minute=0,
+        fetch_params={"report_type": "weekly"}
+    )
+    
+    # 获取调度器状态
+    status = scheduler.get_scheduler_status()
+    print(f"调度器状态: {status}")
+    
+    # 列出所有调度任务
+    schedules = scheduler.list_schedules()
+    for schedule in schedules:
+        print(f"调度: {schedule.name} - 下次运行: {schedule.next_run}")
+```
+
+#### 3. 通过 API 管理调度
+
+```bash
+# 获取调度器状态
+curl http://localhost:8000/admin/scheduler/status
+
+# 获取调度任务列表
+curl http://localhost:8000/admin/scheduler/schedules
+
+# 添加新调度任务
+curl -X POST http://localhost:8000/admin/scheduler/schedules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hourly_check",
+    "scraper_name": "status_scraper", 
+    "cron_expression": "0 * * * *",
+    "enabled": true,
+    "priority": "normal",
+    "timeout": 120
+  }'
+
+# 手动触发调度任务
+curl -X POST http://localhost:8000/admin/scheduler/schedules/schedule_123/trigger
+
+# 启动/停止调度器
+curl -X POST http://localhost:8000/admin/scheduler/start
+curl -X POST http://localhost:8000/admin/scheduler/stop
+```
+
+#### 4. 调度器生命周期管理
+
+```python
+from octopus_scraper.task_manager import TaskScheduler
+
+# 如果需要手动管理调度器
+scheduler = TaskScheduler(task_manager, config={
+    "max_concurrent_schedules": 15,
+    "schedule_check_interval": 30
+})
+
+# 启动调度器
+scheduler.start()
+
+# 检查运行状态
+if scheduler.is_running():
+    print("调度器正在运行")
+
+# 添加调度后，调度器会自动执行
+# ...
+
+# 优雅关闭
+scheduler.stop()
+```
+
+#### 5. 监控调度执行
+
+```python
+# 获取调度器详细状态
+status = scheduler.get_scheduler_status()
+print(f"""
+调度器状态:
+- 启用: {status['enabled']}
+- 运行中: {status['running']}
+- 总调度数: {status['total_schedules']}
+- 启用的调度: {status['enabled_schedules']}
+- 运行中的调度任务: {status['running_scheduled_tasks']}
+- 下次运行: {status['next_run']}
+""")
+
+# 获取特定调度的状态
+schedule_status = scheduler.get_schedule_status("daily_news")
+if schedule_status:
+    print(f"调度状态: {schedule_status}")
+```
+
 ## 配置示例
 
-### 任务管理器配置
+### 完整配置示例
+
+#### 环境变量配置
+
+```bash
+# TaskManager 配置 (默认启用)
+MAX_CONCURRENT_TASKS=8
+MAX_QUEUE_SIZE=1000
+RESULT_RETENTION_HOURS=48
+
+# 调度器配置 (可选)
+ENABLE_SCHEDULER=true
+AUTO_START_SCHEDULER=true
+MAX_CONCURRENT_SCHEDULES=10
+SCHEDULE_CHECK_INTERVAL=60
+
+# 服务配置
+SERVICE_HOST=0.0.0.0
+SERVICE_PORT=8000
+LOG_LEVEL=INFO
+```
+
+#### 配置文件配置
 
 ```yaml
 # config.yml
-use_task_manager: true
+# TaskManager 默认启用，无需 use_task_manager 配置
 
 task_manager_config:
   max_concurrent_tasks: 8
@@ -494,27 +946,78 @@ task_manager_config:
   result_retention_hours: 48
   enable_monitoring: true
   log_level: "INFO"
-```
 
-### 调度器配置
-
-```yaml
+# 调度器配置 (可选，也可通过环境变量配置)
 scheduler_config:
+  enable_scheduler: true
+  auto_start_scheduler: true
+  max_concurrent_schedules: 10
+  schedule_check_interval: 60
+
+# 传统调度配置 (用于 Notion 数据库中的调度配置)
+scheduler:
   enabled: true
   schedules:
-    - schedule_id: "daily_vscode_issues"
+    - name: "daily_vscode_issues"
       scraper_name: "vscode_issues"
       cron_expression: "0 8 * * *"
       enabled: true
       priority: "high"
-      timeout_seconds: 600
-      max_concurrent_runs: 1
+      timeout: 600
       max_retries: 2
       fetch_params:
         limit: 50
       metadata:
         source: "github"
         category: "issues"
+    
+    - name: "hourly_status_check"
+      scraper_name: "status_scraper"
+      cron_expression: "0 * * * *"
+      enabled: true
+      priority: "normal"
+      timeout: 120
+      max_retries: 1
+      fetch_params:
+        check_type: "health"
+```
+
+#### Docker Compose 配置
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  octopus-service:
+    build: .
+    environment:
+      # Notion 配置
+      NOTION_API_KEY: ${NOTION_API_KEY}
+      NOTION_SCRAPERS_DATABASE_ID: ${NOTION_SCRAPERS_DATABASE_ID}
+      NOTION_CONTENT_DATABASE_ID: ${NOTION_CONTENT_DATABASE_ID}
+      
+      # TaskManager 配置
+      MAX_CONCURRENT_TASKS: 8
+      MAX_QUEUE_SIZE: 1000
+      RESULT_RETENTION_HOURS: 48
+      
+      # 调度器配置
+      ENABLE_SCHEDULER: true
+      AUTO_START_SCHEDULER: true
+      MAX_CONCURRENT_SCHEDULES: 10
+      SCHEDULE_CHECK_INTERVAL: 60
+      
+      # 服务配置
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: 8000
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      ENVIRONMENT: production
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
 ```
 
 ## 性能特性

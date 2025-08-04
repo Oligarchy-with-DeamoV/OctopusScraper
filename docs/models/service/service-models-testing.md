@@ -447,6 +447,288 @@ def test_task_model_cancellation(self):
     assert task.is_completed == True
 ```
 
+### 调度器模型测试
+
+```python
+class TestScheduleModel:
+    """调度模型测试"""
+
+    def test_schedule_model_creation(self):
+        """测试调度模型创建"""
+
+        schedule = ScheduleModel(
+            schedule_id="test-schedule-001",
+            name="每日数据抓取",
+            description="每天凌晨2点执行数据抓取任务",
+            cron_expression="0 2 * * *",
+            scraper_config={
+                "name": "daily_scraper",
+                "url": "https://example.com/api/data",
+                "timeout": 30
+            }
+        )
+
+        assert schedule.schedule_id == "test-schedule-001"
+        assert schedule.name == "每日数据抓取"
+        assert schedule.cron_expression == "0 2 * * *"
+        assert schedule.is_enabled == True  # 默认启用
+        assert schedule.created_at is not None
+        assert schedule.updated_at is not None
+        assert schedule.next_run is None  # 未计算
+
+    def test_schedule_model_validation(self):
+        """测试调度模型验证"""
+
+        # 测试有效的cron表达式
+        valid_expressions = [
+            "0 2 * * *",       # 每天2点
+            "*/15 * * * *",    # 每15分钟
+            "0 0 1 * *",       # 每月1号
+            "0 9-17 * * 1-5"   # 工作日9-17点
+        ]
+
+        for expr in valid_expressions:
+            schedule = ScheduleModel(
+                schedule_id=f"test-{expr.replace(' ', '-').replace('*', 'x')}",
+                name="测试调度",
+                cron_expression=expr
+            )
+            # 应该成功创建，不抛出异常
+            assert schedule.is_valid_cron()
+
+        # 测试无效的cron表达式
+        invalid_expressions = [
+            "invalid",
+            "60 * * * *",      # 分钟超出范围
+            "* 25 * * *",      # 小时超出范围
+            "* * 32 * *",      # 日期超出范围
+            "* * * 13 *"       # 月份超出范围
+        ]
+
+        for expr in invalid_expressions:
+            try:
+                schedule = ScheduleModel(
+                    schedule_id=f"invalid-{expr}",
+                    name="无效调度",
+                    cron_expression=expr
+                )
+                assert not schedule.is_valid_cron()
+            except ValueError:
+                # 预期的验证错误
+                pass
+
+    def test_schedule_model_lifecycle(self):
+        """测试调度模型生命周期"""
+
+        schedule = ScheduleModel(
+            schedule_id="lifecycle-test",
+            name="生命周期测试",
+            cron_expression="0 * * * *"  # 每小时
+        )
+
+        # 初始状态
+        assert schedule.is_enabled == True
+        assert schedule.last_run is None
+        assert schedule.run_count == 0
+
+        # 禁用调度
+        schedule.disable()
+        assert schedule.is_enabled == False
+
+        # 启用调度
+        schedule.enable()
+        assert schedule.is_enabled == True
+
+        # 更新下次运行时间
+        next_time = datetime.now() + timedelta(hours=1)
+        schedule.update_next_run(next_time)
+        assert schedule.next_run == next_time
+
+        # 记录执行
+        start_time = datetime.now()
+        schedule.record_execution(start_time, True)
+        assert schedule.last_run == start_time
+        assert schedule.run_count == 1
+        assert schedule.success_count == 1
+        assert schedule.failure_count == 0
+
+        # 记录失败执行
+        fail_time = datetime.now()
+        schedule.record_execution(fail_time, False, "网络错误")
+        assert schedule.last_run == fail_time
+        assert schedule.run_count == 2
+        assert schedule.success_count == 1
+        assert schedule.failure_count == 1
+        assert schedule.last_error == "网络错误"
+
+    def test_schedule_model_statistics(self):
+        """测试调度模型统计"""
+
+        schedule = ScheduleModel(
+            schedule_id="stats-test",
+            name="统计测试",
+            cron_expression="*/5 * * * *"
+        )
+
+        # 模拟多次执行
+        base_time = datetime.now()
+        for i in range(10):
+            run_time = base_time + timedelta(minutes=i*5)
+            success = i % 3 != 0  # 每3次失败1次
+            error = None if success else f"错误 {i}"
+            schedule.record_execution(run_time, success, error)
+
+        # 验证统计
+        assert schedule.run_count == 10
+        assert schedule.success_count == 7
+        assert schedule.failure_count == 3
+        assert schedule.success_rate == 0.7
+
+        # 获取统计摘要
+        stats = schedule.get_statistics()
+        expected_keys = [
+            'schedule_id', 'name', 'is_enabled', 'run_count',
+            'success_count', 'failure_count', 'success_rate',
+            'last_run', 'next_run', 'last_error'
+        ]
+        for key in expected_keys:
+            assert key in stats
+
+class TestSchedulerStatus:
+    """调度器状态测试"""
+
+    def test_scheduler_status_creation(self):
+        """测试调度器状态创建"""
+
+        status = SchedulerStatus(
+            is_running=True,
+            start_time=datetime.now(),
+            total_schedules=5,
+            active_schedules=3,
+            pending_tasks=2
+        )
+
+        assert status.is_running == True
+        assert status.total_schedules == 5
+        assert status.active_schedules == 3
+        assert status.pending_tasks == 2
+        assert status.uptime_seconds >= 0
+        assert status.created_at is not None
+
+    def test_scheduler_status_uptime_calculation(self):
+        """测试调度器运行时间计算"""
+
+        start_time = datetime.now() - timedelta(hours=2, minutes=30)
+        status = SchedulerStatus(
+            is_running=True,
+            start_time=start_time,
+            total_schedules=3
+        )
+
+        # 运行时间应该大约是2.5小时
+        uptime_hours = status.uptime_seconds / 3600
+        assert 2.4 < uptime_hours < 2.6
+
+        # 测试停止状态
+        status.is_running = False
+        status.stop_time = datetime.now()
+        assert status.uptime_seconds > 0
+
+    def test_scheduler_status_statistics_update(self):
+        """测试调度器状态统计更新"""
+
+        status = SchedulerStatus(
+            is_running=True,
+            start_time=datetime.now(),
+            total_schedules=0
+        )
+
+        # 添加调度
+        status.add_schedule()
+        assert status.total_schedules == 1
+        assert status.active_schedules == 0  # 需要手动激活
+
+        # 激活调度
+        status.activate_schedule()
+        assert status.active_schedules == 1
+
+        # 添加待处理任务
+        status.add_pending_task()
+        status.add_pending_task()
+        assert status.pending_tasks == 2
+
+        # 完成任务
+        status.complete_task()
+        assert status.pending_tasks == 1
+        assert status.completed_tasks == 1
+
+        # 移除调度
+        status.remove_schedule()
+        assert status.total_schedules == 0
+        assert status.active_schedules == 0
+
+    def test_scheduler_status_performance_metrics(self):
+        """测试调度器性能指标"""
+
+        status = SchedulerStatus(
+            is_running=True,
+            start_time=datetime.now(),
+            total_schedules=10,
+            active_schedules=8,
+            completed_tasks=100,
+            failed_tasks=5
+        )
+
+        # 计算成功率
+        success_rate = status.get_success_rate()
+        assert success_rate == 0.95  # 100/(100+5)
+
+        # 计算平均任务执行时间（如果有执行时间数据）
+        execution_times = [1.2, 2.1, 0.8, 1.5, 3.0]
+        status.add_execution_times(execution_times)
+        avg_time = status.get_average_execution_time()
+        assert abs(avg_time - 1.72) < 0.01  # 平均值
+
+        # 获取性能摘要
+        metrics = status.get_performance_metrics()
+        expected_keys = [
+            'success_rate', 'average_execution_time', 'tasks_per_hour',
+            'active_schedule_ratio', 'uptime_hours'
+        ]
+        for key in expected_keys:
+            assert key in metrics
+
+    def test_scheduler_status_health_check(self):
+        """测试调度器健康检查"""
+
+        # 健康状态
+        healthy_status = SchedulerStatus(
+            is_running=True,
+            start_time=datetime.now() - timedelta(hours=1),
+            total_schedules=5,
+            active_schedules=5,
+            failed_tasks=0
+        )
+
+        health = healthy_status.get_health_status()
+        assert health['status'] == 'healthy'
+        assert health['issues'] == []
+
+        # 不健康状态
+        unhealthy_status = SchedulerStatus(
+            is_running=False,
+            start_time=datetime.now() - timedelta(hours=1),
+            total_schedules=5,
+            active_schedules=0,
+            failed_tasks=10
+        )
+
+        health = unhealthy_status.get_health_status()
+        assert health['status'] == 'unhealthy'
+        assert len(health['issues']) > 0
+        assert any('停止运行' in issue for issue in health['issues'])
+```
+
 ### 响应模型测试
 
 ```python

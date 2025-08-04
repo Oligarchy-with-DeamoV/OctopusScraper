@@ -13,6 +13,8 @@ src/octopus_scraper/service_models.py
 ├── ScrapingResult      # 抓取结果模型
 ├── TaskModel           # 任务模型
 ├── TaskResult          # 任务结果模型
+├── ScheduleModel       # 调度任务模型
+├── SchedulerStatus     # 调度器状态模型
 ├── AdminResponse       # 管理接口响应模型
 ├── ErrorResponse       # 错误响应模型
 └── SystemInfo          # 系统信息模型
@@ -770,6 +772,227 @@ class ScraperStatistics(BaseModel):
             )
 
         self.update_timestamp()
+```
+
+## 调度器相关模型
+
+### 1. ScheduleModel (调度任务模型)
+
+```python
+from enum import Enum
+from croniter import croniter
+from typing import Optional, Any, Dict
+
+class ScheduleStatus(Enum):
+    """调度任务状态枚举"""
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    PAUSED = "paused"
+    ERROR = "error"
+
+@dataclass
+class ScheduleModel(BaseModel):
+    """调度任务数据模型"""
+
+    # 基本信息
+    schedule_id: str
+    name: str
+    description: Optional[str] = None
+    status: ScheduleStatus = ScheduleStatus.ENABLED
+
+    # 调度配置
+    cron_expression: str
+    timezone: str = "UTC"
+
+    # 关联任务
+    scraper_name: str
+    task_priority: TaskPriority = TaskPriority.NORMAL
+    task_timeout: int = 300  # 秒
+    max_retries: int = 3
+
+    # 执行参数
+    fetch_params: Dict[str, Any] = field(default_factory=dict)
+    task_config: Dict[str, Any] = field(default_factory=dict)
+
+    # 执行统计
+    total_runs: int = 0
+    successful_runs: int = 0
+    failed_runs: int = 0
+    last_run_time: Optional[datetime] = None
+    last_run_status: Optional[str] = None
+    next_run_time: Optional[datetime] = None
+    average_execution_time: float = 0.0
+
+    # 错误信息
+    last_error: Optional[str] = None
+    last_error_time: Optional[datetime] = None
+
+    def __post_init__(self):
+        """初始化后处理"""
+        super().__post_init__()
+        
+        # 验证 cron 表达式
+        if not self.is_valid_cron():
+            raise ValueError(f"Invalid cron expression: {self.cron_expression}")
+        
+        # 计算下次运行时间
+        self.update_next_run_time()
+
+    def is_valid_cron(self) -> bool:
+        """验证 cron 表达式是否有效"""
+        try:
+            croniter(self.cron_expression)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def update_next_run_time(self):
+        """更新下次运行时间"""
+        try:
+            cron = croniter(self.cron_expression, datetime.now())
+            self.next_run_time = cron.get_next(datetime)
+        except Exception as e:
+            self.last_error = f"Failed to calculate next run time: {str(e)}"
+            self.status = ScheduleStatus.ERROR
+
+    def is_due(self, current_time: datetime = None) -> bool:
+        """检查是否到了执行时间"""
+        if self.status != ScheduleStatus.ENABLED:
+            return False
+        
+        if not self.next_run_time:
+            return False
+            
+        if current_time is None:
+            current_time = datetime.now()
+            
+        return current_time >= self.next_run_time
+
+    def record_execution(self, success: bool, execution_time: float = 0.0, error: str = None):
+        """记录执行结果"""
+        self.total_runs += 1
+        self.last_run_time = datetime.now()
+        
+        if success:
+            self.successful_runs += 1
+            self.last_run_status = "success"
+            self.last_error = None
+        else:
+            self.failed_runs += 1
+            self.last_run_status = "failed"
+            self.last_error = error
+            self.last_error_time = self.last_run_time
+        
+        # 更新平均执行时间
+        if execution_time > 0:
+            if self.average_execution_time == 0:
+                self.average_execution_time = execution_time
+            else:
+                self.average_execution_time = (
+                    (self.average_execution_time * (self.total_runs - 1) + execution_time)
+                    / self.total_runs
+                )
+        
+        # 更新下次运行时间
+        self.update_next_run_time()
+        self.update_timestamp()
+
+    @property
+    def success_rate(self) -> float:
+        """成功率"""
+        if self.total_runs == 0:
+            return 0.0
+        return self.successful_runs / self.total_runs
+
+    def enable(self):
+        """启用调度"""
+        self.status = ScheduleStatus.ENABLED
+        self.update_next_run_time()
+        self.update_timestamp()
+
+    def disable(self):
+        """禁用调度"""
+        self.status = ScheduleStatus.DISABLED
+        self.next_run_time = None
+        self.update_timestamp()
+
+    def pause(self):
+        """暂停调度"""
+        self.status = ScheduleStatus.PAUSED
+        self.update_timestamp()
+```
+
+### 2. SchedulerStatus (调度器状态模型)
+
+```python
+@dataclass
+class SchedulerStatus(BaseModel):
+    """调度器状态数据模型"""
+
+    # 调度器状态
+    enabled: bool = False
+    running: bool = False
+    
+    # 调度统计
+    total_schedules: int = 0
+    enabled_schedules: int = 0
+    disabled_schedules: int = 0
+    paused_schedules: int = 0
+    error_schedules: int = 0
+    
+    # 运行状态
+    running_scheduled_tasks: int = 0
+    next_run: Optional[datetime] = None
+    last_check_time: Optional[datetime] = None
+    
+    # 配置信息
+    max_concurrent_schedules: int = 10
+    schedule_check_interval: int = 60
+    auto_start_enabled: bool = False
+    
+    # 统计信息
+    schedules_by_status: Dict[str, int] = field(default_factory=dict)
+    
+    def update_from_schedules(self, schedules: List[ScheduleModel]):
+        """从调度列表更新状态"""
+        self.total_schedules = len(schedules)
+        
+        # 按状态统计
+        status_counts = {}
+        earliest_next_run = None
+        
+        for schedule in schedules:
+            status = schedule.status.value
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # 查找最早的下次运行时间
+            if (schedule.status == ScheduleStatus.ENABLED and 
+                schedule.next_run_time and 
+                (earliest_next_run is None or schedule.next_run_time < earliest_next_run)):
+                earliest_next_run = schedule.next_run_time
+        
+        self.enabled_schedules = status_counts.get(ScheduleStatus.ENABLED.value, 0)
+        self.disabled_schedules = status_counts.get(ScheduleStatus.DISABLED.value, 0)
+        self.paused_schedules = status_counts.get(ScheduleStatus.PAUSED.value, 0)
+        self.error_schedules = status_counts.get(ScheduleStatus.ERROR.value, 0)
+        
+        self.schedules_by_status = status_counts
+        self.next_run = earliest_next_run
+        self.last_check_time = datetime.now()
+        
+        self.update_timestamp()
+
+    @property
+    def health_status(self) -> str:
+        """健康状态"""
+        if not self.enabled:
+            return "disabled"
+        elif self.error_schedules > 0:
+            return "warning"
+        elif self.running:
+            return "healthy"
+        else:
+            return "stopped"
 ```
 
 ## 数据验证和转换

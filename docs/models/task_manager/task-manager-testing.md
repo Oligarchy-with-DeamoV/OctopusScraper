@@ -366,6 +366,149 @@ async def test_cron_schedule_execution(self):
         await task_manager.stop()
 ```
 
+### 调度器环境变量配置测试
+
+#### 测试类: `TestSchedulerEnvironmentConfig`
+
+```python
+class TestSchedulerEnvironmentConfig:
+    """调度器环境变量配置测试"""
+
+    def test_scheduler_disabled_by_default(self):
+        """测试调度器默认禁用"""
+        with patch.dict(os.environ, {}, clear=True):
+            _, _, _, scheduler_config = create_config_from_env()
+            assert scheduler_config["enable_scheduler"] == False
+            assert scheduler_config["auto_start_scheduler"] == False
+
+    def test_scheduler_enabled_via_env(self):
+        """测试通过环境变量启用调度器"""
+        env_vars = {
+            "ENABLE_SCHEDULER": "true",
+            "AUTO_START_SCHEDULER": "true",
+            "MAX_CONCURRENT_SCHEDULES": "15",
+            "SCHEDULE_CHECK_INTERVAL": "30"
+        }
+        
+        with patch.dict(os.environ, env_vars):
+            _, _, _, scheduler_config = create_config_from_env()
+            assert scheduler_config["enable_scheduler"] == True
+            assert scheduler_config["auto_start_scheduler"] == True
+            assert scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 15
+            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 30
+
+    def test_scheduler_boolean_parsing(self):
+        """测试调度器布尔值解析"""
+        test_cases = [
+            ("true", True), ("TRUE", True), ("True", True),
+            ("false", False), ("FALSE", False), ("False", False),
+            ("1", False), ("0", False), ("", False), ("random", False)
+        ]
+        
+        for env_value, expected in test_cases:
+            with patch.dict(os.environ, {"ENABLE_SCHEDULER": env_value}, clear=True):
+                _, _, _, scheduler_config = create_config_from_env()
+                assert scheduler_config["enable_scheduler"] == expected
+
+    def test_scheduler_integer_parsing(self):
+        """测试调度器整数值解析"""
+        env_vars = {
+            "MAX_CONCURRENT_SCHEDULES": "25",
+            "SCHEDULE_CHECK_INTERVAL": "120"
+        }
+        
+        with patch.dict(os.environ, env_vars):
+            _, _, _, scheduler_config = create_config_from_env()
+            assert scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 25
+            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 120
+
+    def test_scheduler_invalid_integer(self):
+        """测试调度器无效整数值处理"""
+        env_vars = {"MAX_CONCURRENT_SCHEDULES": "not_a_number"}
+        
+        with patch.dict(os.environ, env_vars):
+            with pytest.raises(ValueError):
+                create_config_from_env()
+
+    async def test_octopus_setup_with_scheduler_enabled(self):
+        """测试启用调度器的 Octopus 设置"""
+        mock_app = Mock()
+        mock_config_manager = Mock()
+        mock_config_manager.load_initial_config = AsyncMock(return_value=[])
+        mock_config_manager.get_current_version = Mock(return_value=Mock(version_id="test_v1"))
+        mock_config_manager.start_config_watcher = Mock()
+
+        with patch("octopus_scraper.octopus_service.create_config_from_env") as mock_create_config, \
+             patch("octopus_scraper.octopus_service.ConfigManager") as mock_config_class, \
+             patch("octopus_scraper.octopus_service.Octopus") as mock_octopus_class:
+
+            # 模拟启用调度器的配置
+            mock_create_config.return_value = (
+                Mock(),  # notion_config
+                Mock(),  # service_config
+                {"max_concurrent_tasks": 8, "max_queue_size": 1000, "result_retention_hours": 48},
+                {
+                    "enable_scheduler": True,
+                    "auto_start_scheduler": True,
+                    "scheduler_config": {
+                        "max_concurrent_schedules": 10,
+                        "schedule_check_interval": 60
+                    }
+                }
+            )
+            
+            mock_config_class.return_value = mock_config_manager
+            mock_octopus_instance = Mock()
+            mock_octopus_class.return_value = mock_octopus_instance
+
+            await setup_octopus(mock_app, None)
+
+            # 验证 Octopus 使用了调度器配置
+            mock_octopus_class.assert_called_once()
+            call_args = mock_octopus_class.call_args[0][0]
+            assert call_args["enable_scheduler"] == True
+            assert call_args["auto_start_scheduler"] == True
+
+    async def test_octopus_setup_with_scheduler_disabled(self):
+        """测试禁用调度器的 Octopus 设置"""
+        mock_app = Mock()
+        mock_config_manager = Mock()
+        mock_config_manager.load_initial_config = AsyncMock(return_value=[])
+        mock_config_manager.get_current_version = Mock(return_value=Mock(version_id="test_v1"))
+        mock_config_manager.start_config_watcher = Mock()
+
+        with patch("octopus_scraper.octopus_service.create_config_from_env") as mock_create_config, \
+             patch("octopus_scraper.octopus_service.ConfigManager") as mock_config_class, \
+             patch("octopus_scraper.octopus_service.Octopus") as mock_octopus_class:
+
+            # 模拟禁用调度器的配置
+            mock_create_config.return_value = (
+                Mock(),  # notion_config
+                Mock(),  # service_config
+                {"max_concurrent_tasks": 8, "max_queue_size": 1000, "result_retention_hours": 48},
+                {
+                    "enable_scheduler": False,
+                    "auto_start_scheduler": False,
+                    "scheduler_config": {
+                        "max_concurrent_schedules": 10,
+                        "schedule_check_interval": 60
+                    }
+                }
+            )
+            
+            mock_config_class.return_value = mock_config_manager
+            mock_octopus_instance = Mock()
+            mock_octopus_class.return_value = mock_octopus_instance
+
+            await setup_octopus(mock_app, None)
+
+            # 验证 Octopus 使用了禁用的调度器配置
+            mock_octopus_class.assert_called_once()
+            call_args = mock_octopus_class.call_args[0][0]
+            assert call_args["enable_scheduler"] == False
+            assert call_args["auto_start_scheduler"] == False
+```
+
 ## Web 服务集成测试
 
 ### 任务管理 API 测试
@@ -390,6 +533,118 @@ class TestTaskManagementEndpoints:
 
     async def test_task_details_endpoint(self):
         """测试任务详情端点"""
+```
+
+### 调度器 API 测试
+
+位置: `tests/octopus_scraper/octopus_service_test.py`
+
+```python
+class TestSchedulerAPIEndpoints:
+    """调度器 API 端点测试"""
+
+    async def test_scheduler_status_endpoint(self):
+        """测试调度器状态端点"""
+        mock_request = Mock()
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_octopus = Mock()
+            mock_octopus.get_scheduler_status.return_value = {
+                "enabled": True,
+                "running": True,
+                "total_schedules": 5,
+                "enabled_schedules": 3
+            }
+            mock_app.ctx.octopus = mock_octopus
+            
+            response = await scheduler_status(mock_request)
+            assert response.status == 200
+
+    async def test_scheduler_start_stop_endpoints(self):
+        """测试调度器启动/停止端点"""
+        mock_request = Mock()
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_scheduler = Mock()
+            mock_app.ctx.octopus.get_scheduler.return_value = mock_scheduler
+            
+            # 测试启动
+            response = await start_scheduler(mock_request)
+            assert response.status == 200
+            mock_scheduler.start.assert_called_once()
+            
+            # 测试停止
+            response = await stop_scheduler(mock_request)
+            assert response.status == 200
+            mock_scheduler.stop.assert_called_once()
+
+    async def test_schedule_management_endpoints(self):
+        """测试调度任务管理端点"""
+        mock_request = Mock()
+        mock_request.json = {
+            "name": "test_schedule",
+            "scraper_name": "test_scraper",
+            "cron_expression": "0 9 * * *",
+            "enabled": True
+        }
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_scheduler = Mock()
+            mock_scheduler.add_schedule.return_value = "schedule_123"
+            mock_app.ctx.octopus.get_scheduler.return_value = mock_scheduler
+            
+            # 测试添加调度
+            response = await add_schedule(mock_request)
+            assert response.status == 200
+            mock_scheduler.add_schedule.assert_called_once()
+
+    async def test_schedule_trigger_endpoint(self):
+        """测试手动触发调度端点"""
+        mock_request = Mock()
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_scheduler = Mock()
+            mock_scheduler.trigger_schedule.return_value = "task_456"
+            mock_app.ctx.octopus.get_scheduler.return_value = mock_scheduler
+            
+            response = await trigger_schedule(mock_request, "schedule_123")
+            assert response.status == 200
+
+    async def test_scheduler_disabled_error_responses(self):
+        """测试调度器禁用时的错误响应"""
+        mock_request = Mock()
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            # 模拟调度器未启用
+            mock_app.ctx.octopus.get_scheduler.return_value = None
+            
+            response = await scheduler_status(mock_request)
+            assert response.status == 503  # Service Unavailable
+
+    async def test_monitoring_metrics_with_scheduler(self):
+        """测试监控指标包含调度器信息"""
+        mock_request = Mock()
+        
+        with patch("octopus_scraper.octopus_service.app") as mock_app:
+            mock_octopus = Mock()
+            mock_octopus.get_scheduler_status.return_value = {
+                "enabled": True,
+                "status": "running",
+                "total_schedules": 5,
+                "enabled_schedules": 3,
+                "running_scheduled_tasks": 1
+            }
+            mock_app.ctx.octopus = mock_octopus
+            mock_app.ctx.config_manager = Mock()
+            
+            response = await get_monitoring_metrics(mock_request)
+            assert response.status == 200
+            
+            # 验证响应包含调度器指标
+            import json
+            data = json.loads(response.body.decode('utf-8'))
+            assert "scheduler" in data["metrics"]
+            assert data["metrics"]["scheduler"]["enabled"] == True
 ```
 
 ## Octopus 集成测试

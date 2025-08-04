@@ -46,6 +46,15 @@ class TestConfigManager:
 
     def test_is_config_healthy(self):
         """测试配置健康状态检查"""
+
+    def test_get_scheduler_config(self):
+        """测试获取调度器配置"""
+
+    def test_scheduler_environment_variables(self):
+        """测试调度器环境变量配置"""
+
+    def test_scheduler_config_validation(self):
+        """测试调度器配置验证"""
 ```
 
 #### 测试类: `TestConfigVersion`
@@ -175,6 +184,132 @@ async def test_config_hot_reload(self):
         assert config_changed is True
         assert config_manager.get_service_config().port == 8080
         assert "Configuration reloaded" in message
+    finally:
+        os.unlink(config_file)
+```
+
+### 调度器配置测试
+
+```python
+def test_get_scheduler_config(self):
+    """测试获取调度器配置"""
+
+    # 准备包含调度器配置的测试数据
+    config_data = {
+        'scheduler': {
+            'enabled': True,
+            'auto_start': True,
+            'max_concurrent_schedules': 5,
+            'check_interval': 30
+        },
+        'service': {'port': 8000}
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+        yaml.dump(config_data, f)
+        config_file = f.name
+
+    try:
+        config_manager = ConfigManager(config_file_path=config_file)
+        scheduler_config = config_manager.get_scheduler_config()
+
+        assert scheduler_config.enabled == True
+        assert scheduler_config.auto_start == True
+        assert scheduler_config.max_concurrent_schedules == 5
+        assert scheduler_config.check_interval == 30
+    finally:
+        os.unlink(config_file)
+
+def test_scheduler_environment_variables(self):
+    """测试调度器环境变量配置"""
+
+    # 设置环境变量
+    test_env = {
+        'ENABLE_SCHEDULER': 'true',
+        'AUTO_START_SCHEDULER': 'false',
+        'MAX_CONCURRENT_SCHEDULES': '10',
+        'SCHEDULE_CHECK_INTERVAL': '60'
+    }
+
+    with patch.dict(os.environ, test_env):
+        config_manager = ConfigManager()
+        scheduler_config = config_manager.get_scheduler_config_from_env()
+
+        assert scheduler_config.enabled == True
+        assert scheduler_config.auto_start == False
+        assert scheduler_config.max_concurrent_schedules == 10
+        assert scheduler_config.check_interval == 60
+
+def test_scheduler_config_validation(self):
+    """测试调度器配置验证"""
+
+    # 测试有效配置
+    valid_config = {
+        'enabled': True,
+        'auto_start': True,
+        'max_concurrent_schedules': 3,
+        'check_interval': 30
+    }
+
+    config_manager = ConfigManager()
+    assert config_manager.validate_scheduler_config(valid_config) == True
+
+    # 测试无效配置
+    invalid_configs = [
+        {'max_concurrent_schedules': 0},      # 并发数不能为0
+        {'check_interval': -1},               # 检查间隔不能为负数
+        {'enabled': 'invalid'},               # enabled必须是布尔值
+        {'max_concurrent_schedules': 'abc'}   # 并发数必须是整数
+    ]
+
+    for invalid_config in invalid_configs:
+        assert config_manager.validate_scheduler_config(invalid_config) == False
+
+async def test_scheduler_config_reload(self):
+    """测试调度器配置重载"""
+
+    # 初始配置 - 调度器禁用
+    initial_config = {
+        'scheduler': {'enabled': False},
+        'service': {'port': 8000}
+    }
+
+    # 更新配置 - 启用调度器
+    updated_config = {
+        'scheduler': {
+            'enabled': True,
+            'auto_start': True,
+            'max_concurrent_schedules': 5
+        },
+        'service': {'port': 8000}
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+        yaml.dump(initial_config, f)
+        config_file = f.name
+
+    try:
+        config_manager = ConfigManager(config_file_path=config_file)
+        await config_manager.load_config()
+
+        # 验证初始调度器配置
+        scheduler_config = config_manager.get_scheduler_config()
+        assert scheduler_config.enabled == False
+
+        # 更新配置文件
+        with open(config_file, 'w') as f:
+            yaml.dump(updated_config, f)
+
+        # 重载配置
+        config_changed, message = await config_manager.reload_config()
+
+        # 验证调度器配置已更新
+        updated_scheduler_config = config_manager.get_scheduler_config()
+        assert config_changed == True
+        assert updated_scheduler_config.enabled == True
+        assert updated_scheduler_config.auto_start == True
+        assert updated_scheduler_config.max_concurrent_schedules == 5
+
     finally:
         os.unlink(config_file)
 ```

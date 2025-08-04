@@ -115,14 +115,26 @@ NOTION_CONTENT_DATABASE_ID=your_content_database_id
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 CONFIG_REFRESH_INTERVAL=300
+
 # TaskManager 配置 (默认启用)
 MAX_CONCURRENT_TASKS=8
 MAX_QUEUE_SIZE=1000
 RESULT_RETENTION_HOURS=48
+
+# 调度器配置 (可选)
+ENABLE_SCHEDULER=false
+AUTO_START_SCHEDULER=false
+MAX_CONCURRENT_SCHEDULES=10
+SCHEDULE_CHECK_INTERVAL=60
+
+# 服务运行配置
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 DEBUG=false
 ENVIRONMENT=production
+
+# 健康检查配置
+HEALTHCHECK_SKIP_NOTION=false
 ```
 
 #### 3. 一键启动服务
@@ -437,7 +449,7 @@ print(f"活跃任务: {stats.active_tasks}")
 
 ### TaskScheduler
 
-TaskScheduler 提供基于 Cron 表达式的自动任务调度功能。
+TaskScheduler 提供基于 Cron 表达式的自动任务调度功能，可通过环境变量动态配置启用。
 
 #### 主要特性
 
@@ -445,6 +457,18 @@ TaskScheduler 提供基于 Cron 表达式的自动任务调度功能。
 - **任务调度**: 自动创建和提交定时任务
 - **调度管理**: 添加、删除、暂停调度任务
 - **优雅关闭**: 正确处理调度器关闭和清理
+- **动态配置**: 支持环境变量控制启用/禁用
+- **自动启动**: 可配置服务启动时自动启动调度器
+
+#### 环境变量配置
+
+```bash
+# 调度器配置
+ENABLE_SCHEDULER=true              # 启用调度器功能
+AUTO_START_SCHEDULER=true          # 服务启动时自动启动调度器
+MAX_CONCURRENT_SCHEDULES=10        # 最大并发调度任务数
+SCHEDULE_CHECK_INTERVAL=60         # 调度检查间隔（秒）
+```
 
 #### 使用示例
 
@@ -481,21 +505,40 @@ scheduler.add_daily_task(
 
 ### 任务管理配置示例
 
+#### 环境变量配置（推荐）
+
+```bash
+# TaskManager 配置（默认启用）
+MAX_CONCURRENT_TASKS=8          # 最大并发任务数
+MAX_QUEUE_SIZE=1000            # 任务队列容量
+RESULT_RETENTION_HOURS=48      # 结果保留时间
+
+# 调度器配置（可选）
+ENABLE_SCHEDULER=true          # 启用调度器
+AUTO_START_SCHEDULER=true      # 自动启动调度器
+MAX_CONCURRENT_SCHEDULES=10    # 最大并发调度数
+SCHEDULE_CHECK_INTERVAL=60     # 检查间隔（秒）
+```
+
+#### 配置文件配置
+
 在配置文件中启用任务管理系统：
 
 ```yaml
-# Task Management Configuration
-task_management:
-  enabled: true
-  max_workers: 4
+# Task Management Configuration (Always Enabled)
+task_manager_config:
+  max_concurrent_tasks: 8
   max_queue_size: 1000
-  enable_retry: true
-  max_retry_attempts: 3
-  retry_delay: 5
-  max_retry_delay: 300
-  retry_backoff_factor: 2.0
+  result_retention_hours: 48
 
-# Scheduler Configuration
+# Scheduler Configuration (Optional)
+scheduler_config:
+  enable_scheduler: true
+  auto_start_scheduler: true
+  max_concurrent_schedules: 10
+  schedule_check_interval: 60
+
+# Legacy Scheduler Configuration (For Notion-based schedules)
 scheduler:
   enabled: true
   schedules:
@@ -505,6 +548,7 @@ scheduler:
       priority: "high"
       timeout: 300
       max_retries: 2
+```
 
     - name: "hourly_updates"
       scraper_name: "update_scraper"
@@ -928,10 +972,14 @@ GET /admin/tasks/{task_id}
 }
 ```
 
-#### 取消任务
+### 调度器管理 API
+
+> **注意**: 调度器功能需要通过环境变量 `ENABLE_SCHEDULER=true` 启用。
+
+#### 获取调度器状态
 
 ```http
-POST /admin/tasks/{task_id}/cancel
+GET /admin/scheduler/status
 ```
 
 **响应示例：**
@@ -939,17 +987,151 @@ POST /admin/tasks/{task_id}/cancel
 ```json
 {
   "status": "success",
-  "message": "Task 'task_123' cancelled successfully",
-  "task_id": "task_123",
-  "cancelled": true
-}
-    "name": "weekly_report",
-    "next_run": "2025-01-27T09:00:00Z"
+  "scheduler_status": {
+    "enabled": true,
+    "running": true,
+    "total_schedules": 5,
+    "enabled_schedules": 3,
+    "running_scheduled_tasks": 2,
+    "next_run": "2025-08-04T09:00:00.000Z",
+    "schedules_by_status": {
+      "enabled": 3,
+      "disabled": 2
+    }
+  },
+  "configuration": {
+    "max_concurrent_schedules": 10,
+    "schedule_check_interval": 60,
+    "auto_start_scheduler": true
   }
 }
 ```
 
-> **注意**: TaskScheduler 调度功能目前通过配置文件管理，暂未提供 Web API 接口。调度任务可通过配置文件中的 `scheduler.schedules` 部分进行配置。
+#### 启动/停止调度器
+
+```http
+POST /admin/scheduler/start     # 启动调度器
+POST /admin/scheduler/stop      # 停止调度器
+POST /admin/scheduler/restart   # 重启调度器
+```
+
+**响应示例：**
+
+```json
+{
+  "status": "success",
+  "message": "Scheduler started successfully",
+  "scheduler_running": true,
+  "timestamp": "2025-08-04T10:00:00.000Z"
+}
+```
+
+#### 获取调度任务列表
+
+```http
+GET /admin/scheduler/schedules
+```
+
+**查询参数：**
+- `status` (可选): `enabled`/`disabled` - 按状态过滤
+- `limit` (可选): 限制返回数量，默认50
+
+**响应示例：**
+
+```json
+{
+  "status": "success",
+  "schedules": [
+    {
+      "id": "schedule_1",
+      "name": "daily_news",
+      "scraper_name": "news_scraper",
+      "cron_expression": "0 9 * * *",
+      "enabled": true,
+      "next_run": "2025-08-05T09:00:00.000Z",
+      "last_run": "2025-08-04T09:00:00.000Z",
+      "last_run_status": "success",
+      "priority": "normal",
+      "timeout": 300,
+      "max_retries": 2
+    }
+  ],
+  "total_schedules": 5,
+  "enabled_schedules": 3
+}
+```
+
+#### 添加调度任务
+
+```http
+POST /admin/scheduler/schedules
+```
+
+**请求体：**
+
+```json
+{
+  "name": "weekly_report",
+  "scraper_name": "report_scraper",
+  "cron_expression": "0 8 * * 1",
+  "enabled": true,
+  "priority": "high",
+  "timeout": 600,
+  "max_retries": 3,
+  "fetch_params": {
+    "report_type": "weekly"
+  }
+}
+```
+
+**响应示例：**
+
+```json
+{
+  "status": "success",
+  "message": "Schedule added successfully",
+  "schedule": {
+    "id": "schedule_6",
+    "name": "weekly_report",
+    "next_run": "2025-08-05T08:00:00.000Z"
+  }
+}
+```
+
+#### 更新调度任务
+
+```http
+PUT /admin/scheduler/schedules/{schedule_id}
+```
+
+#### 删除调度任务
+
+```http
+DELETE /admin/scheduler/schedules/{schedule_id}
+```
+
+#### 手动触发调度任务
+
+```http
+POST /admin/scheduler/schedules/{schedule_id}/trigger
+```
+
+**响应示例：**
+
+```json
+{
+  "status": "success",
+  "message": "Schedule triggered successfully",
+  "task_id": "task_789",
+  "schedule": {
+    "id": "schedule_1",
+    "name": "daily_news",
+    "triggered_at": "2025-08-04T10:15:00.000Z"
+  }
+}
+```
+
+> **配置说明**: 调度器功能可通过环境变量动态配置。设置 `ENABLE_SCHEDULER=true` 和 `AUTO_START_SCHEDULER=true` 可在服务启动时自动启用调度器。
 
 ## 🛠️ 开发指南
 

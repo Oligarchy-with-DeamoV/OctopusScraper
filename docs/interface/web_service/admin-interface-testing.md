@@ -14,7 +14,7 @@
 
 ## 测试结果
 
-✅ **通过的测试** (19/19) - **100% 成功率**:
+✅ **通过的测试** (27/27) - **100% 成功率**:
 
 ### 核心管理功能
 
@@ -39,6 +39,17 @@
 - `test_task_stats_with_task_manager` - TaskManager 统计信息 ✅ **TaskManager 默认启用**
 - `test_submit_individual_task_success` - 成功提交任务
 - `test_list_tasks_with_task_manager` - TaskManager 任务列表
+
+### 调度器管理
+
+- `test_scheduler_status` - 调度器状态查询
+- `test_list_schedules` - 调度任务列表
+- `test_create_schedule` - 创建调度任务
+- `test_update_schedule` - 更新调度任务
+- `test_delete_schedule` - 删除调度任务
+- `test_enable_disable_schedule` - 启用/禁用调度
+- `test_start_stop_scheduler` - 启动/停止调度器
+- `test_scheduler_environment_config` - 环境变量配置测试 ✅ **新增功能**
 
 ### 系统管理
 
@@ -134,7 +145,8 @@ mock_octopus._scrapers[0][0].active_content_processor = []
 1. **配置管理**: 热更新、状态查询、验证
 2. **抓取器管理**: 列表、测试、运行时状态
 3. **任务管理**: 统计、列表、提交、取消
-4. **系统管理**: 缓存、内存、监控、调试
+4. **调度器管理**: 状态查询、调度任务CRUD、启停控制、环境变量配置
+5. **系统管理**: 缓存、内存、监控、调试
 
 ### 错误处理测试
 
@@ -156,9 +168,9 @@ mock_octopus._scrapers[0][0].active_content_processor = []
 
 ### 🎯 **关键成就**
 
-- **100% 测试通过率**: 所有 19 个管理接口测试全部通过
+- **100% 测试通过率**: 所有 27 个管理接口测试全部通过
 - **零警告输出**: 配置了完善的警告过滤器，实现干净的测试环境
-- **完整功能覆盖**: 涵盖配置管理、抓取器管理、任务管理、系统管理的所有功能
+- **完整功能覆盖**: 涵盖配置管理、抓取器管理、任务管理、调度器管理、系统管理的所有功能
 - **稳定的测试架构**: 基于 Mock 的测试框架，支持复杂的异步操作测试
 
 ### 🔧 **技术优化**
