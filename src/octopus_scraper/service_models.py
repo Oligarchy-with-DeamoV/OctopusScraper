@@ -39,9 +39,7 @@ class ReadinessResponse:
     checks: Dict[str, Any]
 
 
-# Admin Interface Response Models
-
-
+# ===> Admin Interface Response Models
 @dataclass
 class ConfigStatusResponse:
     status: str

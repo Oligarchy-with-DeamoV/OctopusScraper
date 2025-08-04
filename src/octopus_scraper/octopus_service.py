@@ -11,19 +11,18 @@ from sanic.response import json
 
 from octopus_scraper.config import (
     ConfigManager,
-    ConfigStatus,
     NotionDatabaseConfig,
     ServiceConfig,
 )
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service_models import (
-    HealthCheckResponse,
     TriggerScraperResponse,
     TriggerUploadResponse,
 )
 
-load_dotenv()  # take environment variables
-# 初始化日志配置
+load_dotenv()
+
+# Initialize logging configuration
 log_format = os.getenv("LOG_FORMAT", "plain")
 if log_format == "json":
     structlog.configure(processors=[structlog.processors.JSONRenderer()])
@@ -71,7 +70,7 @@ def _get_memory_usage():
         return {"rss_mb": "unavailable"}
 
 
-def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]:
+def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict, dict]:
     """Create configuration objects from environment variables."""
     # Notion database configuration
     notion_config = NotionDatabaseConfig(
@@ -103,7 +102,17 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
         "result_retention_hours": int(os.getenv("RESULT_RETENTION_HOURS", "48")),
     }
 
-    return notion_config, service_config, task_manager_config
+    # Scheduler configuration - configurable via environment variables
+    scheduler_config = {
+        "enable_scheduler": os.getenv("ENABLE_SCHEDULER", "False").lower() == "true",
+        "auto_start_scheduler": os.getenv("AUTO_START_SCHEDULER", "False").lower() == "true",
+        "scheduler_config": {
+            "max_concurrent_schedules": int(os.getenv("MAX_CONCURRENT_SCHEDULES", "10")),
+            "schedule_check_interval": int(os.getenv("SCHEDULE_CHECK_INTERVAL", "60")),
+        },
+    }
+
+    return notion_config, service_config, task_manager_config, scheduler_config
 
 
 @app.listener("before_server_start")
@@ -111,7 +120,7 @@ async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
     try:
         # Create configuration from environment variables
-        notion_config, service_config, task_manager_config = create_config_from_env()
+        notion_config, service_config, task_manager_config, scheduler_config = create_config_from_env()
 
         # Validate required configuration
         if not notion_config.api_key or not notion_config.scrapers_database_id:
@@ -131,7 +140,7 @@ async def setup_octopus(app, _):
         # Load initial configuration from Notion
         scrapers_config = await config_manager.load_initial_config()
 
-        # Create base config for Octopus with TaskManager enabled
+        # Create base config for Octopus with TaskManager and optional Scheduler
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -156,6 +165,8 @@ async def setup_octopus(app, _):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
+            # Add Scheduler configuration from environment variables
+            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Initialize Octopus with loaded configuration
@@ -163,7 +174,7 @@ async def setup_octopus(app, _):
         app.ctx.octopus = octopus
 
         logger.info(
-            "Octopus instance initialized successfully with TaskManager enabled",
+            "Octopus instance initialized successfully with TaskManager and optional Scheduler",
             scraper_count=len(scrapers_config),
             config_version=(
                 config_manager.get_current_version().version_id
@@ -171,6 +182,8 @@ async def setup_octopus(app, _):
                 else "initial"
             ),
             task_manager_enabled=True,
+            scheduler_enabled=scheduler_config["enable_scheduler"],
+            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -213,10 +226,10 @@ async def reload_octopus_config(app):
         config_manager: ConfigManager = app.ctx.config_manager
         current_scrapers = config_manager.get_current_scrapers()
 
-        # Get TaskManager configuration from environment
-        _, _, task_manager_config = create_config_from_env()
+        # Get TaskManager and Scheduler configuration from environment
+        _, _, task_manager_config, scheduler_config = create_config_from_env()
 
-        # Create new Octopus configuration with TaskManager enabled
+        # Create new Octopus configuration with TaskManager and optional Scheduler
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -237,6 +250,8 @@ async def reload_octopus_config(app):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
+            # Add Scheduler configuration from environment variables
+            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Clean up old Octopus instance
@@ -249,10 +264,12 @@ async def reload_octopus_config(app):
         app.ctx.octopus = new_octopus
 
         logger.info(
-            "Octopus configuration reloaded successfully with TaskManager",
+            "Octopus configuration reloaded successfully with TaskManager and optional Scheduler",
             scraper_count=len(current_scrapers),
             config_version=config_manager.get_current_version().version_id,
             task_manager_enabled=True,
+            scheduler_enabled=scheduler_config["enable_scheduler"],
+            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -545,7 +562,7 @@ async def trigger_upload(request):
         )
         return json(asdict(response), status=500)
 
-
+# ===== Admin Management APIs =====
 @app.route("/admin/config/status", methods=["GET"])
 async def get_config_status(request):
     """Get current configuration status."""
@@ -750,7 +767,7 @@ async def get_system_info(request):
         system_info = {
             "service": {
                 "name": "OctopusService",
-                "version": "0.1.2",
+                "version": "0.1.6",
                 "uptime_seconds": None,  # Could be calculated from startup time
                 "environment": os.getenv("ENVIRONMENT", "development"),
                 "debug_mode": os.getenv("OCTOPUS_DEBUG", "False").lower() == "true",
@@ -1616,6 +1633,23 @@ async def get_monitoring_metrics(request):
             }
         else:
             metrics["task_manager"] = {"enabled": False}
+
+        # Add scheduler metrics if available
+        scheduler_status = octopus.get_scheduler_status()
+        metrics["scheduler"] = {
+            "enabled": scheduler_status.get("enabled", False),
+            "status": scheduler_status.get("status", "disabled"),
+        }
+
+        # Add detailed scheduler metrics if scheduler is enabled
+        if scheduler_status.get("enabled", False):
+            metrics["scheduler"].update({
+                "total_schedules": scheduler_status.get("total_schedules", 0),
+                "enabled_schedules": scheduler_status.get("enabled_schedules", 0),
+                "running_scheduled_tasks": scheduler_status.get("running_scheduled_tasks", 0),
+                "next_run": scheduler_status.get("next_run"),
+                "schedules_by_status": scheduler_status.get("schedules_by_status", {}),
+            })
 
         # Add Notion connectivity metrics
         try:
