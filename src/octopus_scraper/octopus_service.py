@@ -11,19 +11,18 @@ from sanic.response import json
 
 from octopus_scraper.config import (
     ConfigManager,
-    ConfigStatus,
     NotionDatabaseConfig,
     ServiceConfig,
 )
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service_models import (
-    HealthCheckResponse,
     TriggerScraperResponse,
     TriggerUploadResponse,
 )
 
-load_dotenv()  # take environment variables
-# 初始化日志配置
+load_dotenv()
+
+# Initialize logging configuration
 log_format = os.getenv("LOG_FORMAT", "plain")
 if log_format == "json":
     structlog.configure(processors=[structlog.processors.JSONRenderer()])
@@ -71,7 +70,7 @@ def _get_memory_usage():
         return {"rss_mb": "unavailable"}
 
 
-def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]:
+def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict, dict]:
     """Create configuration objects from environment variables."""
     # Notion database configuration
     notion_config = NotionDatabaseConfig(
@@ -103,7 +102,17 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
         "result_retention_hours": int(os.getenv("RESULT_RETENTION_HOURS", "48")),
     }
 
-    return notion_config, service_config, task_manager_config
+    # Scheduler configuration - configurable via environment variables
+    scheduler_config = {
+        "enable_scheduler": os.getenv("ENABLE_SCHEDULER", "False").lower() == "true",
+        "auto_start_scheduler": os.getenv("AUTO_START_SCHEDULER", "False").lower() == "true",
+        "scheduler_config": {
+            "max_concurrent_schedules": int(os.getenv("MAX_CONCURRENT_SCHEDULES", "10")),
+            "schedule_check_interval": int(os.getenv("SCHEDULE_CHECK_INTERVAL", "60")),
+        },
+    }
+
+    return notion_config, service_config, task_manager_config, scheduler_config
 
 
 @app.listener("before_server_start")
@@ -111,7 +120,7 @@ async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
     try:
         # Create configuration from environment variables
-        notion_config, service_config, task_manager_config = create_config_from_env()
+        notion_config, service_config, task_manager_config, scheduler_config = create_config_from_env()
 
         # Validate required configuration
         if not notion_config.api_key or not notion_config.scrapers_database_id:
@@ -131,7 +140,7 @@ async def setup_octopus(app, _):
         # Load initial configuration from Notion
         scrapers_config = await config_manager.load_initial_config()
 
-        # Create base config for Octopus with TaskManager enabled
+        # Create base config for Octopus with TaskManager and optional Scheduler
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -156,6 +165,8 @@ async def setup_octopus(app, _):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
+            # Add Scheduler configuration from environment variables
+            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Initialize Octopus with loaded configuration
@@ -163,12 +174,16 @@ async def setup_octopus(app, _):
         app.ctx.octopus = octopus
 
         logger.info(
-            "Octopus instance initialized successfully with TaskManager enabled",
+            "Octopus instance initialized successfully with TaskManager and optional Scheduler",
             scraper_count=len(scrapers_config),
-            config_version=config_manager.get_current_version().version_id
-            if config_manager.get_current_version()
-            else "initial",
+            config_version=(
+                config_manager.get_current_version().version_id
+                if config_manager.get_current_version()
+                else "initial"
+            ),
             task_manager_enabled=True,
+            scheduler_enabled=scheduler_config["enable_scheduler"],
+            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -195,12 +210,12 @@ async def cleanup_octopus(app, _):
         if hasattr(app.ctx, "config_manager"):
             app.ctx.config_manager.stop_config_watcher()
             logger.info("ConfigManager stopped successfully")
-        
+
         # Clean up TaskManager in Octopus
         if hasattr(app.ctx, "octopus"):
             app.ctx.octopus.cleanup_task_manager()
             logger.info("Octopus TaskManager cleaned up successfully")
-            
+
     except Exception as e:
         logger.error("Error during cleanup", error=str(e))
 
@@ -211,10 +226,10 @@ async def reload_octopus_config(app):
         config_manager: ConfigManager = app.ctx.config_manager
         current_scrapers = config_manager.get_current_scrapers()
 
-        # Get TaskManager configuration from environment
-        _, _, task_manager_config = create_config_from_env()
+        # Get TaskManager and Scheduler configuration from environment
+        _, _, task_manager_config, scheduler_config = create_config_from_env()
 
-        # Create new Octopus configuration with TaskManager enabled
+        # Create new Octopus configuration with TaskManager and optional Scheduler
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -235,11 +250,13 @@ async def reload_octopus_config(app):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
+            # Add Scheduler configuration from environment variables
+            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Clean up old Octopus instance
         old_octopus = app.ctx.octopus
-        if hasattr(old_octopus, '_task_manager') and old_octopus._task_manager:
+        if hasattr(old_octopus, "_task_manager") and old_octopus._task_manager:
             old_octopus.cleanup_task_manager()
 
         # Replace the Octopus instance with new configuration
@@ -247,10 +264,12 @@ async def reload_octopus_config(app):
         app.ctx.octopus = new_octopus
 
         logger.info(
-            "Octopus configuration reloaded successfully with TaskManager",
+            "Octopus configuration reloaded successfully with TaskManager and optional Scheduler",
             scraper_count=len(current_scrapers),
             config_version=config_manager.get_current_version().version_id,
             task_manager_enabled=True,
+            scheduler_enabled=scheduler_config["enable_scheduler"],
+            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -304,15 +323,19 @@ async def health_check(request):
             config_healthy = config_status.is_healthy
             health_data["configuration"] = {
                 "status": "healthy" if config_healthy else "unhealthy",
-                "last_check": config_status.last_check.isoformat()
-                if config_status.last_check
-                else None,
-                "next_check": config_status.next_check.isoformat()
-                if hasattr(config_status, "next_check") and config_status.next_check
-                else None,
-                "version": config_status.version.version_id
-                if config_status.version
-                else None,
+                "last_check": (
+                    config_status.last_check.isoformat()
+                    if config_status.last_check
+                    else None
+                ),
+                "next_check": (
+                    config_status.next_check.isoformat()
+                    if hasattr(config_status, "next_check") and config_status.next_check
+                    else None
+                ),
+                "version": (
+                    config_status.version.version_id if config_status.version else None
+                ),
                 "scrapers_count": len(config_status.scrapers),
                 "active_scrapers": len(
                     [s for s in config_status.scrapers if s.status == "Active"]
@@ -367,12 +390,14 @@ async def health_check(request):
             octopus = app.ctx.octopus
             health_data["dependencies"]["octopus_instance"] = {
                 "status": "healthy",
-                "scrapers_configured": len(octopus._scrapers)
-                if hasattr(octopus, "_scrapers")
-                else 0,
-                "fetched_contents_cached": len(octopus._fetched_contents)
-                if hasattr(octopus, "_fetched_contents")
-                else 0,
+                "scrapers_configured": (
+                    len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
+                ),
+                "fetched_contents_cached": (
+                    len(octopus._fetched_contents)
+                    if hasattr(octopus, "_fetched_contents")
+                    else 0
+                ),
             }
         else:
             health_data["dependencies"]["octopus_instance"] = {
@@ -537,7 +562,7 @@ async def trigger_upload(request):
         )
         return json(asdict(response), status=500)
 
-
+# ===== Admin Management APIs =====
 @app.route("/admin/config/status", methods=["GET"])
 async def get_config_status(request):
     """Get current configuration status."""
@@ -550,16 +575,20 @@ async def get_config_status(request):
                 "status": "success",
                 "config_status": {
                     "is_healthy": config_status.is_healthy,
-                    "last_check": config_status.last_check.isoformat()
-                    if config_status.last_check
-                    else None,
-                    "version": {
-                        "version_id": config_status.version.version_id,
-                        "timestamp": config_status.version.timestamp.isoformat(),
-                        "change_summary": config_status.version.change_summary,
-                    }
-                    if config_status.version
-                    else None,
+                    "last_check": (
+                        config_status.last_check.isoformat()
+                        if config_status.last_check
+                        else None
+                    ),
+                    "version": (
+                        {
+                            "version_id": config_status.version.version_id,
+                            "timestamp": config_status.version.timestamp.isoformat(),
+                            "change_summary": config_status.version.change_summary,
+                        }
+                        if config_status.version
+                        else None
+                    ),
                     "scrapers": [
                         {
                             "name": scraper.name,
@@ -604,9 +633,9 @@ async def refresh_config(request):
                 "status": "success",
                 "message": message,
                 "config_changed": config_changed,
-                "current_version": config_status.version.version_id
-                if config_status.version
-                else None,
+                "current_version": (
+                    config_status.version.version_id if config_status.version else None
+                ),
                 "scrapers_count": len(config_status.scrapers),
             }
         )
@@ -684,17 +713,17 @@ async def hotreload_config(request):
                         "message": "Hot reload completed successfully",
                         "reload_performed": True,
                         "changes": {
-                            "old_version": old_version.version_id
-                            if old_version
-                            else None,
-                            "new_version": new_version.version_id
-                            if new_version
-                            else None,
+                            "old_version": (
+                                old_version.version_id if old_version else None
+                            ),
+                            "new_version": (
+                                new_version.version_id if new_version else None
+                            ),
                             "old_scrapers_count": old_scrapers_count,
                             "new_scrapers_count": new_scrapers_count,
-                            "change_summary": new_version.change_summary
-                            if new_version
-                            else None,
+                            "change_summary": (
+                                new_version.change_summary if new_version else None
+                            ),
                         },
                         "timestamp": datetime.now().isoformat(),
                     }
@@ -738,7 +767,7 @@ async def get_system_info(request):
         system_info = {
             "service": {
                 "name": "OctopusService",
-                "version": "0.1.2",
+                "version": "0.1.6",
                 "uptime_seconds": None,  # Could be calculated from startup time
                 "environment": os.getenv("ENVIRONMENT", "development"),
                 "debug_mode": os.getenv("OCTOPUS_DEBUG", "False").lower() == "true",
@@ -752,12 +781,14 @@ async def get_system_info(request):
                 "log_format": config_manager.service_config.log_format,
             },
             "octopus_instance": {
-                "scrapers_configured": len(octopus._scrapers)
-                if hasattr(octopus, "_scrapers")
-                else 0,
-                "fetched_contents_cached": len(octopus._fetched_contents)
-                if hasattr(octopus, "_fetched_contents")
-                else 0,
+                "scrapers_configured": (
+                    len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
+                ),
+                "fetched_contents_cached": (
+                    len(octopus._fetched_contents)
+                    if hasattr(octopus, "_fetched_contents")
+                    else 0
+                ),
                 "max_concurrent_scrapers": getattr(
                     octopus._config, "max_concurrent_scrapers", 5
                 ),
@@ -826,15 +857,21 @@ async def list_scrapers(request):
                 runtime_scraper, runtime_params = octopus._scrapers[i]
                 scraper_info["runtime"] = {
                     "initialized": True,
-                    "fetcher_type": type(runtime_scraper.activate_fetcher).__name__
-                    if hasattr(runtime_scraper, "activate_fetcher")
-                    else None,
-                    "has_storage": runtime_scraper.storage is not None
-                    if hasattr(runtime_scraper, "storage")
-                    else False,
-                    "processors_count": len(runtime_scraper.active_content_processor)
-                    if hasattr(runtime_scraper, "active_content_processor")
-                    else 0,
+                    "fetcher_type": (
+                        type(runtime_scraper.activate_fetcher).__name__
+                        if hasattr(runtime_scraper, "activate_fetcher")
+                        else None
+                    ),
+                    "has_storage": (
+                        runtime_scraper.storage is not None
+                        if hasattr(runtime_scraper, "storage")
+                        else False
+                    ),
+                    "processors_count": (
+                        len(runtime_scraper.active_content_processor)
+                        if hasattr(runtime_scraper, "active_content_processor")
+                        else 0
+                    ),
                 }
             else:
                 scraper_info["runtime"] = {"initialized": False}
@@ -949,9 +986,11 @@ async def run_scraper_test(request, scraper_name):
                         "test_params": test_params,
                         "sample_items": [
                             {
-                                "title": content.title[:100] + "..."
-                                if len(content.title) > 100
-                                else content.title,
+                                "title": (
+                                    content.title[:100] + "..."
+                                    if len(content.title) > 100
+                                    else content.title
+                                ),
                                 "link": content.link,
                                 "published": content.published,
                                 "content_id": content.content_id,
@@ -1228,6 +1267,293 @@ async def submit_individual_task(request):
         )
 
 
+# ===== Scheduler Management APIs =====
+@app.route("/admin/scheduler/status", methods=["GET"])
+async def get_scheduler_status(request):
+    """Get scheduler status and statistics."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        status = octopus.get_scheduler_status()
+
+        return json({"status": "success", "data": status})
+
+    except Exception as e:
+        logger.error("Failed to get scheduler status", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to get scheduler status: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/start", methods=["POST"])
+async def start_scheduler(request):
+    """Start the task scheduler."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        success = octopus.start_scheduler()
+
+        if success:
+            return json(
+                {"status": "success", "message": "Scheduler started successfully"}
+            )
+        else:
+            return json(
+                {
+                    "status": "error",
+                    "message": "Scheduler not enabled in configuration",
+                },
+                status=400,
+            )
+
+    except Exception as e:
+        logger.error("Failed to start scheduler", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to start scheduler: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/stop", methods=["POST"])
+async def stop_scheduler(request):
+    """Stop the task scheduler."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        success = octopus.stop_scheduler()
+
+        if success:
+            return json(
+                {"status": "success", "message": "Scheduler stopped successfully"}
+            )
+        else:
+            return json(
+                {"status": "error", "message": "Scheduler not available"}, status=400
+            )
+
+    except Exception as e:
+        logger.error("Failed to stop scheduler", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to stop scheduler: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules", methods=["GET"])
+async def list_schedules(request):
+    """List all schedules."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        enabled_only = request.args.get("enabled_only", "false").lower() == "true"
+
+        schedules = octopus.list_schedules(enabled_only=enabled_only)
+
+        return json(
+            {
+                "status": "success",
+                "data": {"schedules": schedules, "count": len(schedules)},
+            }
+        )
+
+    except Exception as e:
+        logger.error("Failed to list schedules", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to list schedules: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules", methods=["POST"])
+async def add_schedule(request):
+    """Add a new schedule."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        request_data = request.json
+
+        if not request_data:
+            return json(
+                {"status": "error", "message": "Request body is required"},
+                status=400,
+            )
+
+        # Validate required fields
+        required_fields = ["schedule_id", "scraper_name", "cron_expression"]
+        for field in required_fields:
+            if field not in request_data:
+                return json(
+                    {"status": "error", "message": f"Missing required field: {field}"},
+                    status=400,
+                )
+
+        # Use convenience method for scraper schedules
+        schedule_id = octopus.add_scraper_schedule(
+            schedule_id=request_data["schedule_id"],
+            scraper_name=request_data["scraper_name"],
+            cron_expression=request_data["cron_expression"],
+            fetch_params=request_data.get("fetch_params"),
+            max_concurrent_runs=request_data.get("max_concurrent_runs", 1),
+            timeout_seconds=request_data.get("timeout_seconds", 1800),
+            enabled=request_data.get("enabled", True),
+        )
+
+        if schedule_id:
+            return json(
+                {
+                    "status": "success",
+                    "message": "Schedule added successfully",
+                    "schedule_id": schedule_id,
+                }
+            )
+        else:
+            return json(
+                {"status": "error", "message": "Failed to add schedule"}, status=500
+            )
+
+    except Exception as e:
+        logger.error("Failed to add schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to add schedule: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules/<schedule_id>", methods=["GET"])
+async def get_schedule(request, schedule_id):
+    """Get a specific schedule."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        schedule = octopus.get_schedule(schedule_id)
+
+        if schedule:
+            return json({"status": "success", "data": schedule})
+        else:
+            return json(
+                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
+                status=404,
+            )
+
+    except Exception as e:
+        logger.error("Failed to get schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to get schedule: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules/<schedule_id>", methods=["DELETE"])
+async def remove_schedule(request, schedule_id):
+    """Remove a schedule."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        success = octopus.remove_schedule(schedule_id)
+
+        if success:
+            return json(
+                {
+                    "status": "success",
+                    "message": f"Schedule '{schedule_id}' removed successfully",
+                }
+            )
+        else:
+            return json(
+                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
+                status=404,
+            )
+
+    except Exception as e:
+        logger.error("Failed to remove schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to remove schedule: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules/<schedule_id>/enable", methods=["POST"])
+async def enable_schedule(request, schedule_id):
+    """Enable a schedule."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        success = octopus.enable_schedule(schedule_id)
+
+        if success:
+            return json(
+                {
+                    "status": "success",
+                    "message": f"Schedule '{schedule_id}' enabled successfully",
+                }
+            )
+        else:
+            return json(
+                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
+                status=404,
+            )
+
+    except Exception as e:
+        logger.error("Failed to enable schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to enable schedule: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules/<schedule_id>/disable", methods=["POST"])
+async def disable_schedule(request, schedule_id):
+    """Disable a schedule."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        success = octopus.disable_schedule(schedule_id)
+
+        if success:
+            return json(
+                {
+                    "status": "success",
+                    "message": f"Schedule '{schedule_id}' disabled successfully",
+                }
+            )
+        else:
+            return json(
+                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
+                status=404,
+            )
+
+    except Exception as e:
+        logger.error("Failed to disable schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to disable schedule: {e}"},
+            status=500,
+        )
+
+
+@app.route("/admin/scheduler/schedules/<schedule_id>/trigger", methods=["POST"])
+async def trigger_schedule_now(request, schedule_id):
+    """Manually trigger a schedule immediately."""
+    try:
+        octopus: Octopus = app.ctx.octopus
+        task_id = octopus.trigger_schedule_now(schedule_id)
+
+        if task_id:
+            return json(
+                {
+                    "status": "success",
+                    "message": f"Schedule '{schedule_id}' triggered successfully",
+                    "task_id": task_id,
+                }
+            )
+        else:
+            return json(
+                {
+                    "status": "error",
+                    "message": f"Failed to trigger schedule '{schedule_id}'",
+                },
+                status=400,
+            )
+
+    except Exception as e:
+        logger.error("Failed to trigger schedule", error=str(e), exc_info=True)
+        return json(
+            {"status": "error", "message": f"Failed to trigger schedule: {e}"},
+            status=500,
+        )
+
+
 @app.route("/admin/monitoring/metrics", methods=["GET"])
 async def get_monitoring_metrics(request):
     """Get comprehensive monitoring metrics for the service."""
@@ -1246,18 +1572,22 @@ async def get_monitoring_metrics(request):
                 "memory_usage": _get_memory_usage(),
                 "response_times": {
                     "health_check_cache_duration": _health_cache["cache_duration"],
-                    "last_health_check": _health_cache["last_check"].isoformat()
-                    if _health_cache["last_check"]
-                    else None,
+                    "last_health_check": (
+                        _health_cache["last_check"].isoformat()
+                        if _health_cache["last_check"]
+                        else None
+                    ),
                 },
             },
             "configuration": {
-                "status": "healthy"
-                if config_manager.get_status().is_healthy
-                else "unhealthy",
-                "version": config_manager.get_current_version().version_id
-                if config_manager.get_current_version()
-                else None,
+                "status": (
+                    "healthy" if config_manager.get_status().is_healthy else "unhealthy"
+                ),
+                "version": (
+                    config_manager.get_current_version().version_id
+                    if config_manager.get_current_version()
+                    else None
+                ),
                 "scrapers_count": len(config_manager.get_current_scrapers()),
                 "active_scrapers_count": len(
                     [
@@ -1266,18 +1596,22 @@ async def get_monitoring_metrics(request):
                         if s.status == "Active"
                     ]
                 ),
-                "last_refresh": config_manager.get_status().last_check.isoformat()
-                if config_manager.get_status().last_check
-                else None,
+                "last_refresh": (
+                    config_manager.get_status().last_check.isoformat()
+                    if config_manager.get_status().last_check
+                    else None
+                ),
                 "refresh_interval_seconds": config_manager.service_config.config_refresh_interval,
             },
             "octopus": {
-                "scrapers_initialized": len(octopus._scrapers)
-                if hasattr(octopus, "_scrapers")
-                else 0,
-                "cached_contents": len(octopus._fetched_contents)
-                if hasattr(octopus, "_fetched_contents")
-                else 0,
+                "scrapers_initialized": (
+                    len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
+                ),
+                "cached_contents": (
+                    len(octopus._fetched_contents)
+                    if hasattr(octopus, "_fetched_contents")
+                    else 0
+                ),
                 "max_concurrent_scrapers": getattr(
                     octopus._config, "max_concurrent_scrapers", 5
                 ),
@@ -1299,6 +1633,23 @@ async def get_monitoring_metrics(request):
             }
         else:
             metrics["task_manager"] = {"enabled": False}
+
+        # Add scheduler metrics if available
+        scheduler_status = octopus.get_scheduler_status()
+        metrics["scheduler"] = {
+            "enabled": scheduler_status.get("enabled", False),
+            "status": scheduler_status.get("status", "disabled"),
+        }
+
+        # Add detailed scheduler metrics if scheduler is enabled
+        if scheduler_status.get("enabled", False):
+            metrics["scheduler"].update({
+                "total_schedules": scheduler_status.get("total_schedules", 0),
+                "enabled_schedules": scheduler_status.get("enabled_schedules", 0),
+                "running_scheduled_tasks": scheduler_status.get("running_scheduled_tasks", 0),
+                "next_run": scheduler_status.get("next_run"),
+                "schedules_by_status": scheduler_status.get("schedules_by_status", {}),
+            })
 
         # Add Notion connectivity metrics
         try:
@@ -1404,13 +1755,16 @@ async def force_garbage_collection(request):
                     "objects_collected": collected,
                     "memory_before_mb": memory_before.get("rss_mb", "unavailable"),
                     "memory_after_mb": memory_after.get("rss_mb", "unavailable"),
-                    "memory_freed_mb": round(
-                        memory_before.get("rss_mb", 0) - memory_after.get("rss_mb", 0),
-                        2,
-                    )
-                    if isinstance(memory_before.get("rss_mb"), (int, float))
-                    and isinstance(memory_after.get("rss_mb"), (int, float))
-                    else "unavailable",
+                    "memory_freed_mb": (
+                        round(
+                            memory_before.get("rss_mb", 0)
+                            - memory_after.get("rss_mb", 0),
+                            2,
+                        )
+                        if isinstance(memory_before.get("rss_mb"), (int, float))
+                        and isinstance(memory_after.get("rss_mb"), (int, float))
+                        else "unavailable"
+                    ),
                 },
                 "timestamp": datetime.now().isoformat(),
             }
@@ -1438,13 +1792,17 @@ async def manage_config_watcher(request):
                 and not config_manager._watcher_task.done(),
                 "stop_requested": getattr(config_manager, "_stop_watcher", False),
                 "refresh_interval": config_manager.service_config.config_refresh_interval,
-                "last_check": config_manager.get_status().last_check.isoformat()
-                if config_manager.get_status().last_check
-                else None,
-                "next_check": config_manager.get_status().next_check.isoformat()
-                if hasattr(config_manager.get_status(), "next_check")
-                and config_manager.get_status().next_check
-                else None,
+                "last_check": (
+                    config_manager.get_status().last_check.isoformat()
+                    if config_manager.get_status().last_check
+                    else None
+                ),
+                "next_check": (
+                    config_manager.get_status().next_check.isoformat()
+                    if hasattr(config_manager.get_status(), "next_check")
+                    and config_manager.get_status().next_check
+                    else None
+                ),
             }
 
             return json(
@@ -1522,9 +1880,11 @@ async def dump_service_state(request):
             },
             "configuration_manager": {
                 "is_healthy": config_manager.get_status().is_healthy,
-                "current_version": config_manager.get_current_version().version_id
-                if config_manager.get_current_version()
-                else None,
+                "current_version": (
+                    config_manager.get_current_version().version_id
+                    if config_manager.get_current_version()
+                    else None
+                ),
                 "scrapers_count": len(config_manager.get_current_scrapers()),
                 "watcher_running": hasattr(config_manager, "_watcher_task")
                 and config_manager._watcher_task
@@ -1542,20 +1902,25 @@ async def dump_service_state(request):
                 },
                 "notion_config": {
                     "api_key_configured": bool(config_manager.notion_config.api_key),
-                    "api_key": config_manager.notion_config.api_key[:10] + "..."
-                    if config_manager.notion_config.api_key and not include_sensitive
-                    else config_manager.notion_config.api_key,
+                    "api_key": (
+                        config_manager.notion_config.api_key[:10] + "..."
+                        if config_manager.notion_config.api_key
+                        and not include_sensitive
+                        else config_manager.notion_config.api_key
+                    ),
                     "scrapers_database_id": config_manager.notion_config.scrapers_database_id,
                     "content_database_id": config_manager.notion_config.content_database_id,
                 },
             },
             "octopus_instance": {
-                "scrapers_count": len(octopus._scrapers)
-                if hasattr(octopus, "_scrapers")
-                else 0,
-                "fetched_contents_count": len(octopus._fetched_contents)
-                if hasattr(octopus, "_fetched_contents")
-                else 0,
+                "scrapers_count": (
+                    len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
+                ),
+                "fetched_contents_count": (
+                    len(octopus._fetched_contents)
+                    if hasattr(octopus, "_fetched_contents")
+                    else 0
+                ),
                 "config": {
                     "max_concurrent_scrapers": getattr(
                         octopus._config, "max_concurrent_scrapers", 5
@@ -1572,9 +1937,11 @@ async def dump_service_state(request):
             "memory_usage": _get_memory_usage(),
             "cache_status": {
                 "health_cache": {
-                    "last_check": _health_cache["last_check"].isoformat()
-                    if _health_cache["last_check"]
-                    else None,
+                    "last_check": (
+                        _health_cache["last_check"].isoformat()
+                        if _health_cache["last_check"]
+                        else None
+                    ),
                     "cache_duration": _health_cache["cache_duration"],
                     "has_cached_result": _health_cache["cached_result"] is not None,
                 },
@@ -1596,9 +1963,11 @@ async def dump_service_state(request):
                     "running_tasks_count": len(task_manager._running_tasks),
                     "task_results_count": len(task_manager._task_results),
                     "queue_size": task_manager._task_queue.qsize(),
-                    "worker_thread_alive": task_manager._worker_thread.is_alive()
-                    if task_manager._worker_thread
-                    else False,
+                    "worker_thread_alive": (
+                        task_manager._worker_thread.is_alive()
+                        if task_manager._worker_thread
+                        else False
+                    ),
                     "stop_event_set": task_manager._stop_event.is_set(),
                 }
             )
@@ -1608,15 +1977,21 @@ async def dump_service_state(request):
             state_dump["scrapers"] = [
                 {
                     "index": i,
-                    "fetcher_type": type(scraper.activate_fetcher).__name__
-                    if hasattr(scraper, "activate_fetcher")
-                    else "unknown",
-                    "has_storage": scraper.storage is not None
-                    if hasattr(scraper, "storage")
-                    else False,
-                    "processors_count": len(scraper.active_content_processor)
-                    if hasattr(scraper, "active_content_processor")
-                    else 0,
+                    "fetcher_type": (
+                        type(scraper.activate_fetcher).__name__
+                        if hasattr(scraper, "activate_fetcher")
+                        else "unknown"
+                    ),
+                    "has_storage": (
+                        scraper.storage is not None
+                        if hasattr(scraper, "storage")
+                        else False
+                    ),
+                    "processors_count": (
+                        len(scraper.active_content_processor)
+                        if hasattr(scraper, "active_content_processor")
+                        else 0
+                    ),
                     "fetch_params": params,
                 }
                 for i, (scraper, params) in enumerate(octopus._scrapers)
@@ -1677,9 +2052,9 @@ async def admin_overview(request):
             system_healthy = False
 
         health_summary["octopus"] = {
-            "scrapers_configured": len(octopus._scrapers)
-            if hasattr(octopus, "_scrapers")
-            else 0,
+            "scrapers_configured": (
+                len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
+            ),
             "task_manager_enabled": hasattr(octopus, "_task_manager")
             and octopus._task_manager is not None,
         }

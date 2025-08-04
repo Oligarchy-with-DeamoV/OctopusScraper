@@ -10,7 +10,7 @@ def sspai_rss_hub_config():
     config = {
         "fetcher_name": "rsshub",
         "fetcher_config": {
-            "hub_root": "https://rsshub.thzu.xyz",
+            "hub_root": "https://rss.owo.nz",
             "route": "/sspai/matrix",
             "fetch_params": {"limit": 3},
         },

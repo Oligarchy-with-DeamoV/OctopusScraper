@@ -13,7 +13,7 @@ def dummy_scraper_config():
     return BaseScraperConfig(
         fetcher_name="rsshub",
         fetcher_config={
-            "hub_root": "https://rsshub.app/test",
+            "hub_root": "https://rss.owo.nz/test",
             "route": "/api",
             "fetch_params": {},
         },

@@ -219,9 +219,14 @@ class TestServiceIntegration:
                     from octopus_scraper.octopus_service import create_config_from_env
 
                     # Test config creation from environment
-                    notion_config, service_config, task_manager_config = create_config_from_env()
+                    notion_config, service_config, task_manager_config, scheduler_config = create_config_from_env()
                     assert notion_config.api_key == "test_key"
                     assert notion_config.scrapers_database_id == "test_db"
+                    
+                    # Verify scheduler configuration is included
+                    assert "enable_scheduler" in scheduler_config
+                    assert "auto_start_scheduler" in scheduler_config
+                    assert "scheduler_config" in scheduler_config
 
                     # Test that ConfigManager would be created successfully
                     config_manager = ConfigManager(notion_config, service_config)
