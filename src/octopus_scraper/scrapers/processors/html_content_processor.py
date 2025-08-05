@@ -15,14 +15,15 @@ except ImportError:
     READABILITY_AVAILABLE = False
 
 try:
-    import html2text
+    from playwright.sync_api import sync_playwright
 
-    HTML2TEXT_AVAILABLE = True
+    PLAYWRIGHT_AVAILABLE = True
 except ImportError:
-    HTML2TEXT_AVAILABLE = False
+    PLAYWRIGHT_AVAILABLE = False
 
 from octopus_scraper.scrapers.processors.protos import ProcessorConfig
 from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.scrapers.utils.tools import convert_contents_to_mk
 
 logger = structlog.getLogger(__name__)
 
@@ -35,17 +36,42 @@ class HTMLContentProcessorConfig(ProcessorConfig):
     user_agent: str = field(
         default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     )
+    browserless_url: str = field(default="")
+    use_browser: bool = field(default=True)
+    browser_timeout: int = field(default=60000)
 
 
 class HTMLContentProcessor:
     """
     HTML内容处理器
 
-    从Content中的link获取网页内容，使用readability提取主要内容，
-    并将HTML转换为Markdown格式
+    从Content中的link获取网页内容，支持动态网站抓取。
+    如果配置了远程 browserless 服务，将使用无头浏览器抓取动态内容，
+    否则回退到传统的 requests 方式。
+    使用readability提取主要内容，并将HTML转换为Markdown格式
+
+    配置参数:
+    - timeout: requests超时时间（秒）
+    - user_agent: 用户代理字符串
+    - browserless_url: browserless服务URL，如 "http://localhost:3000"，为空则不使用浏览器
+    - use_browser: 是否启用浏览器模式
+    - browser_timeout: 浏览器页面加载超时时间（毫秒）
 
     Examples:
-    >>> config = {"timeout": 30}
+    >>> # 使用 browserless 服务
+    >>> config = {
+    ...     "timeout": 30,
+    ...     "browserless_url": "http://localhost:3000",
+    ...     "use_browser": True
+    ... }
+    >>> processor = HTMLContentProcessor(config)
+    >>>
+    >>> # 仅使用 requests
+    >>> config = {
+    ...     "timeout": 30,
+    ...     "browserless_url": "",
+    ...     "use_browser": False
+    ... }
     >>> processor = HTMLContentProcessor(config)
     >>> contents = [Content(...)]
     >>> processed_contents = processor(contents)
@@ -65,10 +91,49 @@ class HTMLContentProcessor:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": self.config.user_agent})
 
+    def _fetch_html_with_browser(self, url: str) -> str:
+        """
+        使用远程 browserless 服务获取动态网页内容
+
+        Args:
+            url (str): 网页URL
+
+        Returns:
+            str: HTML内容
+
+        Raises:
+            Exception: 浏览器抓取异常
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            raise Exception("Playwright not available for browser-based fetching")
+
+        if not self.config.browserless_url:
+            raise Exception("Browserless URL not configured")
+
+        try:
+            with sync_playwright() as p:
+                logger.info(
+                    f"Using browserless service at {self.config.browserless_url}"
+                )
+                browser = p.chromium.connect_over_cdp(self.config.browserless_url)
+                context = (
+                    browser.contexts[0] if browser.contexts else browser.new_context()
+                )
+
+                page = context.new_page()
+                page.goto(url, timeout=self.config.browser_timeout)
+                html = page.content()
+                browser.close()
+                return html
+
+        except Exception as e:
+            logger.error(f"Browser fetch failed for {url}: {e}")
+            raise
+
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _fetch_html_content(self, url: str) -> str:
         """
-        获取网页HTML内容
+        获取网页HTML内容，支持动态网站抓取
 
         Args:
             url (str): 网页URL
@@ -79,7 +144,25 @@ class HTMLContentProcessor:
         Raises:
             requests.RequestException: 网络请求异常
         """
+        # 如果启用浏览器模式且配置了 browserless_url，使用远程浏览器服务
+        if (
+            self.config.use_browser
+            and self.config.browserless_url
+            and PLAYWRIGHT_AVAILABLE
+        ):
+            try:
+                logger.info(
+                    f"Attempting browser fetch with browserless service for {url}"
+                )
+                return self._fetch_html_with_browser(url)
+            except Exception as e:
+                logger.warning(
+                    f"Browser fetch failed for {url}, falling back to requests: {e}"
+                )
+
+        # 使用传统的 requests 方式
         try:
+            logger.info(f"Using requests to fetch {url}")
             response = self.session.get(
                 url, timeout=self.config.timeout, allow_redirects=True
             )
@@ -103,7 +186,7 @@ class HTMLContentProcessor:
         try:
             if not READABILITY_AVAILABLE:
                 logger.warning(
-                    "readability not available, using simple HTML processing"
+                    "readability not available, using direct HTML to markdown conversion"
                 )
                 return self._html_to_markdown(html)
 
@@ -138,67 +221,11 @@ class HTMLContentProcessor:
             str: Markdown格式内容
         """
         try:
-            if HTML2TEXT_AVAILABLE:
-                h = html2text.HTML2Text()
-                h.ignore_links = False
-                h.ignore_images = False
-                h.body_width = 0  # 不限制行宽
-                return h.handle(html)
-            else:
-                # 如果没有html2text，使用简单的替换
-                logger.warning("html2text not available, using simple conversion")
-                return self._simple_html_to_markdown(html)
+            # 使用 tools 中的 convert_contents_to_mk 函数
+            return convert_contents_to_mk([{"value": html}])
         except Exception as e:
             logger.error(f"Error converting HTML to markdown: {e}")
-            return self._simple_html_to_markdown(html)
-
-    def _simple_html_to_markdown(self, html: str) -> str:
-        """
-        简单的HTML到Markdown转换
-
-        Args:
-            html (str): HTML内容
-
-        Returns:
-            str: Markdown格式内容
-        """
-        import re
-        from html import unescape
-
-        # 移除HTML标签，保留文本内容
-        text = re.sub(r"<script.*?</script>", "", html, flags=re.DOTALL)
-        text = re.sub(r"<style.*?</style>", "", text, flags=re.DOTALL)
-
-        # 转换常见的HTML标签到Markdown
-        text = re.sub(r"<h1.*?>(.*?)</h1>", r"# \1\n", text)
-        text = re.sub(r"<h2.*?>(.*?)</h2>", r"## \1\n", text)
-        text = re.sub(r"<h3.*?>(.*?)</h3>", r"### \1\n", text)
-        text = re.sub(r"<h4.*?>(.*?)</h4>", r"#### \1\n", text)
-        text = re.sub(r"<h5.*?>(.*?)</h5>", r"##### \1\n", text)
-        text = re.sub(r"<h6.*?>(.*?)</h6>", r"###### \1\n", text)
-
-        text = re.sub(r"<strong.*?>(.*?)</strong>", r"**\1**", text)
-        text = re.sub(r"<b.*?>(.*?)</b>", r"**\1**", text)
-        text = re.sub(r"<em.*?>(.*?)</em>", r"*\1*", text)
-        text = re.sub(r"<i.*?>(.*?)</i>", r"*\1*", text)
-
-        text = re.sub(r'<a\s+href="([^"]*)"[^>]*>(.*?)</a>', r"[\2](\1)", text)
-        text = re.sub(r'<img\s+src="([^"]*)"[^>]*>', r"![](\1)", text)
-
-        text = re.sub(r"<p.*?>", "\n", text)
-        text = re.sub(r"</p>", "\n", text)
-        text = re.sub(r"<br.*?>", "\n", text)
-
-        # 移除剩余的HTML标签
-        text = re.sub(r"<[^>]+>", "", text)
-
-        # 解码HTML实体
-        text = unescape(text)
-
-        # 清理多余的空行
-        text = re.sub(r"\n\s*\n", "\n\n", text)
-
-        return text.strip()
+            return ""
 
     def __call__(self, contents: List[Content]) -> List[Content]:
         """

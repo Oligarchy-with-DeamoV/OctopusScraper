@@ -1,14 +1,15 @@
 import os
+
 import pytest
 
 from octopus_scraper.scrapers.utils.tools import (
+    DEFAULT_SUMMARY_MAX_LENGTH,
     FeedParserDict,
     build_contents,
     convert_contents_to_mk,
+    generate_content_with_fallback,
     generate_stable_content_id,
     generate_summary_from_entry,
-    generate_content_with_fallback,
-    DEFAULT_SUMMARY_MAX_LENGTH,
 )
 
 HTML_CONTENT = """
@@ -34,7 +35,7 @@ def test_convert_contents_to_mk():
         {"value": HTML_CONTENT},
     ]
     markdown = convert_contents_to_mk(html_content)
-    expected = "This is __bold__ text.\n\nAnd _italic_ text.\n\n# 欢迎来到我的网页\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n* 星号处理测试"
+    expected = "This is **bold** text.\n\nAnd *italic* text.\n\n欢迎来到我的网页\n========\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n\\* 星号处理测试"
     assert markdown.strip() == expected.strip()
 
 
