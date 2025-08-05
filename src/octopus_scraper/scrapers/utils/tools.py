@@ -8,7 +8,7 @@ import structlog
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from feedparser.util import FeedParserDict
-from html2markdown import convert
+from markdownify import markdownify
 
 from octopus_scraper.scrapers.scraper_protos import Content
 
@@ -27,8 +27,8 @@ def convert_contents_to_mk(contents: List) -> str:
     for content in contents:
         html_content = content.get("value", "")
 
-        # 先用convert统一转换
-        markdown_content = convert(html_content)
+        # 先用markdownify统一转换
+        markdown_content = markdownify(html_content)
 
         # 后处理：单独处理HTML格式的链接
         soup = BeautifulSoup(markdown_content, "html.parser")
@@ -45,6 +45,8 @@ def convert_contents_to_mk(contents: List) -> str:
         # 修复其他格式
         markdown_content = re.sub(r"^\*\s+", "* ", markdown_content, flags=re.MULTILINE)
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
+        # 清理链接前后的多余换行
+        markdown_content = re.sub(r"\n+\[", "[", markdown_content)
 
         _parsed_content += markdown_content + "\n\n"
 

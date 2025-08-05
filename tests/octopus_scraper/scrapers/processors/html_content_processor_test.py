@@ -9,6 +9,7 @@ import pytest
 
 from octopus_scraper.scrapers.processors.html_content_processor import (
     HTMLContentProcessor,
+    HTMLContentProcessorConfig,
 )
 from octopus_scraper.scrapers.scraper_protos import Content
 
@@ -309,3 +310,221 @@ def test_html_content_processor_real_websites_comprehensive():
         if success:
             print(f"  提取内容长度: {len(content.content)}")
             print(f"  内容预览: {content.content[:200]}...")
+
+
+def test_html_content_processor_config_initialization():
+    """测试HTML内容处理器配置初始化"""
+    # 测试默认配置
+    config = {}
+    processor = HTMLContentProcessor(config)
+    assert processor.config.timeout == 30
+    assert processor.config.use_browser == True
+    assert processor.config.browserless_url == ""
+    assert processor.config.browser_timeout == 60000
+
+    # 测试自定义配置
+    config = {
+        "timeout": 60,
+        "browserless_url": "http://localhost:3000",
+        "use_browser": False,
+        "browser_timeout": 30000,
+    }
+    processor = HTMLContentProcessor(config)
+    assert processor.config.timeout == 60
+    assert processor.config.use_browser == False
+    assert processor.config.browserless_url == "http://localhost:3000"
+    assert processor.config.browser_timeout == 30000
+
+
+def test_html_content_processor_browserless_config():
+    """测试 browserless 配置相关逻辑"""
+
+    # 测试禁用浏览器模式
+    config = {"use_browser": False, "browserless_url": ""}
+    processor = HTMLContentProcessor(config)
+    assert processor.config.use_browser == False
+
+    # 测试启用浏览器但无 URL
+    config = {"use_browser": True, "browserless_url": ""}
+    processor = HTMLContentProcessor(config)
+    assert processor.config.use_browser == True
+    assert processor.config.browserless_url == ""
+
+    # 测试启用浏览器且有 URL
+    config = {"use_browser": True, "browserless_url": "http://localhost:3000"}
+    processor = HTMLContentProcessor(config)
+    assert processor.config.use_browser == True
+    assert processor.config.browserless_url == "http://localhost:3000"
+
+
+@patch(
+    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    False,
+)
+@patch("requests.Session.get")
+def test_html_content_processor_no_playwright(mock_get):
+    """测试 Playwright 不可用时的回退行为"""
+    # 模拟HTTP响应
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.text = "<html><body><h1>Test</h1></body></html>"
+    mock_get.return_value = mock_response
+
+    # 即使配置了浏览器，也应该回退到 requests
+    config = {"use_browser": True, "browserless_url": "http://localhost:3000"}
+    processor = HTMLContentProcessor(config)
+
+    test_content = Content(
+        content_id="test_001",
+        title="测试",
+        link="https://example.com/test",
+        summary="测试",
+        content="原始内容",
+        published="2024-01-01",
+    )
+
+    processed_contents = processor([test_content])
+
+    # 应该成功处理并使用 requests
+    assert len(processed_contents) == 1
+    mock_get.assert_called_once()
+
+
+@patch(
+    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    True,
+)
+@patch("requests.Session.get")
+def test_html_content_processor_browser_fallback_to_requests(mock_get):
+    """测试浏览器抓取失败时回退到 requests"""
+    # 模拟HTTP响应
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.text = "<html><body><h1>Fallback Test</h1></body></html>"
+    mock_get.return_value = mock_response
+
+    # 配置启用浏览器但没有 browserless_url
+    config = {"use_browser": True, "browserless_url": ""}  # 空 URL，不会使用浏览器
+    processor = HTMLContentProcessor(config)
+
+    test_content = Content(
+        content_id="test_001",
+        title="回退测试",
+        link="https://example.com/test",
+        summary="测试",
+        content="原始内容",
+        published="2024-01-01",
+    )
+
+    processed_contents = processor([test_content])
+
+    # 应该直接使用 requests（因为没有配置 browserless_url）
+    assert len(processed_contents) == 1
+    assert "Fallback Test" in processed_contents[0].content
+    mock_get.assert_called_once()
+
+
+@patch(
+    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    True,
+)
+@patch("octopus_scraper.scrapers.processors.html_content_processor.sync_playwright")
+@patch("requests.Session.get")
+def test_html_content_processor_browser_exception_fallback(mock_get, mock_playwright):
+    """测试浏览器抓取异常时回退到 requests"""
+    # 模拟浏览器抛出异常
+    mock_playwright.side_effect = Exception("Browser connection failed")
+
+    # 模拟HTTP响应
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.text = "<html><body><h1>Requests Fallback</h1></body></html>"
+    mock_get.return_value = mock_response
+
+    config = {
+        "use_browser": True,
+        "browserless_url": "http://localhost:3000",  # 配置了 URL
+    }
+    processor = HTMLContentProcessor(config)
+
+    test_content = Content(
+        content_id="test_001",
+        title="异常回退测试",
+        link="https://example.com/test",
+        summary="测试",
+        content="原始内容",
+        published="2024-01-01",
+    )
+
+    processed_contents = processor([test_content])
+
+    # 应该回退到 requests
+    assert len(processed_contents) == 1
+    assert "Requests Fallback" in processed_contents[0].content
+    mock_get.assert_called_once()
+
+
+def test_html_content_processor_config_validation():
+    """测试配置验证"""
+    # 测试 HTMLContentProcessorConfig 数据类
+    config_dict = {
+        "timeout": 45,
+        "user_agent": "Custom Agent",
+        "browserless_url": "http://custom:3000",
+        "use_browser": False,
+        "browser_timeout": 45000,
+    }
+
+    from dacite import from_dict
+
+    config = from_dict(HTMLContentProcessorConfig, config_dict)
+
+    assert config.timeout == 45
+    assert config.user_agent == "Custom Agent"
+    assert config.browserless_url == "http://custom:3000"
+    assert config.use_browser == False
+    assert config.browser_timeout == 45000
+
+
+@patch("requests.Session.get")
+def test_html_content_processor_with_convert_contents_to_mk(mock_get):
+    """测试使用 convert_contents_to_mk 函数进行 HTML 到 Markdown 转换"""
+    # 模拟HTTP响应
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.text = """
+    <html>
+    <body>
+        <h1>Test Title</h1>
+        <p>This is <strong>bold</strong> text.</p>
+        <p>This is <em>italic</em> text.</p>
+    </body>
+    </html>
+    """
+    mock_get.return_value = mock_response
+
+    config = {"use_browser": False}
+    processor = HTMLContentProcessor(config)
+
+    test_content = Content(
+        content_id="test_001",
+        title="Markdown转换测试",
+        link="https://example.com/test",
+        summary="测试",
+        content="原始内容",
+        published="2024-01-01",
+    )
+
+    processed_contents = processor([test_content])
+
+    assert len(processed_contents) == 1
+    content = processed_contents[0]
+
+    # 验证 markdownify 的输出格式
+    assert "Test Title" in content.content
+    assert "**bold**" in content.content  # markdownify 使用 ** 而不是 __
+    assert "*italic*" in content.content  # markdownify 使用 * 而不是 _
