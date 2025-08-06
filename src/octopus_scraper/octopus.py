@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import structlog
 from dacite import from_dict
 
-from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
+from octopus_scraper.scraper import BaseScraperConfig, Content, Scraper
 from octopus_scraper.storages.notion_storage import NotionAPIConfig, NotionStorage
 from octopus_scraper.task_manager import (
     ScraperTask,

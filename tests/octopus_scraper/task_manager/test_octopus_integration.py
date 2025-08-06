@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.scrapers.scraper import Content
+from octopus_scraper.scraper import Content
 from octopus_scraper.task_manager.models import TaskPriority, TaskStatus
 from octopus_scraper.task_manager.task_manager import TaskManager
 
@@ -115,7 +115,7 @@ class TestOctopusTaskManagerIntegration:
         octopus.cleanup_task_manager()
 
     @patch("octopus_scraper.octopus.NotionStorage")
-    @patch("octopus_scraper.scrapers.scraper.Scraper")
+    @patch("octopus_scraper.scraper.Scraper")
     def test_trigger_scraper_with_task_manager(
         self,
         mock_scraper_class,
@@ -178,7 +178,7 @@ class TestOctopusTaskManagerIntegration:
         octopus.cleanup_task_manager()
 
     @patch("octopus_scraper.octopus.NotionStorage")
-    @patch("octopus_scraper.scrapers.scraper.Scraper")
+    @patch("octopus_scraper.scraper.Scraper")
     def test_submit_individual_scraper_task(
         self,
         mock_scraper_class,
@@ -298,7 +298,7 @@ class TestOctopusTaskManagerConfiguration:
                 "api_key": "test_api_key",
                 "database_id": "test_database_id",
             },
-            "use_task_manager": True
+            "use_task_manager": True,
             # No task_manager_config provided
         }
 

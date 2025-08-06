@@ -7,7 +7,7 @@ from dacite import Config, from_dict
 from notion_client import Client
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.protos import Content
 from octopus_scraper.storages.base_storage import BaseStorage
 
 logger = structlog.getLogger(__name__)
@@ -16,6 +16,9 @@ NOTION_PROPERTIY_TITLE_NAME = "Name"
 NOTION_PROPERTIY_SUMMARY_NAME = "Summary"
 NOTION_PROPERTIY_CONTENT_ID = "ContentId"
 NOTION_PROPERTIY_URL = "URL"
+NOTION_PROPERTY_AUTHOR_NAME = "Author"
+NOTION_PROPERTY_KEYWORDS_NAME = "Keywords"
+NOTION_PROPERTY_TAGS_NAME = "Tags"
 
 
 @dataclass
@@ -93,6 +96,9 @@ class NotionStorage(BaseStorage):
                 NOTION_PROPERTIY_SUMMARY_NAME: {"rich_text": {}},
                 NOTION_PROPERTIY_URL: {"url": {}},
                 NOTION_PROPERTIY_CONTENT_ID: {"rich_text": {}},
+                NOTION_PROPERTY_AUTHOR_NAME: {"rich_text": {}},
+                NOTION_PROPERTY_KEYWORDS_NAME: {"multi_select": {}},
+                NOTION_PROPERTY_TAGS_NAME: {"multi_select": {}},
             },
         )
 
@@ -114,6 +120,17 @@ class NotionStorage(BaseStorage):
             NOTION_PROPERTIY_URL: {"url": content.link},
             NOTION_PROPERTIY_CONTENT_ID: {
                 "rich_text": [{"text": {"content": content.content_id}}]
+            },
+            NOTION_PROPERTY_AUTHOR_NAME: {
+                "rich_text": [{"text": {"content": content.author or ""}}]
+            },
+            NOTION_PROPERTY_KEYWORDS_NAME: {
+                "multi_select": [
+                    {"name": keyword} for keyword in (content.keywords or [])
+                ]
+            },
+            NOTION_PROPERTY_TAGS_NAME: {
+                "multi_select": [{"name": tag} for tag in (content.tags or [])],
             },
         }
 

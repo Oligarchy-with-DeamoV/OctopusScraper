@@ -424,8 +424,8 @@ AVALIABLE_FETCHERS["custom"] = CustomFetcher
 
 ```python
 from typing import Dict, List
-from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.processors import AVALIABLE_PROCESSOR
+from octopus_scraper.protos import Content
+from octopus_scraper.processors import AVALIABLE_PROCESSOR
 
 class CustomProcessor:
     def __init__(self, config: Dict):

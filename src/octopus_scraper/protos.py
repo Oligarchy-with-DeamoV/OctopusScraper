@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List, Optional
 
 
 @dataclass
@@ -9,3 +10,6 @@ class Content:
     summary: str
     content: str
     published: str
+    author: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    tags: Optional[List[str]] = None

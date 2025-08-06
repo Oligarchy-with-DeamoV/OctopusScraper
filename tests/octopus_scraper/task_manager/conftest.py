@@ -2,9 +2,10 @@
 Pytest configuration for task manager tests.
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add the src directory to Python path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
@@ -22,7 +23,7 @@ def setup_test_environment():
 @pytest.fixture
 def mock_content():
     """Create mock content for testing."""
-    from octopus_scraper.scrapers.scraper import Content
+    from octopus_scraper.scraper import Content
 
     return Content(
         content_id="test_content_123",

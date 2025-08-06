@@ -3,8 +3,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from octopus_scraper.scrapers.scraper import Scraper
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.protos import Content
+from octopus_scraper.scraper import Scraper
 
 
 class MockProcessor:
@@ -76,7 +76,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "filter")
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,
@@ -138,7 +138,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "llm")
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,
@@ -195,7 +195,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "processor_c")
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {
                 "processor_a": create_processor_a,
                 "processor_b": create_processor_b,
@@ -246,7 +246,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "simple_processor")
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {
                 "simple_processor": create_simple_processor,
             },
@@ -289,7 +289,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "llm")
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,

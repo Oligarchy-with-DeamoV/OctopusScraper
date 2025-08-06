@@ -8,8 +8,8 @@ from dacite import from_dict
 from doraemon.gpt_utils.chatgpt_api import request_openai
 from jsonschema import validate
 
-from octopus_scraper.scrapers.processors.protos import LLMProcessorConfig
-from octopus_scraper.scrapers.utils.rsshub import Content
+from octopus_scraper.processors.protos import LLMProcessorConfig
+from octopus_scraper.utils.rsshub import Content
 
 logger = structlog.getLogger(__name__)
 

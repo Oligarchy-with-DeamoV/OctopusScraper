@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from octopus_scraper.scrapers.utils.tools import (
+from octopus_scraper.utils.tools import (
     DEFAULT_SUMMARY_MAX_LENGTH,
     FeedParserDict,
     build_contents,

@@ -14,7 +14,8 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 🔧 **灵活配置**: 基于 Notion 数据库的动态配置管理，支持环境变量覆盖
 - 🚀 **高性能**: 异步处理，支持并发抓取
 - 📊 **智能存储**: 自动去重，支持 Notion 数据库存储
-- 🎯 **智能内容处理**: 可配置的摘要长度控制，内容回退机制
+- 🎯 **智能内容处理**: 可配置的摘要长度控制，内容回退机制，支持 HTML 清理和 LLM 增强
+- 🔧 **内容处理器**: 模块化的内容处理架构，支持 HTML 解析、LLM 智能增强等
 - 🔄 **实时监控**: 内置 Web 服务，提供配置管理和状态监控
 - �️ **管理界面**: 完整的 Web 管理界面，支持配置热重载、抓取器测试、系统监控
 - �🏥 **企业级健康检查**: 三层健康检查体系，支持容器环境存活/就绪探针，智能缓存机制
@@ -38,6 +39,10 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
   - [TaskManager](#taskmanager)
   - [TaskScheduler](#taskscheduler)
   - [配置示例](#任务管理配置示例)
+- [内容处理系统](#内容处理系统)
+  - [HTMLContentProcessor](#htmlcontentprocessor)
+  - [LLMProcessor](#llmprocessor)
+  - [自定义处理器](#自定义处理器)
 - [API 文档](#api-文档)
 - [部署配置](#部署配置)
 - [开发指南](#开发指南)
@@ -262,7 +267,14 @@ scrapers_config_with_fetch_params:
       fetcher_config:
         hub_root: "https://rsshub.app"
         route: "/your/custom/route"
-      content_processor_configs: {}
+      content_processor_configs:
+        html_content:
+          remove_tags: ["script", "style", "nav"]
+          preserve_formatting: true
+        llm:
+          provider: "openai"
+          model: "gpt-3.5-turbo"
+          max_tokens: 500
     fetch_params:
       limit: 10
 ```
@@ -575,7 +587,192 @@ curl -X POST http://localhost:8000/admin/tasks/submit \
   -d '{"scraper_name": "example_scraper", "fetch_params": {"limit": 10}}'
 ```
 
-## 🔌 API 文档
+## � 内容处理系统
+
+OctopusScraper 提供了模块化的内容处理架构，支持多种内容处理器的组合使用，实现智能内容清理、格式化和增强。
+
+> 📌 **位置**: `src/octopus_scraper/processors/`
+
+### 架构特性
+
+- **模块化设计**: 支持多个处理器链式处理
+- **可插拔架构**: 易于扩展和自定义处理器
+- **配置驱动**: 通过配置文件灵活控制处理行为
+- **错误容错**: 处理器失败时的优雅降级机制
+
+### HTMLContentProcessor
+
+HTMLContentProcessor 专门用于 HTML 内容的解析、清理和格式化。
+
+#### 主要功能
+
+- **HTML 标签清理**: 移除不需要的标签和属性
+- **内容提取**: 提取纯文本或保留特定格式
+- **格式标准化**: 统一 HTML 格式和编码
+- **安全清理**: 移除潜在的恶意代码
+
+#### 配置示例
+
+```yaml
+content_processor_configs:
+  html_content:
+    remove_tags: ["script", "style", "nav", "footer"]
+    preserve_formatting: true
+    max_content_length: 10000
+    encoding: "utf-8"
+    extract_text_only: false
+```
+
+#### 使用示例
+
+```python
+from octopus_scraper.processors import HTMLContentProcessor
+
+# 创建处理器
+config = {
+    "remove_tags": ["script", "style"],
+    "preserve_formatting": True
+}
+processor = HTMLContentProcessor(config)
+
+# 处理 HTML 内容
+cleaned_content = processor.process(html_content)
+```
+
+### LLMProcessor
+
+LLMProcessor 利用大语言模型对内容进行智能增强和处理。
+
+#### 主要功能
+
+- **智能摘要**: 自动生成内容摘要
+- **内容增强**: 改善内容质量和可读性
+- **多模型支持**: 支持 OpenAI、Claude 等多种 LLM
+- **定制提示**: 可配置的处理提示词
+
+#### 配置示例
+
+```yaml
+content_processor_configs:
+  llm:
+    provider: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 500
+    temperature: 0.3
+    custom_prompt: "请为以下内容生成简洁的摘要："
+    fallback_on_error: true
+```
+
+#### 使用示例
+
+```python
+from octopus_scraper.processors import LLMProcessor
+
+# 创建处理器
+config = {
+    "provider": "openai",
+    "model": "gpt-3.5-turbo",
+    "max_tokens": 300
+}
+processor = LLMProcessor(config)
+
+# 处理内容
+enhanced_content = processor.process(original_content)
+```
+
+### 处理器组合使用
+
+多个处理器可以链式组合使用：
+
+```yaml
+scrapers_config_with_fetch_params:
+  - scraper_config:
+      fetcher_name: "rsshub"
+      fetcher_config:
+        hub_root: "https://rsshub.app"
+        route: "/tech/news"
+      content_processor_configs:
+        # 第一步：HTML 清理
+        html_content:
+          remove_tags: ["script", "style", "ads"]
+          preserve_formatting: true
+        # 第二步：LLM 增强
+        llm:
+          provider: "openai"
+          model: "gpt-3.5-turbo"
+          max_tokens: 400
+          custom_prompt: "生成技术新闻摘要"
+    fetch_params:
+      limit: 20
+```
+
+### 自定义处理器
+
+创建自定义内容处理器：
+
+```python
+from octopus_scraper.processors.protos import ProcessorConfig
+from octopus_scraper.scrapers.protos import Content
+
+class CustomProcessorConfig(ProcessorConfig):
+    """自定义处理器配置"""
+    custom_param: str = ""
+    max_length: int = 1000
+
+class CustomProcessor:
+    """自定义内容处理器"""
+    
+    def __init__(self, config: dict):
+        self.config = from_dict(CustomProcessorConfig, config)
+    
+    def process(self, content: Content) -> Content:
+        """处理内容的核心逻辑"""
+        # 实现自定义处理逻辑
+        processed_content = self._custom_processing(content.content)
+        
+        # 返回处理后的内容
+        return Content(
+            title=content.title,
+            content=processed_content,
+            url=content.url,
+            publish_date=content.publish_date
+        )
+    
+    def _custom_processing(self, text: str) -> str:
+        """自定义处理逻辑"""
+        # 实现具体的处理算法
+        return text
+
+# 注册自定义处理器
+from octopus_scraper.processors import AVALIABLE_PROCESSOR
+AVALIABLE_PROCESSOR["custom"] = CustomProcessor
+```
+
+### 错误处理和回退机制
+
+```yaml
+content_processor_configs:
+  llm:
+    provider: "openai"
+    model: "gpt-3.5-turbo"
+    fallback_on_error: true  # 处理失败时使用原始内容
+    retry_attempts: 2        # 重试次数
+    timeout: 30             # 超时时间(秒)
+```
+
+### 性能优化建议
+
+1. **合理配置处理器顺序**: 先进行轻量级处理(如HTML清理)，再进行重量级处理(如LLM)
+2. **设置合适的超时时间**: 避免LLM处理时间过长
+3. **使用回退机制**: 确保处理失败时有备选方案
+4. **批量处理**: 对于大量内容，考虑批量提交给LLM处理
+
+更多详细文档请参考：
+- [Processors 模型文档](docs/models/processors/processors.md)
+- [Processors 测试文档](docs/models/processors/processors-testing.md)
+
+## �🔌 API 文档
 
 Web 服务提供以下 API 端点：
 
@@ -1144,19 +1341,27 @@ src/octopus_scraper/
 │   ├── config_manager.py   # 配置管理器
 │   ├── models.py          # 数据模型
 │   └── notion_config.py   # Notion 配置客户端
+├── processors/            # 内容处理器模块 [新增]
+│   ├── __init__.py        # 处理器导出
+│   ├── html_content_processor.py  # HTML 内容处理器
+│   ├── llm_processor.py   # LLM 智能处理器
+│   └── protos.py         # 处理器数据模型
 ├── scrapers/              # 抓取器模块
-│   ├── processors/        # 内容处理器
 │   ├── utils/            # 工具类
 │   │   ├── direct_rss.py  # 直接 RSS 抓取
 │   │   ├── notion_api.py  # Notion API 封装
 │   │   ├── rsshub.py     # RSSHub 抓取
 │   │   └── tools.py      # 通用工具
+│   ├── protos.py         # 抓取器数据模型
 │   └── scraper.py        # 抓取器基类
-├── task_manager/          # 任务管理系统
+├── storages/              # 存储模块
+│   └── notion_storage.py  # Notion 存储实现
+├── task_manager/          # 任务管理系统 [统一架构]
 │   ├── __init__.py       # 模块导出
 │   ├── models.py         # 任务数据模型
-│   ├── task_manager.py   # 任务管理器
-│   └── scheduler.py      # 任务调度器
+│   ├── task_manager.py   # 任务管理器 (默认启用)
+│   └── scheduler.py      # 任务调度器 (可选)
+├── utils/                 # 通用工具
 ├── octopus.py            # 核心抓取逻辑
 ├── octopus_service.py    # Web 服务
 └── service_models.py     # 服务模型
@@ -1188,12 +1393,50 @@ src/octopus_scraper/
 
 ```python
 from octopus_scraper.scrapers.scraper import Scraper
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.scrapers.protos import Content
 
 class CustomScraper(Scraper):
     def scrap_contents(self) -> List[Content]:
         # 实现自定义抓取逻辑
+        contents = []
+        
+        # 示例：抓取自定义数据源
+        for item in self._fetch_data():
+            content = Content(
+                title=item['title'],
+                content=item['content'],
+                url=item['url'],
+                publish_date=item['date']
+            )
+            contents.append(content)
+        
+        return contents
+    
+    def _fetch_data(self):
+        # 实现具体的数据获取逻辑
         pass
+```
+
+### 自定义内容处理器
+
+创建自定义内容处理器（详见[内容处理系统](#内容处理系统)）：
+
+```python
+from octopus_scraper.processors.protos import ProcessorConfig
+
+class CustomProcessor:
+    def __init__(self, config: dict):
+        self.config = config
+    
+    def process(self, content: Content) -> Content:
+        # 实现自定义内容处理逻辑
+        processed_content = self._process_content(content.content)
+        return Content(
+            title=content.title,
+            content=processed_content,
+            url=content.url,
+            publish_date=content.publish_date
+        )
 ```
 
 ## 🚀 部署配置
@@ -1514,6 +1757,10 @@ poetry run pytest -m "not integrate_test" --cov=octopus_scraper --cov-fail-under
 | 变量名                       | 说明                   | 必需 | 默认值 |
 | ---------------------------- | ---------------------- | ---- | ------ |
 | `OCTOPUS_SUMMARY_MAX_LENGTH` | RSS 摘要最大长度(字符) | 否   | `500`  |
+| `OPENAI_API_KEY`             | OpenAI API 密钥        | 否   | -      |
+| `LLM_PROVIDER`               | LLM 服务提供商         | 否   | -      |
+| `LLM_MODEL`                  | 使用的 LLM 模型        | 否   | -      |
+| `LLM_MAX_TOKENS`             | LLM 最大 token 数      | 否   | `500`  |
 
 > 💡 **说明**: 当 RSS 摘要超过指定长度时，将设为空并交由 LLM 处理器生成摘要。
 

@@ -1,15 +1,13 @@
 from typing import Dict
-
-from dacite import from_dict
-import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from octopus_scraper.scrapers.processors.llm_processor import (
+import pytest
+from dacite import from_dict
+
+from octopus_scraper.processors.llm_processor import (
     Content,
     LLMProcessor,
-)
-from octopus_scraper.scrapers.processors.llm_processor import (
     extract_markdown_json_code,
 )
 
@@ -112,7 +110,7 @@ lower nonce
         codes = llm_processor._parse_json_output(input_message)
         assert codes == "{\n    'test': 1\n}"
 
-    @mock.patch("octopus_scraper.scrapers.processors.llm_processor.request_openai")
+    @mock.patch("octopus_scraper.processors.llm_processor.request_openai")
     def test_main_func(self, mock_request_openai, llm_processor, sample_content):
         mock_request_openai.return_value = (True, mock_llm_response)
         processed_contents = llm_processor([sample_content])

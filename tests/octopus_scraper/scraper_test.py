@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from octopus_scraper.scrapers.scraper import Content, Scraper
+from octopus_scraper.scraper import Content, Scraper
 
 
 @pytest.fixture
@@ -233,7 +233,7 @@ class TestScraper:
         mock_processor_class.return_value = mock_processor_instance
 
         with patch(
-            "octopus_scraper.scrapers.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
             {"llm": mock_processor_class},
         ):
             scraper = Scraper(config)

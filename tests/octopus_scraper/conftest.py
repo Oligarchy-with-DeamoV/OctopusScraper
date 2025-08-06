@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
+from octopus_scraper.scraper import BaseScraperConfig, Content, Scraper
 from octopus_scraper.storages.notion_storage import NotionAPIConfig
 
 

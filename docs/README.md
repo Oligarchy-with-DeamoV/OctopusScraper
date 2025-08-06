@@ -2,20 +2,21 @@
 
 欢迎使用 OctopusScraper 文档。本文档采用分层组织结构，分为**接口文档**和**模型文档**两大类别，帮助您快速了解和使用 OctopusScraper。
 
-> 📢 **重要更新**: TaskManager 现已成为统一的任务执行引擎，详见 [TaskManager 架构更新指南](./TASK_MANAGER_UPDATES.md)
+> 📢 **架构更新**: OctopusScraper 已完成重大架构重构，TaskManager 现已成为统一的任务执行引擎，提供完整的任务调度、监控和管理功能。
 
 ## 文档结构
 
 ```
 docs/
-├── TASK_MANAGER_UPDATES.md  # 📢 TaskManager 架构更新指南
 ├── interface/               # 接口文档 - 外部交互接口
-│   ├── web_service/        # Web 服务接口
-│   └── cli/               # 命令行接口
+│   ├── web_service/        # Web 服务接口 (REST API)
+│   └── cli/               # 命令行接口 (CLI)
 └── models/                # 模型文档 - 内部代码结构
     ├── config/            # 配置管理模型
     ├── task_manager/      # 任务管理模型 (统一执行引擎)
     ├── scrapers/          # 抓取器模型
+    ├── storages/          # 存储器模型
+    ├── processors/        # 内容处理器模型
     └── service/           # 服务数据模型
 ```
 
@@ -23,6 +24,7 @@ docs/
 
 - **[主要 README](../README.md)** - 完整的安装和使用指南
 - **[配置示例](../config.example.yml)** - 推荐的配置文件模板
+- **[架构概览](#架构概览)** - 了解 OctopusScraper 的整体架构
 
 ## 接口文档 (Interface)
 
@@ -36,8 +38,9 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 **主要功能：**
 
 - 🔧 配置管理 API (15+ 端点)
-- 📊 任务管理和监控 API
+- 📊 任务管理和监控 API  
 - 🕷️ 抓取器控制 API
+- 📅 定时调度管理 API
 - 📈 系统状态和统计 API
 - 🔒 安全认证和权限控制
 
@@ -50,40 +53,54 @@ Web 服务接口提供 HTTP API 用于远程管理和操作 OctopusScraper：
 
 ### 命令行接口
 
-命令行接口提供本地命令行工具用于直接操作：
+命令行接口提供简洁高效的本地管理工具：
 
 - **[CLI 接口文档](./interface/cli/cli-interface.md)** - 完整的命令行工具参考
 
-**主要功能：**
+**可用命令：**
 
-- ⚙️ 配置管理命令 (`config`)
-- 🕷️ 抓取器管理命令 (`scraper`)
-- 📋 任务管理命令 (`task`)
-- 🖥️ 服务器管理命令 (`server`)
-- 📊 状态查看命令 (`status`)
+- `octopus_go` - 一次性抓取任务执行
+- `octopus_service` - Web 服务启动和管理
+
+**主要特性：**
+
+- 📁 配置文件支持 (YAML)
+- ⚡ 快速抓取和上传
+- � 与任务管理器无缝集成
+- 📊 实时状态显示
+- 🎯 灵活的参数配置
 
 **适用场景：**
 
-- 本地开发和调试
+- 开发和测试环境
 - 自动化脚本集成
-- 系统运维操作
-- 快速配置和测试
+- 定时任务执行
+- 本地调试和开发
 
 ## 模型文档 (Models)
 
 ### 配置管理模型
 
-配置系统负责管理所有抓取器、任务、系统设置：
+动态配置系统负责管理所有抓取器、任务、系统设置：
 
 - **[ConfigManager 模型](./models/config/config-manager.md)** - 配置管理器的核心功能和数据结构
 - **[ConfigManager 测试](./models/config/config-manager-testing.md)** - 配置系统的测试策略和用例
 
 **核心组件：**
 
-- `ConfigManager` - 配置加载、验证、更新
-- `ConfigModel` - 配置数据结构定义
-- `NotionConfig` - Notion 集成配置
-- 配置验证和类型检查系统
+- `ConfigManager` - 统一配置管理、热重载、验证
+- `ScraperConfig` - 抓取器配置数据结构  
+- `ServiceConfig` - 服务配置和环境变量支持
+- `NotionDatabaseConfig` - Notion 集成配置
+- 动态配置监控和更新系统
+
+**主要功能：**
+
+- 🔄 热重载和实时配置更新
+- ✅ 配置验证和错误检查
+- 📊 版本控制和变更跟踪
+- 🔗 Notion 数据库集成
+- 🌐 环境变量支持
 
 ### 任务管理模型
 
@@ -96,38 +113,155 @@ TaskManager 现已成为 OctopusScraper 的统一任务执行引擎，负责所�
 
 - `TaskManager` - 统一任务队列、执行引擎、监控系统（默认启用）
 - `TaskScheduler` - 定时任务和 Cron 表达式调度
-- `Task` - 任务基类和完整生命周期管理
+- `ScraperTask` - 抓取任务模型和生命周期管理
+- `TaskBatch` - 批量任务处理和协调
 - `TaskResult` - 任务结果、统计信息和性能指标
+
+**主要功能：**
+
+- 🎛️ 优先级队列和并发控制
+- 📅 Cron 表达式定时调度
+- 🔄 智能重试和错误恢复
+- 📊 实时监控和统计分析
+- 🏗️ 任务生命周期钩子
 
 ### 抓取器模型
 
-抓取器系统负责从各种数据源获取内容：
+网页内容抓取器系统提供多种数据源支持：
 
-- **[Scrapers 模型](./models/scrapers/scrapers.md)** - 抓取器架构和实现
-- **[Scrapers 测试](./models/scrapers/scrapers-testing.md)** - 抓取器的测试方法
-
-**核心组件：**
-
-- `BaseScraper` - 抓取器基类和接口
-- `DirectRssScraper` - RSS 直接抓取器
-- `RsshubScraper` - RSSHub 集成抓取器
-- `NotionApiScraper` - Notion API 抓取器
-- `ContentDeduplicator` - 内容去重处理器
-
-### 服务数据模型
-
-服务模型定义了系统中所有数据结构和 API 响应格式：
-
-- **[Service Models](./models/service/service-models.md)** - 完整的数据模型参考
-- **[Service Models 测试](./models/service/service-models-testing.md)** - 数据模型的测试覆盖
+- **[Scrapers 模型](./models/scrapers/scrapers.md)** - 抓取器架构和实现细节
+- **[Scrapers 测试](./models/scrapers/scrapers-testing.md)** - 抓取器测试和验证
 
 **核心组件：**
 
-- `ScrapingItem` - 抓取项目数据模型
-- `ScrapingResult` - 抓取结果数据模型
-- `TaskModel` - 任务数据模型
-- `AdminResponse` - API 响应模型
-- 统计和聚合数据模型
+- `Scraper` - 统一抓取器接口和基类
+- `BaseScraperConfig` - 抓取器配置管理
+- `Content` - 内容数据模型和处理
+- Fetcher 支持 (RSSHub、Direct RSS)
+- 内容去重和存储集成
+
+**主要功能：**
+
+- 🌐 多种数据源支持 (RSS、Web API)
+- 🔧 可配置的 fetcher 和 processor
+- 📝 内容预处理和标准化
+- 🔄 存储集成和去重机制
+- ⚡ 高性能批量处理
+
+### 存储器模型  
+
+数据存储和持久化系统：
+
+- **[Storages 模型](./models/storages/storages.md)** - 存储器架构和 Notion 集成
+- **[Storages 测试](./models/storages/storages-testing.md)** - 存储系统测试和验证
+
+**核心组件：**
+
+- `BaseStorage` - 存储器接口和抽象基类
+- `NotionStorage` - Notion API 集成实现
+- 内容去重和冲突检测机制
+- 批量上传和错误处理
+
+**主要功能：**
+
+- 📚 Notion 数据库无缝集成
+- 🔍 智能内容去重检测
+- 📦 批量操作和性能优化
+- 🛡️ 错误处理和重试机制
+- 🔗 多存储后端支持架构
+
+### 处理器模型
+
+内容处理和增强系统：
+
+- **[Processors 模型](./models/processors/processors.md)** - 内容处理器架构和实现
+- **[Processors 测试](./models/processors/processors-testing.md)** - 处理器测试和验证
+
+**核心组件：**
+
+- `HTMLContentProcessor` - HTML 内容解析和清理
+- `LLMProcessor` - AI 大语言模型内容增强
+- 可插拔的处理器架构
+
+**主要功能：**
+
+- 🧹 HTML 内容清理和格式化
+- 🤖 AI 内容摘要和标签生成
+- 🔧 可配置的处理管道
+- 📝 内容标准化和规范化
+
+### 服务模型
+
+Web 服务的数据传输对象和响应格式：
+
+- **[Service Models](./models/service/service-models.md)** - Web API 数据结构和响应格式
+- **[Service Models 测试](./models/service/service-models-testing.md)** - 服务模型测试和验证
+
+**核心组件：**
+
+- `TriggerScraperResponse` - 抓取触发响应
+- `TriggerUploadResponse` - 上传触发响应
+- `TaskModel` - 任务状态和结果模型
+- `ScheduleModel` - 调度任务配置模型
+- `AdminResponse` - 管理接口响应
+- `ErrorResponse` - 标准错误响应格式
+- `SystemInfo` - 系统信息和健康状态
+
+**主要功能：**
+
+- 🔄 统一的 API 响应格式
+- 📊 详细的任务状态跟踪
+- 🕐 调度任务状态管理
+- ❌ 标准化错误处理
+- 📈 系统健康监控
+
+## 架构概览
+
+OctopusScraper 采用模块化架构，各组件职责分离、高度可配置：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        用户接口                             │
+├─────────────────────┬───────────────────────────────────────┤
+│      CLI 接口       │           Web 服务接口                │
+│   (octopus_go)      │        (octopus_service)              │
+└─────────────────────┴───────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                     核心服务层                              │
+├─────────────────────────────────────────────────────────────┤
+│                  Octopus (核心调度器)                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    任务管理层                               │
+├───────────────────────┬─────────────────────────────────────┤
+│     TaskManager       │         TaskScheduler               │
+│   (统一任务执行)      │       (定时调度管理)                │
+└───────────────────────┴─────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    业务逻辑层                               │
+├─────────────┬─────────────────┬─────────────────┬───────────┤
+│  Scrapers   │   Processors    │   Storages      │  Config   │
+│  (内容抓取) │   (内容处理)    │   (数据存储)    │ (配置管理)│
+└─────────────┴─────────────────┴─────────────────┴───────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    外部服务层                               │
+├─────────────────────┬───────────────────────────────────────┤
+│     数据源接口      │            存储服务接口               │
+│   (RSSHub, RSS)     │           (Notion API)               │
+└─────────────────────┴───────────────────────────────────────┘
+```
+
+### 关键设计原则
+
+- **统一任务管理**: 所有操作都通过 TaskManager 执行
+- **可插拔架构**: Fetchers、Processors、Storages 都支持扩展
+- **配置驱动**: 通过配置文件或 Notion 数据库动态配置
+- **异步优先**: 基于 asyncio 的高性能异步处理
+- **监控友好**: 内置完整的监控和日志系统
 
 ## 快速开始
 

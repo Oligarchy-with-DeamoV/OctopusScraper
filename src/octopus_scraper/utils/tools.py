@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from feedparser.util import FeedParserDict
 from markdownify import markdownify
 
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.protos import Content
 
 # Load environment variables
 load_dotenv()
@@ -23,7 +23,7 @@ DEFAULT_SUMMARY_MAX_LENGTH = int(os.getenv("OCTOPUS_SUMMARY_MAX_LENGTH", "500"))
 
 def convert_contents_to_mk(contents: List) -> str:
     """Convert HTML content to clean Markdown format"""
-    _parsed_content = ""
+    content_pieces = []
     for content in contents:
         html_content = content.get("value", "")
 
@@ -48,9 +48,11 @@ def convert_contents_to_mk(contents: List) -> str:
         # 清理链接前后的多余换行
         markdown_content = re.sub(r"\n+\[", "[", markdown_content)
 
-        _parsed_content += markdown_content + "\n\n"
+        content_pieces.append(markdown_content.strip())
 
-    return _parsed_content.strip()
+    # Join with double newlines and apply final cleanup
+    result = "\n\n".join(content_pieces)
+    return result
 
 
 def build_contents(feed: FeedParserDict) -> List[Content]:

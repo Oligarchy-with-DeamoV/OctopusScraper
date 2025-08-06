@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from octopus_scraper.scrapers.processors.protos import LLMProcessorConfig
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.processors.protos import LLMProcessorConfig
+from octopus_scraper.protos import Content
 
 # 加载当前目录下的.env文件
 current_dir = Path(__file__).parent

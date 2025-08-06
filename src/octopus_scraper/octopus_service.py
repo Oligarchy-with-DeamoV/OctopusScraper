@@ -9,16 +9,9 @@ from sanic import Sanic
 from sanic.exceptions import SanicException
 from sanic.response import json
 
-from octopus_scraper.config import (
-    ConfigManager,
-    NotionDatabaseConfig,
-    ServiceConfig,
-)
+from octopus_scraper.config import ConfigManager, NotionDatabaseConfig, ServiceConfig
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.service_models import (
-    TriggerScraperResponse,
-    TriggerUploadResponse,
-)
+from octopus_scraper.service_models import TriggerScraperResponse, TriggerUploadResponse
 
 load_dotenv()
 
@@ -105,9 +98,12 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict,
     # Scheduler configuration - configurable via environment variables
     scheduler_config = {
         "enable_scheduler": os.getenv("ENABLE_SCHEDULER", "False").lower() == "true",
-        "auto_start_scheduler": os.getenv("AUTO_START_SCHEDULER", "False").lower() == "true",
+        "auto_start_scheduler": os.getenv("AUTO_START_SCHEDULER", "False").lower()
+        == "true",
         "scheduler_config": {
-            "max_concurrent_schedules": int(os.getenv("MAX_CONCURRENT_SCHEDULES", "10")),
+            "max_concurrent_schedules": int(
+                os.getenv("MAX_CONCURRENT_SCHEDULES", "10")
+            ),
             "schedule_check_interval": int(os.getenv("SCHEDULE_CHECK_INTERVAL", "60")),
         },
     }
@@ -120,7 +116,9 @@ async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
     try:
         # Create configuration from environment variables
-        notion_config, service_config, task_manager_config, scheduler_config = create_config_from_env()
+        notion_config, service_config, task_manager_config, scheduler_config = (
+            create_config_from_env()
+        )
 
         # Validate required configuration
         if not notion_config.api_key or not notion_config.scrapers_database_id:
@@ -562,6 +560,7 @@ async def trigger_upload(request):
         )
         return json(asdict(response), status=500)
 
+
 # ===== Admin Management APIs =====
 @app.route("/admin/config/status", methods=["GET"])
 async def get_config_status(request):
@@ -949,7 +948,7 @@ async def run_scraper_test(request, scraper_name):
         # Create test scraper instance
         from dataclasses import asdict
 
-        from octopus_scraper.scrapers.scraper import Scraper
+        from octopus_scraper.scraper import Scraper
 
         test_scraper_config = {
             "fetcher_name": target_scraper_config.fetcher,
@@ -1643,13 +1642,19 @@ async def get_monitoring_metrics(request):
 
         # Add detailed scheduler metrics if scheduler is enabled
         if scheduler_status.get("enabled", False):
-            metrics["scheduler"].update({
-                "total_schedules": scheduler_status.get("total_schedules", 0),
-                "enabled_schedules": scheduler_status.get("enabled_schedules", 0),
-                "running_scheduled_tasks": scheduler_status.get("running_scheduled_tasks", 0),
-                "next_run": scheduler_status.get("next_run"),
-                "schedules_by_status": scheduler_status.get("schedules_by_status", {}),
-            })
+            metrics["scheduler"].update(
+                {
+                    "total_schedules": scheduler_status.get("total_schedules", 0),
+                    "enabled_schedules": scheduler_status.get("enabled_schedules", 0),
+                    "running_scheduled_tasks": scheduler_status.get(
+                        "running_scheduled_tasks", 0
+                    ),
+                    "next_run": scheduler_status.get("next_run"),
+                    "schedules_by_status": scheduler_status.get(
+                        "schedules_by_status", {}
+                    ),
+                }
+            )
 
         # Add Notion connectivity metrics
         try:

@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from octopus_scraper.scrapers.processors.html_content_processor import (
+from octopus_scraper.processors.html_content_processor import (
     HTMLContentProcessor,
     HTMLContentProcessorConfig,
 )
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.protos import Content
 
 
 def test_html_content_processor_init():
@@ -358,7 +358,7 @@ def test_html_content_processor_browserless_config():
 
 
 @patch(
-    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    "octopus_scraper.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
     False,
 )
 @patch("requests.Session.get")
@@ -392,7 +392,7 @@ def test_html_content_processor_no_playwright(mock_get):
 
 
 @patch(
-    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    "octopus_scraper.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
     True,
 )
 @patch("requests.Session.get")
@@ -427,10 +427,10 @@ def test_html_content_processor_browser_fallback_to_requests(mock_get):
 
 
 @patch(
-    "octopus_scraper.scrapers.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
+    "octopus_scraper.processors.html_content_processor.PLAYWRIGHT_AVAILABLE",
     True,
 )
-@patch("octopus_scraper.scrapers.processors.html_content_processor.sync_playwright")
+@patch("octopus_scraper.processors.html_content_processor.sync_playwright")
 @patch("requests.Session.get")
 def test_html_content_processor_browser_exception_fallback(mock_get, mock_playwright):
     """测试浏览器抓取异常时回退到 requests"""

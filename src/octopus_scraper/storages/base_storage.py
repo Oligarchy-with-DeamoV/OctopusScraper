@@ -3,7 +3,7 @@ from typing import List
 
 import structlog
 
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.protos import Content
 
 logger = structlog.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from octopus_scraper.scrapers.scraper import BaseScraperConfig
+from octopus_scraper.scraper import BaseScraperConfig
 from octopus_scraper.storages.notion_storage import NotionAPIConfig
 
 # 加载环境变量，包括LLM配置

@@ -1,11 +1,12 @@
-import pytest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
-from datetime import datetime, timezone, timedelta
-from feedparser.util import FeedParserDict
-import tenacity
 
-from octopus_scraper.scrapers.utils.direct_rss import DirectRSS
-from octopus_scraper.scrapers.scraper_protos import Content
+import pytest
+import tenacity
+from feedparser.util import FeedParserDict
+
+from octopus_scraper.protos import Content
+from octopus_scraper.utils.direct_rss import DirectRSS
 
 
 class TestRssHub:
@@ -92,9 +93,9 @@ class TestRssHub:
         filtered = DirectRSS.filter_by_timerange(contents, 3600)
         assert len(filtered) == 0
 
-    @patch("octopus_scraper.scrapers.utils.direct_rss.build_contents")
-    @patch("octopus_scraper.scrapers.utils.direct_rss.feedparser.parse")
-    @patch("octopus_scraper.scrapers.utils.direct_rss.requests.get")
+    @patch("octopus_scraper.utils.direct_rss.build_contents")
+    @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
+    @patch("octopus_scraper.utils.direct_rss.requests.get")
     def test_fetch_contents_success(self, mock_requests, mock_feedparser, mock_build):
         """测试成功获取内容"""
         # Mock requests.get
@@ -131,9 +132,9 @@ class TestRssHub:
         assert len(contents) == 1
         assert contents[0].title == "Test Content"
 
-    @patch("octopus_scraper.scrapers.utils.direct_rss.build_contents")
-    @patch("octopus_scraper.scrapers.utils.direct_rss.feedparser.parse")
-    @patch("octopus_scraper.scrapers.utils.direct_rss.requests.get")
+    @patch("octopus_scraper.utils.direct_rss.build_contents")
+    @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
+    @patch("octopus_scraper.utils.direct_rss.requests.get")
     def test_fetch_contents_with_filter_time(
         self, mock_requests, mock_feedparser, mock_build
     ):
@@ -183,8 +184,8 @@ class TestRssHub:
         assert len(contents) == 1
         assert contents[0].title == "Recent Content"
 
-    @patch("octopus_scraper.scrapers.utils.direct_rss.feedparser.parse")
-    @patch("octopus_scraper.scrapers.utils.direct_rss.requests.get")
+    @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
+    @patch("octopus_scraper.utils.direct_rss.requests.get")
     def test_fetch_contents_failure(self, mock_requests, mock_feedparser):
         """测试获取内容失败的情况"""
         # Mock requests.get

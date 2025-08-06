@@ -21,9 +21,9 @@ try:
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
-from octopus_scraper.scrapers.processors.protos import ProcessorConfig
-from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.utils.tools import convert_contents_to_mk
+from octopus_scraper.processors.protos import ProcessorConfig
+from octopus_scraper.protos import Content
+from octopus_scraper.utils.tools import convert_contents_to_mk
 
 logger = structlog.getLogger(__name__)
 

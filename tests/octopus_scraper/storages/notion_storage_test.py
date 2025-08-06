@@ -42,7 +42,7 @@ class TestNotionStorage:
         with patch.object(
             notion_storage.notion.pages, "create"
         ) as mock_create, patch.object(
-            notion_storage, "get_all_content_ids"
+            notion_storage, "_get_all_content_ids"
         ) as mock_get_all_ids:
             mock_create.return_value = {"id": "test_page_id"}
             # Mock existing content IDs - first content exists, second doesn't

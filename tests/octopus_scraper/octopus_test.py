@@ -83,7 +83,7 @@ def test_trigger_upload(octopus_config, patch_scraper_scrap, patch_notion):
 
     # Now test upload - but since TaskManager handles content separately,
     # we need to manually add some content for upload test
-    from octopus_scraper.scrapers.scraper import Content
+    from octopus_scraper.scraper import Content
 
     test_content = Content(
         title="Test Title",

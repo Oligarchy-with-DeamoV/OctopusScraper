@@ -10,19 +10,20 @@ import itertools
 import threading
 import time
 from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from queue import PriorityQueue, Empty
-from typing import Dict, List, Optional, Callable, Any
+from queue import Empty, PriorityQueue
+from typing import Any, Callable, Dict, List, Optional
+
 import structlog
 
-from octopus_scraper.scrapers.scraper import Scraper, Content
+from octopus_scraper.scraper import Content, Scraper
 from octopus_scraper.task_manager.models import (
-    TaskStatus,
-    TaskResult,
     ScraperTask,
     TaskBatch,
     TaskPriority,
+    TaskResult,
+    TaskStatus,
 )
 
 logger = structlog.get_logger(__name__)

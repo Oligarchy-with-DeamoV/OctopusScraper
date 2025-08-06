@@ -1,7 +1,7 @@
 import pytest
 
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.scrapers.scraper import BaseScraperConfig, Scraper
+from octopus_scraper.scraper import BaseScraperConfig, Scraper
 
 
 @pytest.mark.need_external_service
@@ -220,7 +220,9 @@ def test_complete_html_content_processor_integration():
 
         # 验证HTML处理器确实处理了内容
         # content字段应该包含markdown格式的内容，长度应该比原始summary更长
-        print(f"内容是否被处理: {'是' if len(content.content) > len(content.summary) else '否'}")
+        print(
+            f"内容是否被处理: {'是' if len(content.content) > len(content.summary) else '否'}"
+        )
 
         # 输出处理后内容的预览
         if len(content.content) > 200:

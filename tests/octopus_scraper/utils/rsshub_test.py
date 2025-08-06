@@ -1,10 +1,11 @@
-import pytest
 from unittest.mock import Mock, patch
-from feedparser.util import FeedParserDict
-import tenacity
 
-from octopus_scraper.scrapers.utils.rsshub import RssHub
-from octopus_scraper.scrapers.scraper_protos import Content
+import pytest
+import tenacity
+from feedparser.util import FeedParserDict
+
+from octopus_scraper.protos import Content
+from octopus_scraper.utils.rsshub import RssHub
 
 
 class TestRssHub:
@@ -23,7 +24,7 @@ class TestRssHub:
         contents = sspai_rsshub.fetch_contents()
         assert len(contents) == 1
 
-    @patch("octopus_scraper.scrapers.utils.rsshub.feedparser.parse")
+    @patch("octopus_scraper.utils.rsshub.feedparser.parse")
     def test_fetch_contents_success(self, mock_feedparser):
         """测试成功获取内容"""
         # Mock feedparser
@@ -47,9 +48,7 @@ class TestRssHub:
             }
         )
 
-        with patch(
-            "octopus_scraper.scrapers.utils.rsshub.build_contents"
-        ) as mock_build:
+        with patch("octopus_scraper.utils.rsshub.build_contents") as mock_build:
             mock_build.return_value = [
                 Content(
                     title="Test Content",
@@ -65,7 +64,7 @@ class TestRssHub:
             assert len(contents) == 1
             assert contents[0].title == "Test Content"
 
-    @patch("octopus_scraper.scrapers.utils.rsshub.feedparser.parse")
+    @patch("octopus_scraper.utils.rsshub.feedparser.parse")
     def test_fetch_contents_with_params(self, mock_feedparser):
         """测试带参数的内容获取"""
         # Mock feedparser
@@ -82,9 +81,7 @@ class TestRssHub:
             }
         )
 
-        with patch(
-            "octopus_scraper.scrapers.utils.rsshub.build_contents"
-        ) as mock_build:
+        with patch("octopus_scraper.utils.rsshub.build_contents") as mock_build:
             mock_build.return_value = []
 
             # 测试有额外参数的情况
@@ -94,7 +91,7 @@ class TestRssHub:
             # 验证feedparser被正确调用
             mock_feedparser.assert_called_once()
 
-    @patch("octopus_scraper.scrapers.utils.rsshub.feedparser.parse")
+    @patch("octopus_scraper.utils.rsshub.feedparser.parse")
     def test_fetch_contents_failure(self, mock_feedparser):
         """测试获取内容失败的情况"""
         # Mock feedparser with error status

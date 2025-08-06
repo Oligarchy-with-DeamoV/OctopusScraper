@@ -3,8 +3,8 @@ import os
 
 import pytest
 
-from octopus_scraper.scrapers.processors.llm_processor import LLMProcessor
-from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.processors.llm_processor import LLMProcessor
+from octopus_scraper.protos import Content
 
 # 标记这些测试需要外部服务
 pytestmark = pytest.mark.integrate_test
@@ -134,9 +134,7 @@ class TestLLMProcessorIntegration:
 
     def test_llm_processor_json_extraction(self):
         """测试JSON代码块提取功能"""
-        from octopus_scraper.scrapers.processors.llm_processor import (
-            extract_markdown_json_code,
-        )
+        from octopus_scraper.processors.llm_processor import extract_markdown_json_code
 
         # 测试正常的JSON代码块
         markdown_with_json = """

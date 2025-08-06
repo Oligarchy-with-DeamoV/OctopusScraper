@@ -3,16 +3,16 @@ from datetime import datetime, timezone
 from typing import Dict, List
 from urllib.parse import urljoin
 
-from dacite import from_dict
-from dateutil import parser
 import feedparser
-from feedparser.util import FeedParserDict
 import requests
 import structlog
+from dacite import from_dict
+from dateutil import parser
+from feedparser.util import FeedParserDict
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from octopus_scraper.scrapers.scraper_protos import Content
-from octopus_scraper.scrapers.utils.tools import build_contents
+from octopus_scraper.protos import Content
+from octopus_scraper.utils.tools import build_contents
 
 logger = structlog.getLogger(__name__)
 
