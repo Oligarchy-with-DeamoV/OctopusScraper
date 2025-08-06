@@ -6,7 +6,7 @@ import structlog
 from dacite import from_dict
 
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
-from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig, NotionStorage
+from octopus_scraper.storages.notion_storage import NotionAPIConfig, NotionStorage
 from octopus_scraper.task_manager import (
     ScraperTask,
     TaskBatch,
@@ -141,7 +141,9 @@ class Octopus:
         """将获取的 Content 批量上传, 返回成功数量"""
         try:
             success_cnt = sum(
-                self._notion_api.store_contents_with_dedup(self._fetched_contents)
+                self._notion_api.store_contents(
+                    self._fetched_contents, deduplicate=True
+                )
             )
             self._fetched_contents.clear()  # 清空已上传的内容
             return success_cnt

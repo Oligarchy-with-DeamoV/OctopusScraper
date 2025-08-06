@@ -55,7 +55,9 @@ class Scraper:
         # 按照优先级排序处理器（优先级数值越小，优先级越高）
         sorted_processors = sorted(
             self.active_content_processor.items(),
-            key=lambda x: self.processor_priorities.get(x[0], 100),  # 使用get()避免KeyError
+            key=lambda x: self.processor_priorities.get(
+                x[0], 100
+            ),  # 使用get()避免KeyError
         )
 
         for key, _processor in sorted_processors:
@@ -67,7 +69,7 @@ class Scraper:
         return contents
 
     def set_storage(self, storage):
-        """设置存储器（用于去重）"""
+        """设置存储器"""
         self.storage = storage
 
     def scrap_contents(self, params) -> List[Content]:

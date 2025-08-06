@@ -5,7 +5,6 @@ import pytest
 import structlog
 
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.scrapers.scraper import Content
 from octopus_scraper.task_manager.models import TaskScheduleConfig
 
 logger = structlog.getLogger()

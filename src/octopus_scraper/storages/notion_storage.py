@@ -8,6 +8,7 @@ from notion_client import Client
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.scrapers.scraper_protos import Content
+from octopus_scraper.storages.base_storage import BaseStorage
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
@@ -23,13 +24,13 @@ class NotionAPIConfig:
     database_id: str
 
 
-class NotionStorage:
+class NotionStorage(BaseStorage):
     """
     Store contents in Notion database
 
     Examples:
     >>> notion_storage = NotionStorage(config)
-    >>> notion_storage.store_content(content)
+    >>> notion_storage.store_content(contents)
 
     """
 
@@ -41,26 +42,10 @@ class NotionStorage:
         )
 
         self.notion = Client(auth=self.config.api_key)
-        self.check_property_exist()
+        self._check_property_exist()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def has_content_id(self, content_id: str) -> bool:
-        query_filter = {
-            "property": NOTION_PROPERTIY_CONTENT_ID,
-            "rich_text": {"equals": content_id},
-        }
-
-        response = self.notion.databases.query(
-            database_id=self.config.database_id, filter=query_filter, page_size=1
-        )
-        if isinstance(response, dict):
-            return len(response.get("results", [])) > 0
-        else:
-            logger.error("Notion databases fetch content id response is not a dict.")
-            return False
-
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def get_all_content_ids(self) -> set:
+    @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
+    def _get_all_content_ids(self) -> set:
         """批量获取数据库中所有已存在的 content_id"""
         all_content_ids = set()
         has_more = True
@@ -99,7 +84,8 @@ class NotionStorage:
         )
         return all_content_ids
 
-    def check_property_exist(self):
+    @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
+    def _check_property_exist(self):
         self.notion.databases.update(
             database_id=self.config.database_id,
             properties={
@@ -110,7 +96,7 @@ class NotionStorage:
             },
         )
 
-    def build_properties(self, content: Content) -> dict:
+    def _build_properties(self, content: Content) -> dict:
         """构建Notion属性结构"""
         if len(content.summary) > MAX_NOTION_SUMMARY_LENGTH:
             logger.warning(
@@ -213,7 +199,7 @@ class NotionStorage:
         ]
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def store_content(self, content: Content) -> bool:
+    def _store_content(self, content: Content) -> bool:
         """存储单个内容，不做重复性检查"""
         try:
             content_chunks = self._split_text_chunks(
@@ -226,7 +212,7 @@ class NotionStorage:
             # 直接存储，不检查是否存在
             self.notion.pages.create(
                 parent={"database_id": self.config.database_id},
-                properties=self.build_properties(content),
+                properties=self._build_properties(content),
                 children=children,
             )
             logger.info("Content stored successfully", content_id=content.content_id)
@@ -234,36 +220,3 @@ class NotionStorage:
         except Exception as e:
             logger.error(f"存储失败: {e}", content_id=content.content_id)
             return False
-
-    def store_contents_with_dedup(self, contents: List[Content]) -> List[bool]:
-        """高效的批量存储方法，只需要一次 Notion API 调用进行去重"""
-        if not contents:
-            return []
-
-        # 一次性获取所有已存在的 content_id
-        existing_content_ids = self.get_all_content_ids()
-
-        # 过滤出新的内容
-        new_contents = []
-        for content in contents:
-            if content.content_id not in existing_content_ids:
-                new_contents.append(content)
-            else:
-                logger.debug(
-                    "Content already exists in storage, skipping",
-                    content_id=content.content_id,
-                )
-
-        # 存储新内容
-        results = []
-        for content in new_contents:
-            results.append(self.store_content(content))
-
-        # 为已存在的内容返回True（表示"处理成功"）
-        skipped_count = len(contents) - len(new_contents)
-        results.extend([True] * skipped_count)
-
-        logger.info(
-            f"Batch storage completed: {len(new_contents)} stored, {skipped_count} skipped (1 API call for dedup)"
-        )
-        return results

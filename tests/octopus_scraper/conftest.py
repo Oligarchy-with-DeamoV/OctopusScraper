@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from octopus_scraper.scrapers.scraper import BaseScraperConfig, Content, Scraper
-from octopus_scraper.scrapers.utils.notion_api import NotionAPIConfig
+from octopus_scraper.storages.notion_storage import NotionAPIConfig
 
 
 @pytest.fixture
@@ -68,8 +68,7 @@ def patch_notion(monkeypatch):
             self.config = config
             self.stored = []
 
-        def store_contents_with_dedup(self, contents):
-            # Mock implementation - return True for each content (simulating successful storage)
+        def store_contents(self, contents, deduplicate=False):
             return [True] * len(contents)
 
     monkeypatch.setattr("octopus_scraper.octopus.NotionStorage", DummyNotionStorage)

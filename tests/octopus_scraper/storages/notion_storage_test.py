@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from octopus_scraper.scrapers.utils.notion_api import Content, NotionStorage
+from octopus_scraper.storages.notion_storage import Content, NotionStorage
 
 
 class TestNotionStorage:
@@ -17,7 +17,7 @@ class TestNotionStorage:
     @pytest.fixture
     def notion_storage(self, notion_config):
         with patch(
-            "octopus_scraper.scrapers.utils.notion_api.NotionStorage.check_property_exist"
+            "octopus_scraper.storages.notion_storage.NotionStorage._check_property_exist"
         ):
             return NotionStorage(notion_config)
 
@@ -33,11 +33,11 @@ class TestNotionStorage:
                 content="content",
                 published="2025-04-06T13:50:59+08:00",
             )
-            result = notion_storage.store_content(content)
+            result = notion_storage._store_content(content)
             assert result == True
             mock_create.assert_called_once()
 
-    def test_store_contents_with_dedup(self, notion_storage):
+    def test_store_contents(self, notion_storage):
         """Test the optimized batch storage method with deduplication"""
         with patch.object(
             notion_storage.notion.pages, "create"
@@ -67,7 +67,7 @@ class TestNotionStorage:
                 ),
             ]
 
-            results = notion_storage.store_contents_with_dedup(contents)
+            results = notion_storage.store_contents(contents, deduplicate=True)
 
             # Should return success for both (one stored, one skipped)
             assert results == [True, True]
@@ -75,20 +75,6 @@ class TestNotionStorage:
             mock_create.assert_called_once()
             # Should call get_all_content_ids only once for batch dedup
             mock_get_all_ids.assert_called_once()
-
-    def test_check_contentid(self, notion_storage):
-        with patch.object(notion_storage.notion.databases, "query") as mock_query:
-            # Test when content exists
-            mock_query.return_value = {"results": [{"id": "existing_page"}]}
-
-            content_id = "test_content_id"
-            result = notion_storage.has_content_id(content_id)
-            assert result == True
-
-            # Test when content doesn't exist
-            mock_query.return_value = {"results": []}
-            result = notion_storage.has_content_id(content_id)
-            assert result == False
 
     def test_get_all_content_ids(self, notion_storage):
         """Test getting all content IDs from Notion database"""
@@ -115,7 +101,7 @@ class TestNotionStorage:
                 "next_cursor": None,
             }
 
-            result = notion_storage.get_all_content_ids()
+            result = notion_storage._get_all_content_ids()
 
             assert result == {"content_id_1", "content_id_2"}
             mock_query.assert_called_once_with(
@@ -155,7 +141,7 @@ class TestNotionStorage:
                 },
             ]
 
-            result = notion_storage.get_all_content_ids()
+            result = notion_storage._get_all_content_ids()
 
             assert result == {"content_id_1", "content_id_2"}
             assert mock_query.call_count == 2
