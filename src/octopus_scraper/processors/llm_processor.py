@@ -8,6 +8,7 @@ from dacite import from_dict
 from doraemon.gpt_utils.chatgpt_api import request_openai
 from jsonschema import validate
 
+from octopus_scraper.processors.processor_base import ProcessorBase
 from octopus_scraper.processors.protos import LLMProcessorConfig
 from octopus_scraper.utils.rsshub import Content
 
@@ -32,12 +33,24 @@ def extract_markdown_json_code(markdown_text: str):
     return code_blocks
 
 
-class LLMProcessor:
+class LLMProcessor(ProcessorBase):
     def __init__(self, configs: Dict):
-        self.configs = from_dict(LLMProcessorConfig, configs)
+        super().__init__(configs)
         self.output_schema = False
-        if self.configs.if_structure_output:
-            self.output_schema = self.configs.json_schema
+        if self.config.if_structure_output:
+            self.output_schema = self.config.json_schema
+
+    def _parse_config(self, config: Dict) -> LLMProcessorConfig:
+        """
+        解析和验证配置
+
+        Args:
+            config: 原始配置字典
+
+        Returns:
+            验证过的配置对象
+        """
+        return from_dict(LLMProcessorConfig, config)
 
     def _create_single_content_input(self, content: Content) -> List[Dict]:
         mmessages = []
@@ -46,7 +59,7 @@ class LLMProcessor:
         )
         mmessages.append({"role": "system", "content": SYSTEM_PROMPT})
         mmessages.append({"role": "user", "content": content_prompt})
-        mmessages.append({"role": "user", "content": self.configs.prompt})
+        mmessages.append({"role": "user", "content": self.config.prompt})
         return mmessages
 
     def _parse_json_output(self, llm_raw_output: str) -> str:
@@ -54,6 +67,28 @@ class LLMProcessor:
         if len(json_blocks) > 1:
             logger.warning("Multi json blocks found, choice first one.")
         return json_blocks[0]
+
+    def process(self, data: Dict) -> Dict:
+        """
+        处理数据字典，符合ProcessorBase接口
+
+        Args:
+            data: 包含contents字段的数据字典
+
+        Returns:
+            包含处理后内容的数据字典
+        """
+        contents = data.get("contents", [])
+        if not contents:
+            logger.warning("No contents found in data")
+            return data
+
+        processed_contents = self(contents)
+
+        result = data.copy()
+        result["contents"] = processed_contents
+
+        return result
 
     def __call__(self, contents: List[Content]) -> List[Content]:
         _output_contents = []

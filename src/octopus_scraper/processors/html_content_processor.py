@@ -21,6 +21,7 @@ try:
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
+from octopus_scraper.processors.processor_base import ProcessorBase
 from octopus_scraper.processors.protos import ProcessorConfig
 from octopus_scraper.protos import Content
 from octopus_scraper.utils.tools import convert_contents_to_mk
@@ -41,7 +42,7 @@ class HTMLContentProcessorConfig(ProcessorConfig):
     browser_timeout: int = field(default=60000)
 
 
-class HTMLContentProcessor:
+class HTMLContentProcessor(ProcessorBase):
     """
     HTML内容处理器
 
@@ -84,12 +85,21 @@ class HTMLContentProcessor:
         Args:
             config (Dict): 配置字典，包含timeout和user_agent等参数
         """
-        self.config = from_dict(HTMLContentProcessorConfig, config)
-        # 为了兼容测试，也直接设置属性
-        self.timeout = self.config.timeout
-        self.user_agent = self.config.user_agent
+        super().__init__(config)
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": self.config.user_agent})
+
+    def _parse_config(self, config: Dict) -> HTMLContentProcessorConfig:
+        """
+        解析和验证配置
+
+        Args:
+            config: 原始配置字典
+
+        Returns:
+            验证过的配置对象
+        """
+        return from_dict(HTMLContentProcessorConfig, config)
 
     def _fetch_html_with_browser(self, url: str) -> str:
         """
@@ -226,6 +236,28 @@ class HTMLContentProcessor:
         except Exception as e:
             logger.error(f"Error converting HTML to markdown: {e}")
             return ""
+
+    def process(self, data: Dict) -> Dict:
+        """
+        处理数据字典，符合ProcessorBase接口
+
+        Args:
+            data: 包含contents字段的数据字典
+
+        Returns:
+            包含处理后内容的数据字典
+        """
+        contents = data.get("contents", [])
+        if not contents:
+            logger.warning("No contents found in data")
+            return data
+
+        processed_contents = self(contents)
+
+        result = data.copy()
+        result["contents"] = processed_contents
+
+        return result
 
     def __call__(self, contents: List[Content]) -> List[Content]:
         """

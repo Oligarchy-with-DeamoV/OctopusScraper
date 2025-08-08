@@ -2,148 +2,430 @@
 
 ## 概述
 
-Processors 模块负责对抓取到的内容进行后处理，包括内容清理、格式化、摘要生成等功能。该模块采用可插拔的架构设计，支持多种不同类型的内容处理器。
+Processors 模块负责对抓取到的内容进行后处理，包括内容清理、格式化、摘要生成等功能。该模块采用**企业级插件化架构设计**，支持动态注册、配置管理、管道处理等高级功能。
+
+> 📢 **架构升级**: Phase 4 完成了处理器系统的重大升级，引入了ProcessorRegistry、ProcessorFactory、ProcessorPipeline等企业级组件，实现了完全模块化的处理器架构。
 
 ## 模块结构
 
 ```
 src/octopus_scraper/processors/
-├── __init__.py                    # 模块初始化和处理器注册
-├── html_content_processor.py      # HTML 内容处理器
-├── llm_processor.py              # AI 大语言模型处理器
-└── protos.py                     # 处理器数据模型
+├── __init__.py                     # 处理器注册系统核心 (ProcessorRegistry, ProcessorFactory)
+├── processor_base.py               # 抽象基类定义
+├── processor_config.py             # 配置管理系统 (ProcessorConfig, ProcessorConfigManager)
+├── processor_pipeline.py           # 处理器管道系统 (PipelineBuilder, 依赖解析)
+├── html_content_processor.py       # HTML 内容处理器 (适配新架构)
+├── llm_processor.py               # AI 大语言模型处理器 (适配新架构)
+├── llm_summary_processor.py        # LLM 摘要处理器
+├── llm_tags_processor.py           # LLM 标签处理器  
+├── llm_keywords_processor.py       # LLM 关键词处理器
+└── protos.py                      # 处理器数据模型
 ```
 
-## 核心架构
+## 🏗️ 核心架构
 
-### 处理器注册系统
+### 处理器注册系统 (ProcessorRegistry)
 
 位置: `src/octopus_scraper/processors/__init__.py`
 
+ProcessorRegistry 是处理器系统的核心，提供动态注册、发现和管理功能。
+
 ```python
-AVALIABLE_PROCESSOR = {
-    "llm": LLMProcessor, 
-    "html_content": HTMLContentProcessor
-}
+# 全局注册系统实例
+_registry = ProcessorRegistry()
+
+class ProcessorRegistry:
+    """处理器注册和管理系统"""
+    
+    def register(self, name: str, processor_class: Type[ProcessorBase]) -> None
+    def unregister(self, name: str) -> None
+    def get_processor_class(self, name: str) -> Type[ProcessorBase]
+    def list_processors(self) -> List[str]
+    def create_processor(self, name: str, config: Dict[str, Any]) -> ProcessorBase
+    def get_processor_info(self, name: str) -> Dict[str, Any]
 ```
 
 #### 主要功能
 
-- **处理器注册**: 自动注册可用的内容处理器
-- **动态加载**: 根据配置动态加载对应的处理器
-- **扩展支持**: 支持添加自定义处理器
+- **动态注册**: 运行时注册和注销处理器
+- **类型验证**: 确保注册的类符合ProcessorBase接口
+- **元数据管理**: 存储处理器描述、版本等信息
+- **内置处理器**: 自动注册html_content、llm、llm_summary、llm_tags、llm_keywords处理器
+
+#### 使用示例
+
+```python
+from octopus_scraper.processors import register_processor, create_processor
+
+# 动态注册自定义处理器
+register_processor('custom_processor', CustomProcessor)
+
+# 创建处理器实例
+processor = create_processor('html_content', {'timeout': 30})
+
+# 获取可用处理器列表
+available = get_available_processors()
+# 返回: ['html_content', 'llm', 'llm_summary', 'llm_tags', 'llm_keywords']
+```
+
+### 处理器工厂 (ProcessorFactory)
+
+ProcessorFactory 提供统一的处理器创建接口，支持配置验证和处理器链创建。
+
+```python
+class ProcessorFactory:
+    """处理器工厂，统一创建接口"""
+    
+    def __init__(self, registry: Optional[ProcessorRegistry] = None)
+    def create_processor(self, processor_type: str, config: Dict[str, Any]) -> ProcessorBase
+    def create_processor_chain(self, processor_configs: List[Dict[str, Any]]) -> List[ProcessorBase]
+    def get_available_processors(self) -> List[str]
+```
+
+#### 主要功能
+
+- **统一创建**: 提供一致的处理器创建接口
+- **处理器链**: 支持批量创建处理器链
+- **错误处理**: 优雅处理创建失败情况
+- **全局工厂**: 提供全局工厂实例
+
+### 配置管理系统 (ProcessorConfigManager)
+
+位置: `src/octopus_scraper/processors/processor_config.py`
+
+提供结构化的配置管理，支持验证、配置档案等功能。
+
+```python
+@dataclass
+class ProcessorConfig:
+    """处理器配置基类"""
+    processor_type: str
+    config: Dict[str, Any] = field(default_factory=dict)
+    enabled: bool = True
+    priority: int = 100
+    dependencies: List[str] = field(default_factory=list)
+
+class ProcessorConfigManager:
+    """处理器配置管理器"""
+    
+    def add_config(self, name: str, config: ProcessorConfig) -> None
+    def get_config(self, name: str) -> ProcessorConfig
+    def remove_config(self, name: str) -> bool
+    def create_profile(self, profile_name: str, config_ids: List[str]) -> None
+    def get_profile(self, profile_name: str) -> List[ProcessorConfig]
+    def validate_configuration(self, configs: List[ProcessorConfig]) -> bool
+```
+
+#### 配置类型
+
+系统定义了多种专门的配置类：
+
+```python
+# HTML处理器配置
+@dataclass
+class HTMLContentProcessorConfig(ProcessorConfig):
+    timeout: int = 30
+    user_agent: str = "..."
+    browserless_url: str = ""
+    use_browser: bool = True
+    browser_timeout: int = 60000
+
+# LLM基础配置
+@dataclass
+class BaseLLMProcessorConfig(ProcessorConfig):
+    model_name: str = "gpt-3.5-turbo"
+    max_tokens: int = 1000
+    temperature: float = 0.7
+    timeout: int = 30
+    retry_times: int = 3
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+    llm_provider: str = "openai"
+
+# 摘要处理器配置
+@dataclass
+class SummaryProcessorConfig(BaseLLMProcessorConfig):
+    max_summary_length: int = 200
+    summary_style: str = "concise"
+    preserve_structure: bool = False
+    include_key_points: bool = True
+
+# 标签处理器配置
+@dataclass
+class TagsProcessorConfig(BaseLLMProcessorConfig):
+    available_tags: List[str] = field(default_factory=list)
+    max_tags_count: int = 5
+    custom_categories: Dict[str, List[str]] = field(default_factory=dict)
+    allow_new_tags: bool = True
+    confidence_threshold: float = 0.5
+
+# 关键词处理器配置
+@dataclass
+class KeywordsProcessorConfig(BaseLLMProcessorConfig):
+    keywords_count: int = 3
+    max_keywords: int = 10
+    min_keyword_length: int = 2
+    max_keyword_length: int = 20
+    exclude_common_words: bool = True
+    include_phrases: bool = True
+    language_preference: str = "mixed"
+```
+
+### 处理器管道系统 (ProcessorPipeline)
+
+位置: `src/octopus_scraper/processors/processor_pipeline.py`
+
+支持复杂的处理器依赖关系和执行流程管理。
+
+```python
+@dataclass
+class PipelineResult:
+    """管道执行结果"""
+    success: bool
+    results: Dict[str, Any]
+    errors: List[Exception]
+    execution_time: float
+    processor_results: Dict[str, Any]
+
+class ProcessorPipeline:
+    """处理器管道执行器"""
+    
+    def __init__(self, name: str = "default", factory: Optional[ProcessorFactory] = None)
+    def add_processor(self, name: str, config: ProcessorConfig, dependencies: Optional[List[str]] = None) -> None
+    def execute(self, content: Any) -> PipelineResult
+    def execute_parallel(self, content: Any) -> PipelineResult
+    def execute_sequential(self, content: Any) -> PipelineResult
+```
+
+#### 使用示例
+
+```python
+from octopus_scraper.processors.processor_pipeline import ProcessorPipeline
+from octopus_scraper.processors.processor_config import ProcessorConfig
+
+# 创建管道
+pipeline = ProcessorPipeline("content_processing")
+
+# 添加处理器
+html_config = ProcessorConfig(processor_type="html_content", config={"timeout": 30})
+pipeline.add_processor("html", html_config)
+
+summary_config = ProcessorConfig(processor_type="llm_summary", config={"model_name": "gpt-3.5-turbo"})
+pipeline.add_processor("summary", summary_config, dependencies=["html"])
+
+# 执行管道
+result = pipeline.execute(content)
+```
+
+## 📦 内置处理器
 
 ### HTMLContentProcessor
 
 位置: `src/octopus_scraper/processors/html_content_processor.py`
 
+**功能特性**: 从Content中的link获取网页内容，支持动态网站抓取。
+
 #### 主要功能
 
-- **HTML 清理**: 去除无用的 HTML 标签和属性
-- **内容提取**: 提取主要文本内容
-- **格式标准化**: 统一内容格式
+- **HTML 清理**: 使用readability提取主要内容
+- **内容提取**: 提取主要文本内容并转换为Markdown格式
+- **浏览器支持**: 支持Playwright和browserless服务进行动态网站抓取
+- **回退机制**: 浏览器失败时自动回退到requests方式
 
-#### 核心方法
-
-```python
-class HTMLContentProcessor:
-    def __init__(self, config: Dict[str, Any])
-    
-    def process(self, content: Content) -> Content
-    def clean_html(self, html_content: str) -> str
-    def extract_text(self, html_content: str) -> str
-    def normalize_whitespace(self, text: str) -> str
-```
-
-#### 配置选项
+#### 配置示例
 
 ```python
-html_processor_config = {
-    "remove_tags": ["script", "style", "nav", "footer"],
-    "preserve_links": True,
-    "extract_images": False,
-    "max_content_length": 10000
+from octopus_scraper.processors import create_processor
+
+config = {
+    "timeout": 30,
+    "user_agent": "Custom User Agent",
+    "use_browser": True,
+    "browser_timeout": 60000,
+    "browserless_url": "http://localhost:3000"  # 可选，为空则使用Playwright
 }
+processor = create_processor('html_content', config)
+```
+### LLMProcessor 系列
+
+基于大语言模型的专门化处理器，每个处理器专注于特定的AI增强功能。
+
+#### LLMSummaryProcessor
+```python
+# 专门的摘要生成处理器
+config = {
+    "model_name": "gpt-3.5-turbo", 
+    "max_tokens": 300,
+    "temperature": 0.3,
+    "max_summary_length": 200,
+    "summary_style": "concise"  # concise, detailed, bullet_points, executive
+}
+summary_processor = create_processor('llm_summary', config)
 ```
 
-### LLMProcessor
-
-位置: `src/octopus_scraper/processors/llm_processor.py`
-
-#### 主要功能
-
-- **AI 摘要**: 使用大语言模型生成内容摘要
-- **标签生成**: 自动生成内容标签
-- **内容增强**: 提供额外的元数据信息
-
-#### 核心方法
-
+#### LLMTagsProcessor  
 ```python
-class LLMProcessor:
-    def __init__(self, config: Dict[str, Any])
-    
-    def process(self, content: Content) -> Content
-    def generate_summary(self, content: str) -> str
-    def generate_tags(self, content: str) -> List[str]
-    def enhance_metadata(self, content: Content) -> Dict[str, Any]
-```
-
-#### 配置选项
-
-```python
-llm_processor_config = {
+# 智能标签生成处理器
+config = {
     "model_name": "gpt-3.5-turbo",
-    "api_key": "your_openai_api_key",
-    "max_tokens": 150,
-    "temperature": 0.7,
-    "generate_summary": True,
-    "generate_tags": True,
-    "max_content_length": 5000
+    "max_tags_count": 5,
+    "available_tags": ["tech", "news", "tutorial"],
+    "allow_new_tags": True,
+    "confidence_threshold": 0.5
 }
+tags_processor = create_processor('llm_tags', config)
 ```
 
-## 数据模型
+#### LLMKeywordsProcessor
+```python
+# 关键词提取处理器  
+config = {
+    "model_name": "gpt-3.5-turbo",
+    "keywords_count": 3,
+    "min_keyword_length": 2,
+    "max_keywords": 10,
+    "exclude_common_words": True,
+    "language_preference": "mixed"  # en, zh, mixed
+}
+keywords_processor = create_processor('llm_keywords', config)
+```
+
+#### LLMProcessor (Legacy)
+```python
+# 传统LLM处理器，仍然可用但推荐使用专门化处理器
+config = {
+    "prompt": "Summarize this article:",
+    "if_structure_output": False,
+    "json_schema": None
+}
+llm_processor = create_processor('llm', config)
+```
+
+## 📊 数据模型
 
 ### 处理器配置模型
+
+详见 `src/octopus_scraper/processors/protos.py`
 
 ```python
 @dataclass
 class ProcessorConfig:
-    processor_type: str
-    config: Dict[str, Any]
-    enabled: bool = True
-    priority: int = 0
+    """处理器配置基类"""
+    priority: int = field(default=100)  # 优先级，数值越小优先级越高
+
+@dataclass
+class HTMLContentProcessorConfig(ProcessorConfig):
+    """HTML内容处理器配置"""
+    timeout: int = field(default=30)
+    user_agent: str = field(default="...")
+    browserless_url: str = field(default="")
+    use_browser: bool = field(default=True)
+    browser_timeout: int = field(default=60000)
+
+@dataclass
+class BaseLLMProcessorConfig(ProcessorConfig):
+    """LLM处理器基础配置"""
+    model_name: str = field(default="gpt-3.5-turbo")
+    max_tokens: int = field(default=1000)
+    temperature: float = field(default=0.7)
+    timeout: int = field(default=30)
+    retry_times: int = field(default=3)
+    api_key: Optional[str] = field(default=None)
+    llm_provider: str = field(default="openai")
 ```
 
-### 内容处理结果
+### 处理结果模型
 
 ```python
 @dataclass
 class ProcessingResult:
-    processed_content: Content
-    metadata: Dict[str, Any]
-    processing_time: float
-    processor_name: str
+    """处理结果数据模型"""
     success: bool
-    error_message: Optional[str] = None
+    content: Optional[Content] = None
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 ```
 
-## 使用示例
+## 💡 使用示例
 
 ### 基本使用
 
 ```python
-from octopus_scraper.processors import AVALIABLE_PROCESSOR
+from octopus_scraper.processors import (
+    register_processor, create_processor, get_available_processors
+)
 
-# 创建 HTML 内容处理器
-html_config = {
-    "remove_tags": ["script", "style"],
-    "preserve_links": True
-}
-html_processor = AVALIABLE_PROCESSOR["html_content"](html_config)
+# 获取可用处理器
+available = get_available_processors()
+print(available)  
+# ['html_content', 'llm', 'llm_summary', 'llm_tags', 'llm_keywords']
+
+# 创建处理器实例
+html_processor = create_processor('html_content', {
+    'timeout': 30,
+    'use_browser': True
+})
 
 # 处理内容
-processed_content = html_processor.process(content)
+contents = [Content(...)]  # 内容列表
+result = html_processor(contents)
+```
+
+### 处理器管道使用
+
+```python
+from octopus_scraper.processors.processor_pipeline import ProcessorPipeline
+from octopus_scraper.processors.processor_config import ProcessorConfig
+
+# 构建处理器管道
+pipeline = ProcessorPipeline("content_processing")
+
+# 添加HTML处理器
+html_config = ProcessorConfig(
+    processor_type="html_content",
+    config={"timeout": 30, "use_browser": True}
+)
+pipeline.add_processor("html", html_config)
+
+# 添加摘要处理器（依赖HTML处理器）
+summary_config = ProcessorConfig(
+    processor_type="llm_summary",
+    config={"model_name": "gpt-3.5-turbo", "max_summary_length": 200}
+)
+pipeline.add_processor("summary", summary_config, dependencies=["html"])
+
+# 执行管道
+result = pipeline.execute(content)
+print(f"处理成功: {result.success}")
+print(f"执行时间: {result.execution_time:.2f}s")
+```
+
+### 配置管理使用
+
+```python
+from octopus_scraper.processors.processor_config import ProcessorConfigManager, ProcessorConfig
+
+# 创建配置管理器
+config_manager = ProcessorConfigManager()
+
+# 添加配置
+html_config = ProcessorConfig(
+    processor_type="html_content",
+    config={"timeout": 30, "use_browser": True}
+)
+config_manager.add_config("html_fast", html_config)
+
+llm_config = ProcessorConfig(
+    processor_type="llm_summary",
+    config={"model_name": "gpt-4", "max_tokens": 500}
+)
+config_manager.add_config("llm_premium", llm_config)
+
+# 创建配置档案
+config_manager.create_profile("premium_processing", ["html_fast", "llm_premium"])
+
+# 获取配置档案
+profile_configs = config_manager.get_profile("premium_processing")
 ```
 
 ### 在 Scraper 配置中使用
@@ -157,163 +439,335 @@ scrapers_config_with_fetch_params:
         route: "/github/issues/microsoft/vscode"
       content_processor_configs:
         html_content:
-          remove_tags: ["script", "style", "nav"]
-          preserve_links: true
-          max_content_length: 8000
-        llm:
-          generate_summary: true
-          generate_tags: true
-          max_tokens: 100
+          timeout: 30
+          use_browser: true
+          browser_timeout: 60000
+        llm_summary:
+          model_name: "gpt-3.5-turbo"
+          max_tokens: 300
+          temperature: 0.3
+          max_summary_length: 200
+        llm_tags:
+          model_name: "gpt-3.5-turbo"
+          max_tags_count: 5
+          available_tags: ["tech", "github", "vscode"]
+        llm_keywords:
+          model_name: "gpt-3.5-turbo"
+          keywords_count: 3
+          max_keywords: 10
     fetch_params:
       limit: 20
 ```
 
-### 程序化使用
+## 🔧 处理器开发
+
+### 创建自定义处理器
 
 ```python
-from octopus_scraper.processors import HTMLContentProcessor, LLMProcessor
+from octopus_scraper.processors.processor_base import ProcessorBase, ProcessingError
+from octopus_scraper.processors.protos import ProcessorConfig
+from octopus_scraper.protos import Content
+from typing import Dict, List, Any
+from dataclasses import dataclass, field
 
-# 配置处理器链
-processors = [
-    HTMLContentProcessor({
-        "remove_tags": ["script", "style"],
-        "preserve_links": True
-    }),
-    LLMProcessor({
-        "generate_summary": True,
-        "generate_tags": True,
-        "model_name": "gpt-3.5-turbo"
-    })
-]
+@dataclass
+class CustomProcessorConfig(ProcessorConfig):
+    """自定义处理器配置"""
+    custom_param: str = ""
+    threshold: float = 0.5
 
-# 处理内容
-for processor in processors:
-    content = processor.process(content)
-```
-
-## 处理器链
-
-### 处理器执行顺序
-
-处理器按照以下顺序执行：
-
-1. **HTMLContentProcessor** - 清理和标准化 HTML 内容
-2. **LLMProcessor** - AI 增强和摘要生成
-
-### 错误处理
-
-```python
-try:
-    processed_content = processor.process(content)
-except ProcessorError as e:
-    logger.error(f"处理器执行失败: {e}")
-    # 继续使用原始内容
-    processed_content = content
-```
-
-## 扩展性
-
-### 添加自定义处理器
-
-```python
-class CustomProcessor:
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
+class CustomProcessor(ProcessorBase):
+    """自定义内容处理器"""
     
-    def process(self, content: Content) -> Content:
-        # 自定义处理逻辑
-        processed_content = self.custom_processing(content)
-        return processed_content
+    def _parse_config(self, config: Dict[str, Any]) -> CustomProcessorConfig:
+        """解析配置"""
+        return CustomProcessorConfig(**config)
     
-    def custom_processing(self, content: Content) -> Content:
-        # 实现具体的处理逻辑
-        pass
+    def _validate_config(self) -> None:
+        """验证配置"""
+        super()._validate_config()
+        if self.config.threshold < 0 or self.config.threshold > 1:
+            raise ValueError("threshold must be between 0 and 1")
+    
+    def __call__(self, contents: List[Content]) -> List[Content]:
+        """处理内容的核心逻辑"""
+        processed_contents = []
+        
+        for content in contents:
+            try:
+                # 实现自定义处理逻辑
+                processed_text = self._custom_processing(content.content)
+                
+                # 创建新的Content对象
+                processed_content = Content(
+                    content_id=content.content_id,
+                    title=content.title,
+                    content=processed_text,
+                    link=content.link,
+                    pub_date=content.pub_date,
+                    author=content.author,
+                    tags=content.tags,
+                    description=content.description
+                )
+                processed_contents.append(processed_content)
+                
+            except Exception as e:
+                self.logger.error(
+                    "Processing failed", 
+                    error=str(e),
+                    content_id=content.content_id
+                )
+                # 根据需要选择是否抛出异常或跳过
+                raise ProcessingError(
+                    f"Custom processing failed: {e}",
+                    processor_name=self.name,
+                    content_id=content.content_id
+                )
+        
+        return processed_contents
+    
+    def _custom_processing(self, text: str) -> str:
+        """自定义处理逻辑实现"""
+        # 示例：转换为大写
+        return text.upper()
 
 # 注册自定义处理器
-AVALIABLE_PROCESSOR["custom"] = CustomProcessor
+from octopus_scraper.processors import register_processor
+register_processor("custom", CustomProcessor)
+
+# 使用自定义处理器
+custom_processor = create_processor("custom", {
+    "custom_param": "example",
+    "threshold": 0.8
+})
 ```
 
-### 处理器接口
+### 处理器接口规范
+
+所有处理器必须继承自`ProcessorBase`并实现以下接口：
 
 ```python
-from abc import ABC, abstractmethod
-
-class BaseProcessor(ABC):
-    @abstractmethod
-    def __init__(self, config: Dict[str, Any]):
-        pass
+class ProcessorBase(ABC):
+    """处理器抽象基类"""
     
     @abstractmethod
-    def process(self, content: Content) -> Content:
+    def _parse_config(self, config: Dict[str, Any]) -> ProcessorConfig:
+        """解析和验证配置"""
+        pass
+    
+    def _validate_config(self) -> None:
+        """验证配置 (可选重写)"""
+        pass
+    
+    @abstractmethod  
+    def __call__(self, contents: List[Content]) -> List[Content]:
+        """处理内容的核心方法"""
+        pass
+    
+    def process_single(self, content: Content) -> ProcessingResult:
+        """单个内容处理 (已实现)"""
+        pass
+        
+    def batch_process(self, contents: List[Content], batch_size: int = 10) -> List[ProcessingResult]:
+        """批量处理 (已实现)"""
         pass
 ```
 
-## 性能特性
+### 错误处理最佳实践
 
-### HTMLContentProcessor
+```python
+from octopus_scraper.processors.processor_base import ProcessingError
 
-- **解析器**: 使用 BeautifulSoup 进行 HTML 解析
-- **缓存**: 内置解析结果缓存机制
-- **批量处理**: 支持批量内容处理
-- **内存优化**: 自动清理大型 HTML 文档
+class RobustProcessor(ProcessorBase):
+    def __call__(self, contents: List[Content]) -> List[Content]:
+        processed_contents = []
+        
+        for content in contents:
+            try:
+                # 处理逻辑
+                result = self._risky_processing(content)
+                processed_contents.append(result)
+            except Exception as e:
+                self.logger.error(
+                    "Processing failed",
+                    content_id=content.content_id,
+                    error=str(e),
+                    processor=self.__class__.__name__
+                )
+                
+                # 根据配置决定是否回退
+                if getattr(self.config, 'fallback_on_error', False):
+                    self.logger.warning("Using fallback content")
+                    processed_contents.append(content)  # 返回原始内容
+                else:
+                    raise ProcessingError(
+                        f"Processing failed: {e}",
+                        processor_name=self.name,
+                        content_id=content.content_id,
+                        original_error=e
+                    )
+        
+        return processed_contents
+```
 
-### LLMProcessor
+## 🧪 测试支持
 
-- **API 限制**: 智能处理 API 速率限制
-- **错误重试**: 自动重试失败的 API 调用
-- **内容切分**: 自动处理超长内容
-- **缓存策略**: 缓存常见内容的处理结果
+### 处理器测试
 
-## 监控和日志
+```python
+import pytest
+from octopus_scraper.processors import create_processor
+from octopus_scraper.protos import Content
 
-### 日志记录
+class TestCustomProcessor:
+    def test_basic_processing(self):
+        processor = create_processor("custom", {
+            "custom_param": "test",
+            "threshold": 0.5
+        })
+        
+        content = Content(
+            content_id="test_1",
+            title="Test Title",
+            content="Hello World",
+            link="https://example.com"
+        )
+        
+        result = processor([content])
+        assert len(result) == 1
+        assert result[0].content == "HELLO WORLD"
+    
+    def test_error_handling(self):
+        processor = create_processor("custom", {
+            "threshold": 2.0  # 无效配置
+        })
+        
+        with pytest.raises(ValueError):
+            processor([content])
+            
+    def test_batch_processing(self):
+        processor = create_processor("custom", {"threshold": 0.5})
+        
+        contents = [
+            Content(content_id=f"test_{i}", content=f"Content {i}")
+            for i in range(5)
+        ]
+        
+        results = processor(contents)
+        assert len(results) == 5
+        
+    def test_processing_result(self):
+        processor = create_processor("custom", {"threshold": 0.5})
+        content = Content(content_id="test", content="test content")
+        
+        result = processor.process_single(content)
+        assert result.success
+        assert result.content is not None
+        assert result.metadata["processor"] == "CustomProcessor"
+```
+
+## 📈 性能和监控
+
+### 性能特性
+
+#### HTMLContentProcessor
+
+- **解析器**: 使用 readability 进行主要内容提取
+- **浏览器支持**: 支持Playwright和browserless服务
+- **回退机制**: 浏览器失败时自动回退到requests
+- **缓存优化**: Session级别的连接复用
+
+#### LLMProcessor系列
+
+- **API 优化**: 智能处理API速率限制
+- **错误重试**: 自动重试失败的API调用（可配置重试次数）
+- **内容预处理**: 自动处理超长内容
+- **提供者支持**: 支持多种LLM提供者（OpenAI等）
+
+### 监控和日志
 
 ```python
 import structlog
 
 logger = structlog.get_logger(__name__)
 
-# 处理开始
-logger.info("Starting content processing", 
-           processor=processor_name,
-           content_id=content.content_id)
-
-# 处理完成
-logger.info("Content processing completed",
-           processor=processor_name,
-           processing_time=processing_time,
-           content_length=len(processed_content.content))
+# 处理器会自动记录关键事件
+logger.info("Processor initialized", processor="HTMLContentProcessor")
+logger.info("Processing started", content_id=content.content_id)
+logger.info("Processing completed", processing_time=0.25, success=True)
+logger.error("Processing failed", error="Connection timeout", content_id="123")
 ```
 
-### 性能监控
+### 性能优化建议
 
 ```python
-# 处理时间统计
-@monitor_processing_time
-def process(self, content: Content) -> Content:
-    # 处理逻辑
-    pass
+# 1. 批量处理优化
+processor = create_processor("llm_summary", {
+    "model_name": "gpt-3.5-turbo",
+    "batch_size": 10  # 批量处理大小
+})
 
-# 错误率监控
-@track_processing_errors
-def process(self, content: Content) -> Content:
-    # 处理逻辑
-    pass
+# 2. 使用缓存
+processor = create_processor("html_content", {
+    "timeout": 30,
+    "cache_enabled": True  # 启用缓存
+})
+
+# 3. 并行处理（适用于无依赖的处理器）
+from concurrent.futures import ThreadPoolExecutor
+
+def parallel_process(contents, processor):
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(processor, [content]) for content in contents]
+        results = [future.result()[0] for future in futures]
+    return results
 ```
 
-## 最佳实践
+## 🔄 向后兼容性
+
+为确保平滑迁移，新架构保持了向后兼容性：
+
+```python
+# 传统API仍然可用
+from octopus_scraper.processors import AVALIABLE_PROCESSOR
+
+# 创建处理器 (传统方式)
+old_processor = AVALIABLE_PROCESSOR["html_content"]({
+    "timeout": 30
+})
+
+# 新式API (推荐)
+new_processor = create_processor("html_content", {
+    "timeout": 30
+})
+
+# 两种方式创建的处理器功能相同
+assert type(old_processor) == type(new_processor)
+```
+
+## 🛠️ 最佳实践
 
 ### 1. 配置管理
 
-- 使用环境变量存储敏感信息（如 API 密钥）
+- 使用环境变量存储敏感信息（如API密钥）
 - 为不同环境配置不同的处理器参数
 - 定期验证处理器配置的有效性
+
+```python
+import os
+
+config = {
+    "model_name": "gpt-3.5-turbo",
+    "api_key": os.getenv("OPENAI_API_KEY"),
+    "timeout": int(os.getenv("LLM_TIMEOUT", "30"))
+}
+```
 
 ### 2. 错误处理
 
 - 实现优雅的降级机制
 - 记录详细的错误信息用于调试
-- 对 LLM API 调用实现重试机制
+- 对LLM API调用实现重试机制
 
 ### 3. 性能优化
 
@@ -327,9 +781,32 @@ def process(self, content: Content) -> Content:
 - 提供详细的配置文档
 - 实现完整的单元测试
 
-## 相关文档
+## 📚 相关文档
 
-- [Scrapers 模型文档](../scrapers/scrapers.md) - 了解抓取器如何使用处理器
-- [ConfigManager 文档](../config/config-manager.md) - 了解处理器配置管理
-- [TaskManager 文档](../task_manager/task-manager.md) - 了解处理器在任务中的执行
-- [Processors 测试文档](./processors-testing.md) - 了解处理器的测试方法
+- **[处理器测试文档](./processors-testing.md)** - 详细的测试策略和用例
+- **[配置管理文档](../config/config-manager.md)** - 配置系统详细说明
+- **[任务管理文档](../task_manager/)** - 任务管理系统集成
+
+## 📊 架构特点
+
+### 🏗️ 模块化架构
+- **清晰分离**: 注册、配置、管道各司其职
+- **插件化设计**: 支持动态扩展和第三方处理器
+- **标准接口**: 统一的ProcessorBase抽象基类
+
+### 🚀 功能特性  
+- **多种处理器**: 支持HTML处理、LLM摘要、标签提取、关键词提取
+- **灵活配置**: 详细的配置选项和验证机制
+- **管道支持**: 支持处理器链式调用和依赖管理
+
+### 🛡️ 稳定性保证
+- **错误处理**: 完善的异常处理和日志记录
+- **优雅降级**: 失败时的回退机制
+- **向后兼容**: 保持传统API的兼容性
+
+### 📈 性能优化
+- **批量处理**: 支持内容批量处理提高效率
+- **智能重试**: LLM处理器支持失败重试
+- **缓存机制**: Session级别的连接复用
+
+**OctopusScraper处理器系统提供了企业级的内容处理能力，支持从简单的HTML清理到复杂的AI增强处理！** 🎉

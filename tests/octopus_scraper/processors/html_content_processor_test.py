@@ -22,8 +22,8 @@ def test_html_content_processor_init():
     }
 
     processor = HTMLContentProcessor(config)
-    assert processor.timeout == 30
-    assert "Mozilla" in processor.user_agent
+    assert processor.config.timeout == 30
+    assert "Mozilla" in processor.config.user_agent
 
 
 def test_html_content_processor_with_real_url():
