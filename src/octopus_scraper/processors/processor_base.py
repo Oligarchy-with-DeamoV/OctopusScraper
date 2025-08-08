@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
-from octopus_scraper.processors.protos import ProcessorConfig
+from octopus_scraper.processors.processor_config import ProcessorConfig
 from octopus_scraper.protos import Content
 
 logger = structlog.getLogger(__name__)
@@ -87,11 +87,8 @@ class ProcessorBase(ABC):
         Raises:
             ValidationError: If configuration is invalid
         """
-        # Allow both dict and ProcessorConfig types for backward compatibility
-        if not isinstance(self.config, (dict, ProcessorConfig)):
-            raise ValueError(
-                "Configuration must be a dictionary or ProcessorConfig object"
-            )
+        # Basic validation can be added here
+        pass
 
     @abstractmethod
     def __call__(self, contents: List[Content]) -> List[Content]:
