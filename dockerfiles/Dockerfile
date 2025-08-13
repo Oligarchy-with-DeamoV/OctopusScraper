@@ -12,4 +12,4 @@ COPY . /app
 
 RUN poetry install --without dev && rm -rf $POETRY_CACHE_DIR
 
-ENTRYPOINT ["poetry", "run", "octopus_service", "--host", "0.0.0.0", "--port", "8000", "--single-process"]
+ENTRYPOINT ["poetry", "run", "octopus_service", "--host", "0.0.0.0", "--port", "8000"]

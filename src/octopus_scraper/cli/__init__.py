@@ -75,20 +75,6 @@ Examples:
         help="Set log format (default: plain, env: OCTOPUS_LOG_FORMAT)",
     )
 
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=int(os.getenv("OCTOPUS_WORKERS", "1")),
-        help="Number of worker processes (default: 1, env: OCTOPUS_WORKERS)",
-    )
-
-    parser.add_argument(
-        "--single-process",
-        action="store_true",
-        default=os.getenv("OCTOPUS_SINGLE_PROCESS", "false").lower() == "true",
-        help="Run in single process mode (default: false, env: OCTOPUS_SINGLE_PROCESS)",
-    )
-
     return parser.parse_args()
 
 
@@ -128,8 +114,6 @@ def run_octopus_service():
         port=args.port,
         debug=args.debug,
         log_level=args.log_level,
-        workers=args.workers,
-        single_process=args.single_process,
     )
 
     # Import and configure the service
@@ -140,15 +124,11 @@ def run_octopus_service():
         "host": args.host,
         "port": args.port,
         "debug": args.debug,
+        "single_process": True,
     }
 
-    # Add workers configuration only if not in single-process mode
-    if args.single_process:
-        service_config["single_process"] = True
-    else:
-        service_config["workers"] = args.workers
-
     try:
+        logger.error(service_config)
         app.run(**service_config)
     except KeyboardInterrupt:
         logger.info("Service shutdown requested by user")

@@ -204,9 +204,9 @@ class ConfigManager:
                 "success": success,
                 "old_scrapers_count": old_scrapers_count,
                 "new_scrapers_count": new_scrapers_count,
-                "version_id": self._current_version.version_id
-                if self._current_version
-                else None,
+                "version_id": (
+                    self._current_version.version_id if self._current_version else None
+                ),
                 "timestamp": datetime.now().isoformat(),
             }
 

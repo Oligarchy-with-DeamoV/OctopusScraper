@@ -24,10 +24,8 @@ else:
 
 logger = structlog.get_logger()
 
-# Create app with unique name to avoid conflicts in parallel tests
-import uuid
 
-app_name = f"OctopusService_{uuid.uuid4().hex[:8]}"
+app_name = "OctopusService"
 app = Sanic(app_name)
 
 # Health check cache to avoid expensive operations on every request
@@ -2234,7 +2232,3 @@ async def admin_overview(request):
             {"status": "error", "message": f"Failed to get admin overview: {e}"},
             status=500,
         )
-
-
-if __name__ == "__main__":
-    app.run(**DEFAULT_SERVICE_CONFIG)

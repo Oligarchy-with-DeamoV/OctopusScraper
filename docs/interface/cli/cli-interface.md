@@ -141,8 +141,6 @@ octopus_service [OPTIONS]
 #### 运行模式
 
 - `--debug`: 启用调试模式 (默认: false)
-- `--workers NUM`: 工作进程数量 (默认: 1)
-- `--single-process`: 启用单进程模式 (默认: false)
 
 #### 日志配置
 
@@ -157,8 +155,6 @@ octopus_service [OPTIONS]
 - `OCTOPUS_HOST`: 对应 --host
 - `OCTOPUS_PORT`: 对应 --port
 - `OCTOPUS_DEBUG`: 对应 --debug
-- `OCTOPUS_WORKERS`: 对应 --workers
-- `OCTOPUS_SINGLE_PROCESS`: 对应 --single-process
 - `OCTOPUS_LOG_LEVEL`: 对应 --log-level
 - `OCTOPUS_LOG_FORMAT`: 对应 --log-format
 
@@ -206,15 +202,15 @@ octopus_service --debug --log-level DEBUG
 #### 生产环境配置
 
 ```bash
-# 生产环境配置：多进程、JSON 日志
-octopus_service --host 0.0.0.0 --port 8000 --workers 4 --log-format json --log-level INFO
+# 生产环境配置：JSON 日志
+octopus_service --host 0.0.0.0 --port 8000 --log-format json --log-level INFO
 ```
 
 #### 启用调度器的生产环境
 
 ```bash
 # 启用调度器和自动启动
-ENABLE_SCHEDULER=true AUTO_START_SCHEDULER=true octopus_service --workers 4
+ENABLE_SCHEDULER=true AUTO_START_SCHEDULER=true octopus_service
 ```
 
 #### 使用环境变量配置
@@ -299,7 +295,7 @@ octopus_service
 octopus_go --config config.dev.yml
 
 # 开发环境调试服务
-octopus_service --debug --log-level DEBUG --single-process
+octopus_service --debug --log-level DEBUG
 ```
 
 #### 本地开发环境
@@ -330,7 +326,7 @@ export MAX_CONCURRENT_SCHEDULES=10
 export MAX_CONCURRENT_TASKS=8
 export RESULT_RETENTION_HOURS=48
 
-octopus_service --host 0.0.0.0 --port 8000 --workers 4 --log-format json
+octopus_service --host 0.0.0.0 --port 8000 --log-format json
 ```
 
 #### 高可用部署
