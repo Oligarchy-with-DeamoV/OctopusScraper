@@ -6,6 +6,13 @@
 
 OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。它隶属于 [Podcast 矩阵生成项目](https://www.notion.so/1a2fee3943728058be3be79b782e1cf4?pvs=4)，但具备广泛的应用潜力，可以作为中间件为其他项目提供数据抓取和分析能力。OctopusScraper 灵活高效，能够为后续项目提供强大的支持，助力快速实现数据整合与分析，为各类项目赋能。
 
+> 项目个人投入暂停：目前 Scraper 处理的 pipeline 需要在 octopus_serivce 中在 config 字典中进行 hardcode。
+> 暂停的原因有两个：
+> 1、公网中的信息大多为垃圾二手信息没有太多花功夫订阅总结的必要
+> 2、个人暂时没有起号，通过流量赚钱的想法
+>
+> 倘若后续个人或者有朋友愿意继续贡献代码，这边会进行支持
+
 > 📢 **重大架构升级**:
 > - **TaskManager**: 统一的任务执行引擎，提供优先级调度、并发控制和实时监控
 > - **Processor 架构**: Phase 4 完成企业级处理器系统升级，引入ProcessorRegistry、ProcessorFactory、ProcessorPipeline等核心组件
