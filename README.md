@@ -14,6 +14,7 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 > 倘若后续个人或者有朋友愿意继续贡献代码，这边会进行支持
 
 > 📢 **重大架构升级**:
+>
 > - **TaskManager**: 统一的任务执行引擎，提供优先级调度、并发控制和实时监控
 > - **Processor 架构**: Phase 4 完成企业级处理器系统升级，引入ProcessorRegistry、ProcessorFactory、ProcessorPipeline等核心组件
 
@@ -337,6 +338,7 @@ task_manager_config:
 ## 🎛️ 核心特性
 
 ### 任务管理系统
+
 OctopusScraper 采用统一的任务管理系统，提供优先级调度、并发控制和实时监控功能。TaskManager 已成为默认且唯一的任务执行方式。
 
 - **统一任务执行**: 所有抓取操作都通过 TaskManager 执行
@@ -347,6 +349,7 @@ OctopusScraper 采用统一的任务管理系统，提供优先级调度、并�
 > 📚 **详细说明**: 查看 **[任务管理系统文档](docs/models/task_manager/)** 了解完整的功能和配置选项
 
 ### 内容处理系统
+
 提供模块化的内容处理架构，支持多种处理器的组合使用，实现智能内容清理、格式化和AI增强。
 
 - **HTML内容处理器**: 支持动态网站抓取和内容清理
@@ -355,6 +358,7 @@ OctopusScraper 采用统一的任务管理系统，提供优先级调度、并�
 - **处理器管道**: 支持处理器链式调用和依赖管理
 
 > 📚 **详细说明**: 查看 **[内容处理系统文档](docs/models/processors/)** 了解处理器架构和开发指南
+
 - **格式标准化**: 统一 HTML 格式和编码
 - **安全清理**: 移除潜在的恶意代码
 
@@ -399,7 +403,7 @@ LLMProcessor 利用大语言模型对内容进行智能增强和处理。
 
 #### 配置示例
 
-```yaml
+````yaml
 content_processor_configs:
   llm:
     provider: "openai"
@@ -451,7 +455,7 @@ docker-compose up -d
 
 # 4. 访问管理界面
 # http://localhost:8000/admin
-```
+````
 
 ### 其他部署方式
 
@@ -543,7 +547,7 @@ poetry run pytest -m "not need_external_service and not integrate_test" --cov=oc
 
 ### 必需配置
 
-| 变量名                        | 说明                | 
+| 变量名                        | 说明                |
 | ----------------------------- | ------------------- |
 | `NOTION_API_KEY`              | Notion API 密钥     |
 | `NOTION_SCRAPERS_DATABASE_ID` | 抓取器配置数据库 ID |
@@ -551,13 +555,13 @@ poetry run pytest -m "not need_external_service and not integrate_test" --cov=oc
 
 ### 可选配置
 
-| 变量名                   | 说明                   | 默认值 |
-| ------------------------ | ---------------------- | ------ |
-| `SERVICE_HOST`           | 服务监听地址           | `0.0.0.0` |
-| `SERVICE_PORT`           | 服务监听端口           | `8000` |
-| `MAX_CONCURRENT_TASKS`   | 最大并发任务数         | `8`    |
-| `MAX_QUEUE_SIZE`         | 任务队列最大容量       | `1000` |
-| `LOG_LEVEL`              | 日志级别               | `INFO` |
+| 变量名                 | 说明             | 默认值    |
+| ---------------------- | ---------------- | --------- |
+| `SERVICE_HOST`         | 服务监听地址     | `0.0.0.0` |
+| `SERVICE_PORT`         | 服务监听端口     | `8000`    |
+| `MAX_CONCURRENT_TASKS` | 最大并发任务数   | `8`       |
+| `MAX_QUEUE_SIZE`       | 任务队列最大容量 | `1000`    |
+| `LOG_LEVEL`            | 日志级别         | `INFO`    |
 
 > � **完整配置**: 查看所有可用的环境变量和配置选项
 
@@ -583,12 +587,6 @@ poetry run pytest -m "not need_external_service and not integrate_test" --cov=oc
 ## 📄 许可证
 
 本项目采用 Apache License 2.0 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 📧 联系
-
-- 作者: Duan-JM
-- 邮箱: vincent.duan95@gmail.com
-- 项目链接: [https://github.com/your-repo/OctopusScraper](https://github.com/your-repo/OctopusScraper)
 
 ## 🙏 致谢
 
