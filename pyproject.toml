@@ -1,6 +1,6 @@
 [project]
 name = "octopus-scraper"
-version = "0.1.7"
+version = "0.1.8"
 description = "OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。"
 authors = [
     {name = "Duan-JM",email = "vincent.duan95@gmail.com"}
@@ -21,7 +21,6 @@ doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 pyyaml = "^6.0.1"
 sanic = ">=21.3.0"
 python-dotenv = "^1.1.0"
-croniter = "^2.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^4.0.0"

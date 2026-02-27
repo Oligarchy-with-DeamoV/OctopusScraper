@@ -2,11 +2,11 @@
 Task models for OctopusScraper task management.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
-import uuid
 
 
 class TaskStatus(Enum):
@@ -153,21 +153,3 @@ class TaskBatch:
     def get_task_by_id(self, task_id: str) -> Optional[ScraperTask]:
         """Get task by ID from this batch."""
         return next((task for task in self.tasks if task.task_id == task_id), None)
-
-
-@dataclass
-class TaskScheduleConfig:
-    """Configuration for scheduled tasks."""
-
-    schedule_id: str
-    scraper_name: str
-    cron_expression: str  # e.g., "0 */6 * * *" for every 6 hours
-    enabled: bool = True
-    max_concurrent_runs: int = 1
-    timeout_seconds: int = 300
-    retry_config: Dict[str, Any] = field(default_factory=dict)
-    fetch_params: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
-    last_run: Optional[datetime] = None
-    next_run: Optional[datetime] = None

@@ -2,17 +2,17 @@
 Unit tests for task manager models.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import pytest
+
 from octopus_scraper.task_manager.models import (
-    TaskStatus,
-    TaskPriority,
-    TaskResult,
     ScraperTask,
     TaskBatch,
-    TaskScheduleConfig,
+    TaskPriority,
+    TaskResult,
+    TaskStatus,
 )
 
 
@@ -277,49 +277,3 @@ class TestTaskBatch:
 
         found_task = batch.get_task_by_id("nonexistent")
         assert found_task is None
-
-
-class TestTaskScheduleConfig:
-    """Test TaskScheduleConfig dataclass."""
-
-    def test_task_schedule_config_creation(self):
-        """Test basic TaskScheduleConfig creation."""
-        schedule = TaskScheduleConfig(
-            schedule_id="schedule_123",
-            scraper_name="test_scraper",
-            cron_expression="0 */6 * * *",
-            enabled=True,
-            max_concurrent_runs=2,
-            timeout_seconds=600,
-            retry_config={"max_retries": 3},
-            fetch_params={"limit": 50},
-            metadata={"source": "github"},
-        )
-
-        assert schedule.schedule_id == "schedule_123"
-        assert schedule.scraper_name == "test_scraper"
-        assert schedule.cron_expression == "0 */6 * * *"
-        assert schedule.enabled is True
-        assert schedule.max_concurrent_runs == 2
-        assert schedule.timeout_seconds == 600
-        assert schedule.retry_config == {"max_retries": 3}
-        assert schedule.fetch_params == {"limit": 50}
-        assert schedule.metadata == {"source": "github"}
-        assert isinstance(schedule.created_at, datetime)
-        assert schedule.last_run is None
-        assert schedule.next_run is None
-
-    def test_default_values(self):
-        """Test default values for TaskScheduleConfig."""
-        schedule = TaskScheduleConfig(
-            schedule_id="schedule_123",
-            scraper_name="test_scraper",
-            cron_expression="0 0 * * *",
-        )
-
-        assert schedule.enabled is True
-        assert schedule.max_concurrent_runs == 1
-        assert schedule.timeout_seconds == 300
-        assert schedule.retry_config == {}
-        assert schedule.fetch_params == {}
-        assert schedule.metadata == {}

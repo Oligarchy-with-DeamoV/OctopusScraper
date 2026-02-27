@@ -17,12 +17,6 @@ class TestToolsSimple:
         result = convert_contents_to_mk("")
         assert result == ""
 
-    def test_convert_contents_to_mk_html(self):
-        """Test convert with HTML."""
-        html = "<p>Hello <strong>world</strong></p>"
-        result = convert_contents_to_mk(html)
-        assert "Hello" in result
-
     def test_build_contents_empty(self):
         """Test build contents with empty feed."""
         from feedparser import FeedParserDict

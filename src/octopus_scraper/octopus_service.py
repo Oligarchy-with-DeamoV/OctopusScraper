@@ -93,20 +93,7 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict,
         "result_retention_hours": int(os.getenv("RESULT_RETENTION_HOURS", "48")),
     }
 
-    # Scheduler configuration - configurable via environment variables
-    scheduler_config = {
-        "enable_scheduler": os.getenv("ENABLE_SCHEDULER", "False").lower() == "true",
-        "auto_start_scheduler": os.getenv("AUTO_START_SCHEDULER", "False").lower()
-        == "true",
-        "scheduler_config": {
-            "max_concurrent_schedules": int(
-                os.getenv("MAX_CONCURRENT_SCHEDULES", "10")
-            ),
-            "schedule_check_interval": int(os.getenv("SCHEDULE_CHECK_INTERVAL", "60")),
-        },
-    }
-
-    return notion_config, service_config, task_manager_config, scheduler_config
+    return notion_config, service_config, task_manager_config
 
 
 @app.listener("before_server_start")
@@ -114,9 +101,7 @@ async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
     try:
         # Create configuration from environment variables
-        notion_config, service_config, task_manager_config, scheduler_config = (
-            create_config_from_env()
-        )
+        notion_config, service_config, task_manager_config = create_config_from_env()
 
         # Validate required configuration
         if not notion_config.api_key or not notion_config.scrapers_database_id:
@@ -136,7 +121,7 @@ async def setup_octopus(app, _):
         # Load initial configuration from Notion
         scrapers_config = await config_manager.load_initial_config()
 
-        # Create base config for Octopus with TaskManager and optional Scheduler
+        # Create base config for Octopus with TaskManager
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -161,8 +146,6 @@ async def setup_octopus(app, _):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
-            # Add Scheduler configuration from environment variables
-            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Initialize Octopus with loaded configuration
@@ -170,7 +153,7 @@ async def setup_octopus(app, _):
         app.ctx.octopus = octopus
 
         logger.info(
-            "Octopus instance initialized successfully with TaskManager and optional Scheduler",
+            "Octopus instance initialized successfully with TaskManager",
             scraper_count=len(scrapers_config),
             config_version=(
                 config_manager.get_current_version().version_id
@@ -178,8 +161,6 @@ async def setup_octopus(app, _):
                 else "initial"
             ),
             task_manager_enabled=True,
-            scheduler_enabled=scheduler_config["enable_scheduler"],
-            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -246,10 +227,10 @@ async def reload_octopus_config(app):
         config_manager: ConfigManager = app.ctx.config_manager
         current_scrapers = config_manager.get_current_scrapers()
 
-        # Get TaskManager and Scheduler configuration from environment
-        _, _, task_manager_config, scheduler_config = create_config_from_env()
+        # Get TaskManager configuration from environment
+        _, _, task_manager_config = create_config_from_env()
 
-        # Create new Octopus configuration with TaskManager and optional Scheduler
+        # Create new Octopus configuration with TaskManager
         octopus_config = {
             "scrapers_config_with_fetch_params": [
                 {
@@ -270,8 +251,6 @@ async def reload_octopus_config(app):
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
-            # Add Scheduler configuration from environment variables
-            **scheduler_config,  # Includes enable_scheduler, auto_start_scheduler, scheduler_config
         }
 
         # Clean up old Octopus instance
@@ -284,12 +263,10 @@ async def reload_octopus_config(app):
         app.ctx.octopus = new_octopus
 
         logger.info(
-            "Octopus configuration reloaded successfully with TaskManager and optional Scheduler",
+            "Octopus configuration reloaded successfully with TaskManager",
             scraper_count=len(current_scrapers),
             config_version=config_manager.get_current_version().version_id,
             task_manager_enabled=True,
-            scheduler_enabled=scheduler_config["enable_scheduler"],
-            auto_start_scheduler=scheduler_config["auto_start_scheduler"],
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
@@ -1258,293 +1235,6 @@ async def submit_individual_task(request):
         )
 
 
-# ===== Scheduler Management APIs =====
-@app.route("/admin/scheduler/status", methods=["GET"])
-async def get_scheduler_status(request):
-    """Get scheduler status and statistics."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        status = octopus.get_scheduler_status()
-
-        return json({"status": "success", "data": status})
-
-    except Exception as e:
-        logger.error("Failed to get scheduler status", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to get scheduler status: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/start", methods=["POST"])
-async def start_scheduler(request):
-    """Start the task scheduler."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        success = octopus.start_scheduler()
-
-        if success:
-            return json(
-                {"status": "success", "message": "Scheduler started successfully"}
-            )
-        else:
-            return json(
-                {
-                    "status": "error",
-                    "message": "Scheduler not enabled in configuration",
-                },
-                status=400,
-            )
-
-    except Exception as e:
-        logger.error("Failed to start scheduler", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to start scheduler: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/stop", methods=["POST"])
-async def stop_scheduler(request):
-    """Stop the task scheduler."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        success = octopus.stop_scheduler()
-
-        if success:
-            return json(
-                {"status": "success", "message": "Scheduler stopped successfully"}
-            )
-        else:
-            return json(
-                {"status": "error", "message": "Scheduler not available"}, status=400
-            )
-
-    except Exception as e:
-        logger.error("Failed to stop scheduler", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to stop scheduler: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules", methods=["GET"])
-async def list_schedules(request):
-    """List all schedules."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        enabled_only = request.args.get("enabled_only", "false").lower() == "true"
-
-        schedules = octopus.list_schedules(enabled_only=enabled_only)
-
-        return json(
-            {
-                "status": "success",
-                "data": {"schedules": schedules, "count": len(schedules)},
-            }
-        )
-
-    except Exception as e:
-        logger.error("Failed to list schedules", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to list schedules: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules", methods=["POST"])
-async def add_schedule(request):
-    """Add a new schedule."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        request_data = request.json
-
-        if not request_data:
-            return json(
-                {"status": "error", "message": "Request body is required"},
-                status=400,
-            )
-
-        # Validate required fields
-        required_fields = ["schedule_id", "scraper_name", "cron_expression"]
-        for field in required_fields:
-            if field not in request_data:
-                return json(
-                    {"status": "error", "message": f"Missing required field: {field}"},
-                    status=400,
-                )
-
-        # Use convenience method for scraper schedules
-        schedule_id = octopus.add_scraper_schedule(
-            schedule_id=request_data["schedule_id"],
-            scraper_name=request_data["scraper_name"],
-            cron_expression=request_data["cron_expression"],
-            fetch_params=request_data.get("fetch_params"),
-            max_concurrent_runs=request_data.get("max_concurrent_runs", 1),
-            timeout_seconds=request_data.get("timeout_seconds", 1800),
-            enabled=request_data.get("enabled", True),
-        )
-
-        if schedule_id:
-            return json(
-                {
-                    "status": "success",
-                    "message": "Schedule added successfully",
-                    "schedule_id": schedule_id,
-                }
-            )
-        else:
-            return json(
-                {"status": "error", "message": "Failed to add schedule"}, status=500
-            )
-
-    except Exception as e:
-        logger.error("Failed to add schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to add schedule: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules/<schedule_id>", methods=["GET"])
-async def get_schedule(request, schedule_id):
-    """Get a specific schedule."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        schedule = octopus.get_schedule(schedule_id)
-
-        if schedule:
-            return json({"status": "success", "data": schedule})
-        else:
-            return json(
-                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
-                status=404,
-            )
-
-    except Exception as e:
-        logger.error("Failed to get schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to get schedule: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules/<schedule_id>", methods=["DELETE"])
-async def remove_schedule(request, schedule_id):
-    """Remove a schedule."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        success = octopus.remove_schedule(schedule_id)
-
-        if success:
-            return json(
-                {
-                    "status": "success",
-                    "message": f"Schedule '{schedule_id}' removed successfully",
-                }
-            )
-        else:
-            return json(
-                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
-                status=404,
-            )
-
-    except Exception as e:
-        logger.error("Failed to remove schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to remove schedule: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules/<schedule_id>/enable", methods=["POST"])
-async def enable_schedule(request, schedule_id):
-    """Enable a schedule."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        success = octopus.enable_schedule(schedule_id)
-
-        if success:
-            return json(
-                {
-                    "status": "success",
-                    "message": f"Schedule '{schedule_id}' enabled successfully",
-                }
-            )
-        else:
-            return json(
-                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
-                status=404,
-            )
-
-    except Exception as e:
-        logger.error("Failed to enable schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to enable schedule: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules/<schedule_id>/disable", methods=["POST"])
-async def disable_schedule(request, schedule_id):
-    """Disable a schedule."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        success = octopus.disable_schedule(schedule_id)
-
-        if success:
-            return json(
-                {
-                    "status": "success",
-                    "message": f"Schedule '{schedule_id}' disabled successfully",
-                }
-            )
-        else:
-            return json(
-                {"status": "error", "message": f"Schedule '{schedule_id}' not found"},
-                status=404,
-            )
-
-    except Exception as e:
-        logger.error("Failed to disable schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to disable schedule: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/scheduler/schedules/<schedule_id>/trigger", methods=["POST"])
-async def trigger_schedule_now(request, schedule_id):
-    """Manually trigger a schedule immediately."""
-    try:
-        octopus: Octopus = app.ctx.octopus
-        task_id = octopus.trigger_schedule_now(schedule_id)
-
-        if task_id:
-            return json(
-                {
-                    "status": "success",
-                    "message": f"Schedule '{schedule_id}' triggered successfully",
-                    "task_id": task_id,
-                }
-            )
-        else:
-            return json(
-                {
-                    "status": "error",
-                    "message": f"Failed to trigger schedule '{schedule_id}'",
-                },
-                status=400,
-            )
-
-    except Exception as e:
-        logger.error("Failed to trigger schedule", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Failed to trigger schedule: {e}"},
-            status=500,
-        )
-
-
 @app.route("/admin/monitoring/metrics", methods=["GET"])
 async def get_monitoring_metrics(request):
     """Get comprehensive monitoring metrics for the service."""
@@ -1619,29 +1309,6 @@ async def get_monitoring_metrics(request):
             }
         else:
             metrics["task_manager"] = {"enabled": False}
-
-        # Add scheduler metrics if available
-        scheduler_status = octopus.get_scheduler_status()
-        metrics["scheduler"] = {
-            "enabled": scheduler_status.get("enabled", False),
-            "status": scheduler_status.get("status", "disabled"),
-        }
-
-        # Add detailed scheduler metrics if scheduler is enabled
-        if scheduler_status.get("enabled", False):
-            metrics["scheduler"].update(
-                {
-                    "total_schedules": scheduler_status.get("total_schedules", 0),
-                    "enabled_schedules": scheduler_status.get("enabled_schedules", 0),
-                    "running_scheduled_tasks": scheduler_status.get(
-                        "running_scheduled_tasks", 0
-                    ),
-                    "next_run": scheduler_status.get("next_run"),
-                    "schedules_by_status": scheduler_status.get(
-                        "schedules_by_status", {}
-                    ),
-                }
-            )
 
         # Add Notion connectivity metrics
         try:
@@ -2139,61 +1806,6 @@ async def admin_overview(request):
                     },
                 ],
             },
-            "scheduler_management": {
-                "description": "Manage task scheduler and schedules",
-                "endpoints": [
-                    {
-                        "method": "GET",
-                        "path": "/admin/scheduler/status",
-                        "description": "Get scheduler status and statistics",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/start",
-                        "description": "Start the task scheduler",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/stop",
-                        "description": "Stop the task scheduler",
-                    },
-                    {
-                        "method": "GET",
-                        "path": "/admin/scheduler/schedules",
-                        "description": "List all schedules",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/schedules",
-                        "description": "Add a new schedule",
-                    },
-                    {
-                        "method": "GET",
-                        "path": "/admin/scheduler/schedules/<schedule_id>",
-                        "description": "Get a specific schedule",
-                    },
-                    {
-                        "method": "DELETE",
-                        "path": "/admin/scheduler/schedules/<schedule_id>",
-                        "description": "Remove a schedule",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/schedules/<schedule_id>/enable",
-                        "description": "Enable a schedule",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/schedules/<schedule_id>/disable",
-                        "description": "Disable a schedule",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/scheduler/schedules/<schedule_id>/trigger",
-                        "description": "Manually trigger a schedule immediately",
-                    },
-                ],
-            },
             "runtime_control": {
                 "description": "Control runtime behavior and caching",
                 "endpoints": [
@@ -2260,7 +1872,6 @@ async def admin_overview(request):
                     "All admin endpoints require appropriate access controls in production",
                     "Use /admin/monitoring/metrics for comprehensive system metrics",
                     "Config refresh may cause brief service interruption during reload",
-                    "Scheduler endpoints are only available when scheduler is enabled",
                     "Debug endpoints may expose sensitive information - use with caution",
                 ],
             }

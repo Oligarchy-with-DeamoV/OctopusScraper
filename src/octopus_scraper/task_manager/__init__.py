@@ -5,9 +5,8 @@ This module provides unified task scheduling, execution, and monitoring
 capabilities for scraper tasks.
 """
 
+from .models import ScraperTask, TaskBatch, TaskResult, TaskStatus
 from .task_manager import TaskManager
-from .models import TaskStatus, TaskResult, ScraperTask, TaskBatch
-from .scheduler import TaskScheduler
 
 __all__ = [
     "TaskManager",
@@ -15,5 +14,4 @@ __all__ = [
     "TaskResult",
     "ScraperTask",
     "TaskBatch",
-    "TaskScheduler",
 ]

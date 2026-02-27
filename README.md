@@ -35,8 +35,7 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - 📱 **CLI 工具**: 提供 `octopus_go` 和 `octopus_service` 命令行工具
 - ⚙️ **配置热更新**: 支持动态配置刷新，无需重启服务
 - 🎛️ **统一任务管理**: 默认启用的 TaskManager 系统，提供任务队列、优先级调度、并发控制和监控
-- 📅 **定时调度**: 基于 Cron 表达式的自动任务调度
-- 🔄 **智能重试**: 支持指数退避和最大重试次数的智能重试机制
+-  **智能重试**: 支持指数退避和最大重试次数的智能重试机制
 - 📊 **任务监控**: 实时任务状态跟踪、统计信息和性能指标
 
 ## 📋 目录
@@ -53,40 +52,17 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 ## 📚 详细文档
 
 - **[完整文档](docs/README.md)** - 系统架构和详细说明
-- **[任务管理系统](docs/models/task_manager/)** - TaskManager和TaskScheduler详细文档
+- **[任务管理系统](docs/models/task_manager/)** - TaskManager详细文档
 - **[内容处理系统](docs/models/processors/)** - 处理器架构和开发指南
 - **[配置管理](docs/models/config/)** - 配置系统详细说明
 - **[Web服务接口](docs/interface/web_service/)** - API文档和管理界面
 - **[CLI工具](docs/interface/cli/)** - 命令行工具使用指南
 
-## 🚀 安装
-
-### 系统要求
-
-- Python 3.9 - 3.10
-- Poetry
-
-### 使用 Poetry (推荐)
-
-```bash
-# 克隆项目
-git clone https://github.com/your-repo/OctopusScraper.git
-cd OctopusScraper
-
-# 安装依赖
-poetry install
-
-# 激活虚拟环境
-poetry shell
-```
-
-> 💡 **提示**: 使用 `-vvv` 参数可以获取详细的安装信息以便调试。
-
 ## ⚡ 快速开始
 
 ### 🐳 推荐方式：Docker Compose 部署
 
-**推荐使用 Docker Compose 进行一键部署，简单快捷，包含完整的服务栈（OctopusScraper + RSSHub + Redis + Browserless）。**
+**推荐使用 Docker Compose 进行一键部署，简单快捷，包含完整的服务栈 [OctopusScraper + RSSHub + Redis]**
 
 #### 1. 准备 Notion 配置
 
@@ -98,12 +74,10 @@ poetry shell
 #### 2. 克隆项目并配置环境变量
 
 ```bash
-# 克隆项目
-git clone https://github.com/your-repo/OctopusScraper.git
 cd OctopusScraper
 
 # 创建 .env 文件
-cp .env.example .env
+cp envs/deploy.prod.env .env
 ```
 
 编辑 `.env` 文件，填入您的 Notion 配置：
@@ -114,24 +88,7 @@ NOTION_API_KEY="api_key"
 NOTION_CONTENT_DATABASE_ID="database_id"
 NOTION_SCRAPERS_DATABASE_ID="scraper_database_id"
 
-# Service Configuration
-SERVICE_HOST=0.0.0.0
-SERVICE_PORT=8000
-OCTOPUS_DEBUG=true
-LOG_LEVEL=INFO
-LOG_FORMAT=plain
-
-# Configuration Management
-CONFIG_REFRESH_INTERVAL=300
-
-# Scraping Configuration
-SCRAPER_TIMEOUT=10
-UPLOAD_TIMEOUT=15
-UPLOAD_MAX_RETRIES=3
-
-# Content Processing Configuration
-# Maximum length for RSS feed summary. If exceeded, summary will be empty and processed by LLM
-OCTOPUS_SUMMARY_MAX_LENGTH=500
+# other envs...
 ```
 
 #### 3. 一键启动服务
@@ -147,15 +104,7 @@ docker-compose ps
 docker-compose logs -f octopus-service
 ```
 
-#### 4. 访问服务
-
-服务启动后，访问以下端点：
-
-- **管理界面**: http://localhost:8000/admin
-- **健康检查**: http://localhost:8000/health
-- **RSSHub 服务**: http://localhost:1200 (可选，用于 RSS 数据源)
-
-#### 5. 在 Notion 中配置抓取器
+#### 4. 在 Notion 中配置抓取器
 
 在抓取器配置数据库中添加记录，例如：
 
@@ -164,26 +113,14 @@ docker-compose logs -f octopus-service
 | VSCode Issues | Active | rsshub  | http://rsshub:1200 | /github/issues/microsoft/vscode | 1        | {"limit": 20} |
 | 少数派热门    | Active | rsshub  | http://rsshub:1200 | /sspai/matrix                   | 2        | {"limit": 15} |
 
+#### 5. 使用命令触发拉取和上传
 
-## 📖 基础使用
-
-### Web 服务模式
-
-```bash
-# 使用默认配置启动服务
-poetry run octopus_service
-
-# 自定义配置启动
-poetry run octopus_service --host 127.0.0.1 --port 8080 --debug
-
-# 查看所有可用选项
-poetry run octopus_service --help
-```
+TODO: 这部分的操作完全没有必要人工来，只是为了系统的解耦做的。计划后续再 docker-compose 中增加一个服务每隔十分钟触发一次。
 
 ```bash
-# 触发抓取任务
+# 触发根据配置拉取服务
 curl -X POST http://localhost:8000/trigger_scraper
 
-# 触发上传任务
-curl -X POST http://localhost:8000/trigger_upload 
+# 触发根据结果上传服务
+curl -X POST http://localhost:8000/trigger_upload
 ```

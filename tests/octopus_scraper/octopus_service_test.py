@@ -37,7 +37,7 @@ class TestConfigCreation:
     def test_create_config_from_env_with_defaults(self):
         """Test config creation with default values."""
         with patch.dict("os.environ", {}, clear=True):
-            notion_config, service_config, task_manager_config, scheduler_config = (
+            notion_config, service_config, task_manager_config = (
                 create_config_from_env()
             )
 
@@ -56,14 +56,6 @@ class TestConfigCreation:
             assert task_manager_config["max_queue_size"] == 1000
             assert task_manager_config["result_retention_hours"] == 48
 
-            # Test Scheduler config defaults
-            assert scheduler_config["enable_scheduler"] == False
-            assert scheduler_config["auto_start_scheduler"] == False
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 10
-            )
-            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 60
-
     def test_create_config_from_env_with_values(self):
         """Test config creation with environment variables."""
         env_vars = {
@@ -78,14 +70,10 @@ class TestConfigCreation:
             "MAX_CONCURRENT_TASKS": "12",
             "MAX_QUEUE_SIZE": "2000",
             "RESULT_RETENTION_HOURS": "72",
-            "ENABLE_SCHEDULER": "true",
-            "AUTO_START_SCHEDULER": "true",
-            "MAX_CONCURRENT_SCHEDULES": "15",
-            "SCHEDULE_CHECK_INTERVAL": "120",
         }
 
         with patch.dict("os.environ", env_vars):
-            notion_config, service_config, task_manager_config, scheduler_config = (
+            notion_config, service_config, task_manager_config = (
                 create_config_from_env()
             )
 
@@ -103,150 +91,6 @@ class TestConfigCreation:
             assert task_manager_config["max_concurrent_tasks"] == 12
             assert task_manager_config["max_queue_size"] == 2000
             assert task_manager_config["result_retention_hours"] == 72
-
-            # Test Scheduler config with custom values
-            assert scheduler_config["enable_scheduler"] == True
-            assert scheduler_config["auto_start_scheduler"] == True
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 15
-            )
-            assert (
-                scheduler_config["scheduler_config"]["schedule_check_interval"] == 120
-            )
-
-    def test_create_config_from_env_scheduler_defaults(self):
-        """Test that scheduler has correct default values when not specified."""
-        with patch.dict("os.environ", {}, clear=True):
-            _, _, _, scheduler_config = create_config_from_env()
-
-            # Test default scheduler configuration
-            assert scheduler_config["enable_scheduler"] == False
-            assert scheduler_config["auto_start_scheduler"] == False
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 10
-            )
-            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 60
-
-    def test_create_config_from_env_scheduler_enabled_only(self):
-        """Test enabling scheduler without auto-start."""
-        env_vars = {
-            "ENABLE_SCHEDULER": "true",
-        }
-
-        with patch.dict("os.environ", env_vars):
-            _, _, _, scheduler_config = create_config_from_env()
-
-            assert scheduler_config["enable_scheduler"] == True
-            assert (
-                scheduler_config["auto_start_scheduler"] == False
-            )  # Should remain default
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 10
-            )
-            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 60
-
-    def test_create_config_from_env_scheduler_partial_config(self):
-        """Test partial scheduler configuration via environment variables."""
-        env_vars = {
-            "ENABLE_SCHEDULER": "true",
-            "MAX_CONCURRENT_SCHEDULES": "20",
-            # Note: AUTO_START_SCHEDULER and SCHEDULE_CHECK_INTERVAL use defaults
-        }
-
-        with patch.dict("os.environ", env_vars):
-            _, _, _, scheduler_config = create_config_from_env()
-
-            assert scheduler_config["enable_scheduler"] == True
-            assert scheduler_config["auto_start_scheduler"] == False  # Default
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 20
-            )
-            assert (
-                scheduler_config["scheduler_config"]["schedule_check_interval"] == 60
-            )  # Default
-
-
-class TestSchedulerConfiguration:
-    """Test scheduler-specific configuration scenarios."""
-
-    def test_scheduler_boolean_env_vars_parsing(self):
-        """Test that scheduler boolean environment variables are parsed correctly."""
-        # Test various boolean representations
-        test_cases = [
-            ("true", True),
-            ("TRUE", True),
-            ("True", True),
-            ("1", False),  # Only "true" (case-insensitive) should be True
-            ("false", False),
-            ("FALSE", False),
-            ("False", False),
-            ("0", False),
-            ("", False),
-            ("random", False),
-        ]
-
-        for env_value, expected in test_cases:
-            with patch.dict("os.environ", {"ENABLE_SCHEDULER": env_value}, clear=True):
-                _, _, _, scheduler_config = create_config_from_env()
-                assert (
-                    scheduler_config["enable_scheduler"] == expected
-                ), f"Failed for value: {env_value}"
-
-    def test_scheduler_integer_env_vars_parsing(self):
-        """Test that scheduler integer environment variables are parsed correctly."""
-        env_vars = {
-            "MAX_CONCURRENT_SCHEDULES": "25",
-            "SCHEDULE_CHECK_INTERVAL": "180",
-        }
-
-        with patch.dict("os.environ", env_vars):
-            _, _, _, scheduler_config = create_config_from_env()
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 25
-            )
-            assert (
-                scheduler_config["scheduler_config"]["schedule_check_interval"] == 180
-            )
-
-    def test_scheduler_invalid_integer_env_vars(self):
-        """Test handling of invalid integer values for scheduler configuration."""
-        env_vars = {
-            "MAX_CONCURRENT_SCHEDULES": "not_a_number",
-        }
-
-        with patch.dict("os.environ", env_vars):
-            # Should raise ValueError when parsing invalid integer
-            with pytest.raises(ValueError):
-                create_config_from_env()
-
-    def test_scheduler_negative_integer_values(self):
-        """Test that negative integer values are handled correctly."""
-        env_vars = {
-            "MAX_CONCURRENT_SCHEDULES": "-5",
-            "SCHEDULE_CHECK_INTERVAL": "-10",
-        }
-
-        with patch.dict("os.environ", env_vars):
-            _, _, _, scheduler_config = create_config_from_env()
-            # Negative values should be parsed but might not be valid for the scheduler
-            assert (
-                scheduler_config["scheduler_config"]["max_concurrent_schedules"] == -5
-            )
-            assert (
-                scheduler_config["scheduler_config"]["schedule_check_interval"] == -10
-            )
-
-    def test_scheduler_zero_values(self):
-        """Test that zero values are handled correctly."""
-        env_vars = {
-            "MAX_CONCURRENT_SCHEDULES": "0",
-            "SCHEDULE_CHECK_INTERVAL": "0",
-        }
-
-        with patch.dict("os.environ", env_vars):
-            _, _, _, scheduler_config = create_config_from_env()
-            assert scheduler_config["scheduler_config"]["max_concurrent_schedules"] == 0
-            assert scheduler_config["scheduler_config"]["schedule_check_interval"] == 0
 
 
 class TestServiceLifecycle:
@@ -287,14 +131,6 @@ class TestServiceLifecycle:
                     "max_queue_size": 1000,
                     "result_retention_hours": 48,
                 },
-                {
-                    "enable_scheduler": False,
-                    "auto_start_scheduler": False,
-                    "scheduler_config": {
-                        "max_concurrent_schedules": 10,
-                        "schedule_check_interval": 60,
-                    },
-                },
             )
             mock_config_class.return_value = mock_config_manager
             mock_octopus_class.return_value = Mock()
@@ -321,118 +157,10 @@ class TestServiceLifecycle:
                     "max_queue_size": 1000,
                     "result_retention_hours": 48,
                 },
-                {
-                    "enable_scheduler": False,
-                    "auto_start_scheduler": False,
-                    "scheduler_config": {
-                        "max_concurrent_schedules": 10,
-                        "schedule_check_interval": 60,
-                    },
-                },
             )
 
             with pytest.raises(Exception):
                 await setup_octopus(mock_app, None)
-
-    @pytest.mark.asyncio
-    async def test_setup_octopus_with_scheduler_enabled(
-        self, mock_app, mock_config_manager
-    ):
-        """Test octopus setup with scheduler enabled."""
-        with patch(
-            "octopus_scraper.octopus_service.create_config_from_env"
-        ) as mock_create_config, patch(
-            "octopus_scraper.octopus_service.ConfigManager"
-        ) as mock_config_class, patch(
-            "octopus_scraper.octopus_service.Octopus"
-        ) as mock_octopus_class:
-
-            # Setup mocks with scheduler enabled
-            mock_create_config.return_value = (
-                NotionDatabaseConfig("test_key", "test_db", "test_content_db"),
-                ServiceConfig(),
-                {
-                    "max_concurrent_tasks": 8,
-                    "max_queue_size": 1000,
-                    "result_retention_hours": 48,
-                },
-                {
-                    "enable_scheduler": True,
-                    "auto_start_scheduler": True,
-                    "scheduler_config": {
-                        "max_concurrent_schedules": 15,
-                        "schedule_check_interval": 120,
-                    },
-                },
-            )
-            mock_config_class.return_value = mock_config_manager
-            mock_octopus_instance = Mock()
-            mock_octopus_class.return_value = mock_octopus_instance
-
-            # Test setup
-            await setup_octopus(mock_app, None)
-
-            # Verify octopus was initialized with scheduler config
-            mock_octopus_class.assert_called_once()
-            call_args = mock_octopus_class.call_args[0][
-                0
-            ]  # First positional argument (config)
-
-            # Verify scheduler configuration was passed to Octopus
-            assert call_args["enable_scheduler"] == True
-            assert call_args["auto_start_scheduler"] == True
-            assert call_args["scheduler_config"]["max_concurrent_schedules"] == 15
-            assert call_args["scheduler_config"]["schedule_check_interval"] == 120
-
-    @pytest.mark.asyncio
-    async def test_setup_octopus_with_scheduler_disabled(
-        self, mock_app, mock_config_manager
-    ):
-        """Test octopus setup with scheduler disabled (default)."""
-        with patch(
-            "octopus_scraper.octopus_service.create_config_from_env"
-        ) as mock_create_config, patch(
-            "octopus_scraper.octopus_service.ConfigManager"
-        ) as mock_config_class, patch(
-            "octopus_scraper.octopus_service.Octopus"
-        ) as mock_octopus_class:
-
-            # Setup mocks with scheduler disabled
-            mock_create_config.return_value = (
-                NotionDatabaseConfig("test_key", "test_db", "test_content_db"),
-                ServiceConfig(),
-                {
-                    "max_concurrent_tasks": 8,
-                    "max_queue_size": 1000,
-                    "result_retention_hours": 48,
-                },
-                {
-                    "enable_scheduler": False,
-                    "auto_start_scheduler": False,
-                    "scheduler_config": {
-                        "max_concurrent_schedules": 10,
-                        "schedule_check_interval": 60,
-                    },
-                },
-            )
-            mock_config_class.return_value = mock_config_manager
-            mock_octopus_instance = Mock()
-            mock_octopus_class.return_value = mock_octopus_instance
-
-            # Test setup
-            await setup_octopus(mock_app, None)
-
-            # Verify octopus was initialized with scheduler disabled
-            mock_octopus_class.assert_called_once()
-            call_args = mock_octopus_class.call_args[0][
-                0
-            ]  # First positional argument (config)
-
-            # Verify scheduler configuration was passed to Octopus but disabled
-            assert call_args["enable_scheduler"] == False
-            assert call_args["auto_start_scheduler"] == False
-            assert call_args["scheduler_config"]["max_concurrent_schedules"] == 10
-            assert call_args["scheduler_config"]["schedule_check_interval"] == 60
 
     @pytest.mark.asyncio
     async def test_cleanup_octopus(self, mock_app, mock_config_manager):
@@ -465,63 +193,6 @@ class TestServiceLifecycle:
 
             assert result == True
             assert mock_app.ctx.octopus is not None
-
-    @pytest.mark.asyncio
-    async def test_reload_octopus_config_with_scheduler_changes(
-        self, mock_app, mock_config_manager
-    ):
-        """Test configuration reload when scheduler configuration changes."""
-        mock_app.ctx.config_manager = mock_config_manager
-        mock_app.ctx.octopus = Mock()
-        mock_app.ctx.octopus._notion_api_config = {
-            "api_key": "test",
-            "database_id": "test",
-        }
-
-        mock_config_manager.get_current_scrapers.return_value = []
-        mock_config_manager.get_current_version.return_value = Mock(
-            version_id="test_v2"
-        )
-
-        with patch(
-            "octopus_scraper.octopus_service.Octopus"
-        ) as mock_octopus_class, patch(
-            "octopus_scraper.octopus_service.create_config_from_env"
-        ) as mock_create_config:
-
-            # Mock environment config with different scheduler settings
-            mock_create_config.return_value = (
-                Mock(),  # notion_config
-                Mock(),  # service_config
-                {
-                    "max_concurrent_tasks": 8,
-                    "max_queue_size": 1000,
-                    "result_retention_hours": 48,
-                },  # task_manager_config
-                {
-                    "enable_scheduler": True,
-                    "auto_start_scheduler": True,
-                    "scheduler_config": {
-                        "max_concurrent_schedules": 20,
-                        "schedule_check_interval": 30,
-                    },
-                },  # scheduler_config
-            )
-
-            mock_octopus_class.return_value = Mock()
-
-            result = await reload_octopus_config(mock_app)
-
-            assert result == True
-            # Verify that Octopus was created with updated scheduler config
-            mock_octopus_class.assert_called_once()
-            call_args = mock_octopus_class.call_args[0][
-                0
-            ]  # First positional argument (config)
-            assert call_args["enable_scheduler"] == True
-            assert call_args["auto_start_scheduler"] == True
-            assert call_args["scheduler_config"]["max_concurrent_schedules"] == 20
-            assert call_args["scheduler_config"]["schedule_check_interval"] == 30
 
 
 class TestHealthCheck:
@@ -865,17 +536,6 @@ class TestAdminEndpoints:
         mock_octopus._task_manager = mock_task_manager
         mock_octopus.get_task_manager.return_value = mock_task_manager
 
-        # Mock Scheduler status
-        mock_octopus.get_scheduler_status.return_value = {
-            "enabled": False,
-            "status": "disabled",
-            "total_schedules": 0,
-            "enabled_schedules": 0,
-            "running_scheduled_tasks": 0,
-            "next_run": None,
-            "schedules_by_status": {},
-        }
-
         mock_app.ctx.config_manager = mock_config_manager
         mock_app.ctx.octopus = mock_octopus
 
@@ -1181,71 +841,6 @@ class TestAdminEndpoints:
             assert "metrics" in str(data)
             assert "service" in str(data)
             assert "configuration" in str(data)
-            assert "scheduler" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_get_monitoring_metrics_with_scheduler_enabled(
-        self, mock_app_with_full_context
-    ):
-        """Test monitoring metrics when scheduler is enabled."""
-        from octopus_scraper.octopus_service import get_monitoring_metrics
-
-        mock_request = Mock()
-
-        # Update mock to have scheduler enabled
-        mock_app_with_full_context.ctx.octopus.get_scheduler_status.return_value = {
-            "enabled": True,
-            "status": "running",
-            "total_schedules": 5,
-            "enabled_schedules": 3,
-            "running_scheduled_tasks": 2,
-            "next_run": "2025-08-04T15:30:00",
-            "schedules_by_status": {"active": 3, "paused": 2},
-        }
-
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            response = await get_monitoring_metrics(mock_request)
-
-            assert response.status == 200
-
-            # Parse the response to check scheduler metrics
-            import json
-
-            response_data = json.loads(response.body.decode("utf-8"))
-            scheduler_metrics = response_data["metrics"]["scheduler"]
-
-            assert scheduler_metrics["enabled"] == True
-            assert scheduler_metrics["status"] == "running"
-            assert scheduler_metrics["total_schedules"] == 5
-            assert scheduler_metrics["enabled_schedules"] == 3
-            assert scheduler_metrics["running_scheduled_tasks"] == 2
-            assert scheduler_metrics["next_run"] == "2025-08-04T15:30:00"
-
-    @pytest.mark.asyncio
-    async def test_get_monitoring_metrics_with_scheduler_disabled(
-        self, mock_app_with_full_context
-    ):
-        """Test monitoring metrics when scheduler is disabled."""
-        from octopus_scraper.octopus_service import get_monitoring_metrics
-
-        mock_request = Mock()
-
-        # Scheduler is disabled by default in the fixture
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            response = await get_monitoring_metrics(mock_request)
-
-            assert response.status == 200
-
-            # Parse the response to check scheduler metrics
-            import json
-
-            response_data = json.loads(response.body.decode("utf-8"))
-            scheduler_metrics = response_data["metrics"]["scheduler"]
-
-            assert scheduler_metrics["enabled"] == False
-            assert scheduler_metrics["status"] == "disabled"
-            # Should not have detailed metrics when disabled
-            assert "total_schedules" not in scheduler_metrics
 
     @pytest.mark.asyncio
     async def test_submit_individual_task_with_task_manager(
