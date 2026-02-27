@@ -137,22 +137,78 @@ class Octopus:
 
         return batch.batch_id
 
-    def trigger_upload(self) -> int:
-        """将获取的 Content 批量上传, 返回成功数量"""
+    def trigger_upload(self) -> Dict[str, Any]:
+        """从 TaskManager 已完成任务中收集未上传的内容并批量上传到 Notion。
+
+        Returns:
+            Dict containing upload statistics:
+                - uploaded_count: Number of successfully uploaded items.
+                - tasks_processed: Number of completed tasks whose contents were uploaded.
+                - errors: List of error messages if any tasks failed to upload.
+        """
+        from octopus_scraper.task_manager.models import TaskStatus
+
+        upload_stats: Dict[str, Any] = {
+            "uploaded_count": 0,
+            "tasks_processed": 0,
+            "errors": [],
+        }
+
         try:
-            success_cnt = sum(
-                self._notion_api.store_contents(
-                    self._fetched_contents, deduplicate=True
-                )
+            # Collect contents from completed tasks that have not been uploaded yet
+            completed_tasks = self._task_manager.list_tasks(
+                status=TaskStatus.COMPLETED, limit=1000
             )
-            self._fetched_contents.clear()  # 清空已上传的内容
-            return success_cnt
+
+            all_contents: List[Content] = []
+            processed_task_ids: List[str] = []
+
+            for task_result in completed_tasks:
+                # Skip tasks that have already been uploaded
+                if task_result.items_uploaded > 0:
+                    continue
+
+                # Extract contents from task metadata
+                contents = task_result.metadata.get("contents", [])
+                if contents:
+                    all_contents.extend(contents)
+                    processed_task_ids.append(task_result.task_id)
+
+            if not all_contents:
+                logger.info("No pending contents to upload from completed tasks")
+                return upload_stats
+
+            # Upload collected contents to Notion
+            success_cnt = sum(
+                self._notion_api.store_contents(all_contents, deduplicate=True)
+            )
+
+            # Mark tasks as uploaded by updating items_uploaded in their results
+            for task_id in processed_task_ids:
+                task_result = self._task_manager.get_task_result(task_id)
+                if task_result:
+                    task_contents = task_result.metadata.get("contents", [])
+                    task_result.items_uploaded = len(task_contents)
+                    # Clear contents from metadata to free memory
+                    task_result.metadata.pop("contents", None)
+
+            upload_stats["uploaded_count"] = success_cnt
+            upload_stats["tasks_processed"] = len(processed_task_ids)
+
+            logger.info(
+                "Upload completed successfully",
+                uploaded_count=success_cnt,
+                tasks_processed=len(processed_task_ids),
+                total_contents_collected=len(all_contents),
+            )
+
+            return upload_stats
 
         except Exception as e:
             logger.error(
                 "Failed to upload contents to Notion.",
                 error=str(e),
-                fetched_contents=self._fetched_contents,
+                exc_info=True,
             )
             raise RuntimeError(f"Failed to upload contents to Notion: {e}")
 

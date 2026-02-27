@@ -48,7 +48,7 @@ class NotionStorage(BaseStorage):
         self._check_property_exist()
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
-    def _get_all_content_ids(self) -> set:
+    def get_all_content_ids(self) -> set:
         """批量获取数据库中所有已存在的 content_id"""
         all_content_ids = set()
         has_more = True

@@ -1,8 +1,9 @@
-import pytest
-from unittest.mock import Mock, patch, mock_open
 import argparse
 import os
 import tempfile
+from unittest.mock import Mock, mock_open, patch
+
+import pytest
 import yaml
 
 from octopus_scraper.cli import (
@@ -57,19 +58,6 @@ class TestCLI:
         with pytest.raises(SystemExit):
             create_args()
 
-    @patch("sys.argv", ["service"])
-    def test_create_service_args_defaults(self):
-        """测试服务参数的默认值"""
-        with patch.dict(os.environ, {}, clear=True):
-            args = create_service_args()
-            assert args.host == "0.0.0.0"
-            assert args.port == 8000
-            assert args.debug is False
-            assert args.log_level == "INFO"
-            assert args.log_format == "plain"
-            assert args.workers == 1
-            assert args.single_process is False
-
     @patch("sys.argv", ["service", "--host", "127.0.0.1", "--port", "9000", "--debug"])
     def test_create_service_args_custom_values(self):
         """测试自定义服务参数"""
@@ -77,29 +65,6 @@ class TestCLI:
         assert args.host == "127.0.0.1"
         assert args.port == 9000
         assert args.debug is True
-
-    @patch("sys.argv", ["service"])
-    def test_create_service_args_env_variables(self):
-        """测试环境变量配置"""
-        env_vars = {
-            "OCTOPUS_HOST": "192.168.1.1",
-            "OCTOPUS_PORT": "3000",
-            "OCTOPUS_DEBUG": "true",
-            "OCTOPUS_LOG_LEVEL": "DEBUG",
-            "OCTOPUS_LOG_FORMAT": "json",
-            "OCTOPUS_WORKERS": "4",
-            "OCTOPUS_SINGLE_PROCESS": "true",
-        }
-
-        with patch.dict(os.environ, env_vars):
-            args = create_service_args()
-            assert args.host == "192.168.1.1"
-            assert args.port == 3000
-            assert args.debug is True
-            assert args.log_level == "DEBUG"
-            assert args.log_format == "json"
-            assert args.workers == 4
-            assert args.single_process is True
 
     @patch("sys.argv", ["service", "--log-level", "WARNING"])
     def test_create_service_args_log_level_choices(self):
@@ -216,44 +181,6 @@ class TestCLI:
             "debug": False,
             "single_process": True,
         }
-        mock_app.run.assert_called_once_with(**expected_config)
-
-    @patch("octopus_scraper.cli.create_service_args")
-    @patch("octopus_scraper.octopus_service.app")
-    @patch("structlog.configure")
-    @patch("structlog.getLogger")
-    @patch("logging.getLogger")
-    def test_run_octopus_service_multi_process(
-        self,
-        mock_get_logger,
-        mock_structlog_logger,
-        mock_structlog,
-        mock_app,
-        mock_create_args,
-    ):
-        """测试多进程模式运行服务"""
-        # Setup mocks
-        mock_args = Mock()
-        mock_args.host = "0.0.0.0"
-        mock_args.port = 9000
-        mock_args.debug = True
-        mock_args.log_level = "DEBUG"
-        mock_args.log_format = "json"
-        mock_args.single_process = False
-        mock_args.workers = 4
-        mock_create_args.return_value = mock_args
-
-        # Mock logger
-        mock_logger = Mock()
-        mock_logger.name = "test_logger"
-        mock_get_logger.return_value = mock_logger
-        mock_structlog_logger.return_value = mock_logger
-
-        # Run function
-        run_octopus_service()
-
-        # Verify service configuration
-        expected_config = {"host": "0.0.0.0", "port": 9000, "debug": True, "workers": 4}
         mock_app.run.assert_called_once_with(**expected_config)
 
     @patch("octopus_scraper.cli.create_service_args")

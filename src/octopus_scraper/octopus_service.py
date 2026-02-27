@@ -198,6 +198,30 @@ async def setup_octopus(app, _):
         )
 
 
+@app.listener("after_server_start")
+async def log_registered_routes(app, _):
+    """Log all registered routes after the Sanic server starts."""
+    route_list = []
+    for route in app.router.routes:
+        # Collect HTTP methods and URI pattern for each route
+        methods = (
+            ",".join(sorted(route.methods - {"OPTIONS"})) if route.methods else "N/A"
+        )
+        route_list.append({"methods": methods, "uri": route.uri, "name": route.name})
+
+    # Sort routes by URI for readability
+    route_list.sort(key=lambda r: r["uri"])
+
+    logger.info("Registered routes", total=len(route_list))
+    for route_info in route_list:
+        logger.info(
+            "Route registered",
+            methods=route_info["methods"],
+            uri=route_info["uri"],
+            name=route_info["name"],
+        )
+
+
 @app.listener("before_server_stop")
 async def cleanup_octopus(app, _):
     """Clean up resources before server stops."""
@@ -242,7 +266,7 @@ async def reload_octopus_config(app):
                 }
                 for scraper in current_scrapers
             ],
-            "notion_api_config": app.ctx.octopus._notion_api_config,  # Keep existing notion config
+            "notion_api_config": app.ctx.octopus._notion_api,  # Keep existing notion config
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
@@ -384,16 +408,24 @@ async def health_check(request):
         # Check Octopus instance
         if hasattr(app.ctx, "octopus"):
             octopus = app.ctx.octopus
+            # Get pending upload count from TaskManager completed tasks
+            pending_upload_count = 0
+            if hasattr(octopus, "_task_manager") and octopus._task_manager:
+                from octopus_scraper.task_manager.models import TaskStatus
+
+                completed = octopus._task_manager.list_tasks(
+                    status=TaskStatus.COMPLETED, limit=1000
+                )
+                pending_upload_count = sum(
+                    1 for t in completed if t.items_uploaded == 0
+                )
+
             health_data["dependencies"]["octopus_instance"] = {
                 "status": "healthy",
                 "scrapers_configured": (
                     len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
                 ),
-                "fetched_contents_cached": (
-                    len(octopus._fetched_contents)
-                    if hasattr(octopus, "_fetched_contents")
-                    else 0
-                ),
+                "pending_upload_tasks": pending_upload_count,
             }
         else:
             health_data["dependencies"]["octopus_instance"] = {
@@ -514,23 +546,23 @@ async def readiness_check(request):
 
 @app.route("/trigger_scraper", methods=["POST"])
 async def trigger_scraper(request):
-    """触发抓取任务"""
+    """触发抓取任务，将任务提交到 TaskManager 异步执行。"""
     try:
         octopus: Octopus = app.ctx.octopus
-        # 使用to_thread在异步环境中运行同步的抓取方法
-        await asyncio.to_thread(octopus.trigger_scraper)
+        # trigger_scraper 提交任务到 TaskManager 并返回 batch_id
+        batch_id = octopus.trigger_scraper()
 
         response = TriggerScraperResponse(
             status="success",
-            message="Scraping completed successfully.",
+            message="Scraper tasks submitted successfully.",
             data={
+                "batch_id": batch_id,
                 "source_count": len(octopus._scrapers),
-                "item_count": len(octopus._fetched_contents),
             },
         )
         return json(asdict(response))
     except Exception as e:
-        logger.error("Scraping task failed", error=str(e), exc_info=True)
+        logger.error("Scraping task submission failed", error=str(e), exc_info=True)
         response = TriggerScraperResponse(
             status="error", message=f"An unexpected error occurred: {e}"
         )
@@ -539,16 +571,16 @@ async def trigger_scraper(request):
 
 @app.route("/trigger_upload", methods=["POST"])
 async def trigger_upload(request):
-    """触发上传任务"""
+    """从 TaskManager 已完成任务中收集未上传内容并上传到 Notion。"""
     try:
         octopus: Octopus = app.ctx.octopus
-        # 使用to_thread在异步环境中运行同步的上传方法
+        # trigger_upload 涉及同步 Notion API 调用，使用 to_thread 避免阻塞事件循环
         upload_result = await asyncio.to_thread(octopus.trigger_upload)
 
         response = TriggerUploadResponse(
             status="success",
             message="Upload completed successfully.",
-            data={"uploaded_count": upload_result},
+            data=upload_result,
         )
         return json(asdict(response))
     except Exception as e:
@@ -609,36 +641,76 @@ async def get_config_status(request):
 
 @app.route("/admin/config/refresh", methods=["POST"])
 async def refresh_config(request):
-    """Refresh configuration from Notion."""
+    """Refresh configuration from Notion and reload Octopus if changed.
+
+    Returns detailed change information including old/new version comparison.
+    """
     try:
         config_manager: ConfigManager = app.ctx.config_manager
+
+        # Get current state before reload
+        old_version = config_manager.get_current_version()
+        old_scrapers_count = len(config_manager.get_current_scrapers())
 
         # Check if configuration has changed and reload if necessary
         config_changed = await config_manager.reload_config_if_changed()
 
         if config_changed:
             # Reload Octopus with new configuration
-            await reload_octopus_config(app)
-            message = "Configuration refreshed successfully"
+            reload_success = await reload_octopus_config(app)
+
+            if reload_success:
+                new_version = config_manager.get_current_version()
+                new_scrapers_count = len(config_manager.get_current_scrapers())
+
+                return json(
+                    {
+                        "status": "success",
+                        "message": "Configuration refreshed and reloaded successfully",
+                        "config_changed": True,
+                        "reload_performed": True,
+                        "changes": {
+                            "old_version": (
+                                old_version.version_id if old_version else None
+                            ),
+                            "new_version": (
+                                new_version.version_id if new_version else None
+                            ),
+                            "old_scrapers_count": old_scrapers_count,
+                            "new_scrapers_count": new_scrapers_count,
+                            "change_summary": (
+                                new_version.change_summary if new_version else None
+                            ),
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+            else:
+                return json(
+                    {
+                        "status": "error",
+                        "message": "Configuration changed but reload failed",
+                        "config_changed": True,
+                        "reload_performed": False,
+                    },
+                    status=500,
+                )
         else:
-            message = "No configuration changes detected"
-
-        config_status = config_manager.get_status()
-
-        return json(
-            {
-                "status": "success",
-                "message": message,
-                "config_changed": config_changed,
-                "current_version": (
-                    config_status.version.version_id if config_status.version else None
-                ),
-                "scrapers_count": len(config_status.scrapers),
-            }
-        )
+            return json(
+                {
+                    "status": "success",
+                    "message": "No configuration changes detected",
+                    "config_changed": False,
+                    "reload_performed": False,
+                    "current_version": (
+                        old_version.version_id if old_version else None
+                    ),
+                    "scrapers_count": old_scrapers_count,
+                }
+            )
 
     except Exception as e:
-        logger.error("Failed to refresh config", error=str(e))
+        logger.error("Failed to refresh config", error=str(e), exc_info=True)
         return json(
             {"status": "error", "message": f"Configuration refresh failed: {e}"},
             status=500,
@@ -682,77 +754,6 @@ async def validate_config(request):
         )
 
 
-@app.route("/admin/config/hotreload", methods=["POST"])
-async def hotreload_config(request):
-    """Hot reload configuration with minimal service disruption."""
-    try:
-        config_manager: ConfigManager = app.ctx.config_manager
-        octopus: Octopus = app.ctx.octopus
-
-        # Get current state before reload
-        old_version = config_manager.get_current_version()
-        old_scrapers_count = len(config_manager.get_current_scrapers())
-
-        # Force reload configuration from Notion
-        config_changed = await config_manager.reload_config_if_changed()
-
-        if config_changed:
-            # Hot reload Octopus configuration
-            reload_success = await reload_octopus_config(app)
-
-            if reload_success:
-                new_version = config_manager.get_current_version()
-                new_scrapers_count = len(config_manager.get_current_scrapers())
-
-                return json(
-                    {
-                        "status": "success",
-                        "message": "Hot reload completed successfully",
-                        "reload_performed": True,
-                        "changes": {
-                            "old_version": (
-                                old_version.version_id if old_version else None
-                            ),
-                            "new_version": (
-                                new_version.version_id if new_version else None
-                            ),
-                            "old_scrapers_count": old_scrapers_count,
-                            "new_scrapers_count": new_scrapers_count,
-                            "change_summary": (
-                                new_version.change_summary if new_version else None
-                            ),
-                        },
-                        "timestamp": datetime.now().isoformat(),
-                    }
-                )
-            else:
-                return json(
-                    {
-                        "status": "error",
-                        "message": "Configuration changed but hot reload failed",
-                        "reload_performed": False,
-                    },
-                    status=500,
-                )
-        else:
-            return json(
-                {
-                    "status": "success",
-                    "message": "No configuration changes detected",
-                    "reload_performed": False,
-                    "current_version": old_version.version_id if old_version else None,
-                    "scrapers_count": old_scrapers_count,
-                }
-            )
-
-    except Exception as e:
-        logger.error("Hot reload failed", error=str(e), exc_info=True)
-        return json(
-            {"status": "error", "message": f"Hot reload failed: {e}"},
-            status=500,
-        )
-
-
 @app.route("/admin/system/info", methods=["GET"])
 async def get_system_info(request):
     """Get comprehensive system information."""
@@ -780,11 +781,6 @@ async def get_system_info(request):
             "octopus_instance": {
                 "scrapers_configured": (
                     len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
-                ),
-                "fetched_contents_cached": (
-                    len(octopus._fetched_contents)
-                    if hasattr(octopus, "_fetched_contents")
-                    else 0
                 ),
                 "max_concurrent_scrapers": getattr(
                     octopus._config, "max_concurrent_scrapers", 5
@@ -823,7 +819,7 @@ async def get_system_info(request):
         )
 
 
-@app.route("/admin/scrapers/list", methods=["GET"])
+@app.route("/admin/scrapers", methods=["GET"])
 async def list_scrapers(request):
     """Get detailed list of all configured scrapers."""
     try:
@@ -944,8 +940,6 @@ async def run_scraper_test(request, scraper_name):
         timeout = request_data.get("timeout", 30)
 
         # Create test scraper instance
-        from dataclasses import asdict
-
         from octopus_scraper.scraper import Scraper
 
         test_scraper_config = {
@@ -1065,7 +1059,7 @@ async def get_task_stats(request):
         )
 
 
-@app.route("/admin/tasks/list", methods=["GET"])
+@app.route("/admin/tasks", methods=["GET"])
 async def list_tasks(request):
     """List tasks with optional filtering."""
     try:
@@ -1170,7 +1164,7 @@ async def cancel_task(request, task_id):
         )
 
 
-@app.route("/admin/tasks/submit", methods=["POST"])
+@app.route("/admin/tasks", methods=["POST"])
 async def submit_individual_task(request):
     """Submit an individual scraper task."""
     try:
@@ -1241,7 +1235,7 @@ async def submit_individual_task(request):
             return json(
                 {
                     "status": "success",
-                    "message": f"Task submitted successfully",
+                    "message": "Task submitted successfully",
                     "task_id": task_id,
                     "scraper_name": scraper_name,
                     "fetch_params": fetch_params,
@@ -1604,11 +1598,6 @@ async def get_monitoring_metrics(request):
                 "scrapers_initialized": (
                     len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
                 ),
-                "cached_contents": (
-                    len(octopus._fetched_contents)
-                    if hasattr(octopus, "_fetched_contents")
-                    else 0
-                ),
                 "max_concurrent_scrapers": getattr(
                     octopus._config, "max_concurrent_scrapers", 5
                 ),
@@ -1701,15 +1690,21 @@ async def clear_cache(request):
             _health_cache["cached_result"] = None
             cleared_caches.append("health_check_cache")
 
-        # Clear fetched contents cache
+        # Clear pending upload contents from completed tasks in TaskManager
         if "contents" in cache_types:
             octopus: Octopus = app.ctx.octopus
-            if hasattr(octopus, "_fetched_contents"):
-                contents_count = len(octopus._fetched_contents)
-                octopus._fetched_contents.clear()
-                cleared_caches.append(
-                    f"fetched_contents_cache ({contents_count} items)"
+            if hasattr(octopus, "_task_manager") and octopus._task_manager:
+                from octopus_scraper.task_manager.models import TaskStatus
+
+                completed = octopus._task_manager.list_tasks(
+                    status=TaskStatus.COMPLETED, limit=1000
                 )
+                cleared_count = 0
+                for task_result in completed:
+                    if "contents" in task_result.metadata:
+                        cleared_count += len(task_result.metadata["contents"])
+                        task_result.metadata.pop("contents", None)
+                cleared_caches.append(f"task_contents_cache ({cleared_count} items)")
 
         # Clear task manager old results
         if "task_results" in cache_types:
@@ -1919,11 +1914,6 @@ async def dump_service_state(request):
                 "scrapers_count": (
                     len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
                 ),
-                "fetched_contents_count": (
-                    len(octopus._fetched_contents)
-                    if hasattr(octopus, "_fetched_contents")
-                    else 0
-                ),
                 "config": {
                     "max_concurrent_scrapers": getattr(
                         octopus._config, "max_concurrent_scrapers", 5
@@ -2065,7 +2055,7 @@ async def admin_overview(request):
         # Available admin endpoints
         admin_endpoints = {
             "configuration_management": {
-                "description": "Manage system configuration and hot reloading",
+                "description": "Manage system configuration",
                 "endpoints": [
                     {
                         "method": "GET",
@@ -2075,17 +2065,12 @@ async def admin_overview(request):
                     {
                         "method": "POST",
                         "path": "/admin/config/refresh",
-                        "description": "Refresh configuration from Notion",
+                        "description": "Refresh and reload configuration from Notion",
                     },
                     {
                         "method": "POST",
                         "path": "/admin/config/validate",
                         "description": "Validate configuration without applying",
-                    },
-                    {
-                        "method": "POST",
-                        "path": "/admin/config/hotreload",
-                        "description": "Hot reload configuration with minimal disruption",
                     },
                 ],
             },
@@ -2114,7 +2099,7 @@ async def admin_overview(request):
                 "endpoints": [
                     {
                         "method": "GET",
-                        "path": "/admin/scrapers/list",
+                        "path": "/admin/scrapers",
                         "description": "List all configured scrapers with details",
                     },
                     {
@@ -2125,17 +2110,22 @@ async def admin_overview(request):
                 ],
             },
             "task_management": {
-                "description": "Manage tasks when task manager is enabled",
+                "description": "Manage scraper tasks",
                 "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/admin/tasks",
+                        "description": "List tasks with optional filtering (?status=&limit=)",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/tasks",
+                        "description": "Submit an individual scraper task",
+                    },
                     {
                         "method": "GET",
                         "path": "/admin/tasks/stats",
                         "description": "Get task manager statistics",
-                    },
-                    {
-                        "method": "GET",
-                        "path": "/admin/tasks/list",
-                        "description": "List tasks with optional filtering",
                     },
                     {
                         "method": "GET",
@@ -2147,10 +2137,60 @@ async def admin_overview(request):
                         "path": "/admin/tasks/<task_id>/cancel",
                         "description": "Cancel a specific task",
                     },
+                ],
+            },
+            "scheduler_management": {
+                "description": "Manage task scheduler and schedules",
+                "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/admin/scheduler/status",
+                        "description": "Get scheduler status and statistics",
+                    },
                     {
                         "method": "POST",
-                        "path": "/admin/tasks/submit",
-                        "description": "Submit an individual scraper task",
+                        "path": "/admin/scheduler/start",
+                        "description": "Start the task scheduler",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/scheduler/stop",
+                        "description": "Stop the task scheduler",
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/admin/scheduler/schedules",
+                        "description": "List all schedules",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/scheduler/schedules",
+                        "description": "Add a new schedule",
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/admin/scheduler/schedules/<schedule_id>",
+                        "description": "Get a specific schedule",
+                    },
+                    {
+                        "method": "DELETE",
+                        "path": "/admin/scheduler/schedules/<schedule_id>",
+                        "description": "Remove a schedule",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/scheduler/schedules/<schedule_id>/enable",
+                        "description": "Enable a schedule",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/scheduler/schedules/<schedule_id>/disable",
+                        "description": "Disable a schedule",
+                    },
+                    {
+                        "method": "POST",
+                        "path": "/admin/scheduler/schedules/<schedule_id>/trigger",
+                        "description": "Manually trigger a schedule immediately",
                     },
                 ],
             },
@@ -2219,8 +2259,8 @@ async def admin_overview(request):
                 "usage_notes": [
                     "All admin endpoints require appropriate access controls in production",
                     "Use /admin/monitoring/metrics for comprehensive system metrics",
-                    "Hot reload operations may cause brief service interruption",
-                    "Task management endpoints are only available when task manager is enabled",
+                    "Config refresh may cause brief service interruption during reload",
+                    "Scheduler endpoints are only available when scheduler is enabled",
                     "Debug endpoints may expose sensitive information - use with caution",
                 ],
             }

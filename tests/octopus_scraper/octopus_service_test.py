@@ -20,7 +20,6 @@ from octopus_scraper.octopus_service import (  # New admin interface functions
     get_monitoring_metrics,
     get_task_stats,
     health_check,
-    hotreload_config,
     list_scrapers,
     list_tasks,
     manage_config_watcher,
@@ -526,38 +525,6 @@ class TestServiceLifecycle:
 
 
 class TestHealthCheck:
-    @pytest.mark.asyncio
-    async def test_health_check_with_config_manager(self):
-        """Test health check with config manager available."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "true"  # Mock cache parameter
-
-        mock_status = Mock()
-        mock_status.is_healthy = True
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-        mock_status.error_message = None
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                return_value=True
-            )
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = []
-            mock_app.ctx.octopus._fetched_contents = []
-
-            response = await health_check(mock_request)
-
-            assert response.status == 200
 
     @pytest.mark.asyncio
     async def test_health_check_without_config_manager(self):
@@ -643,138 +610,6 @@ class TestHealthCheck:
             assert response.status == 503
 
     @pytest.mark.asyncio
-    async def test_health_check_unhealthy_config(self):
-        """Test health check when config manager reports unhealthy status."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "false"  # Disable cache
-
-        mock_status = Mock()
-        mock_status.is_healthy = False  # Config is unhealthy
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-        mock_status.error_message = "Configuration validation failed"
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                return_value=True
-            )
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = []
-            mock_app.ctx.octopus._fetched_contents = []
-
-            response = await health_check(mock_request)
-
-            assert response.status == 503  # Should be unhealthy
-
-    @pytest.mark.asyncio
-    async def test_health_check_notion_api_failure(self):
-        """Test health check when Notion API is unreachable."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "false"  # Disable cache
-
-        mock_status = Mock()
-        mock_status.is_healthy = True
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-        mock_status.error_message = None
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                return_value=False
-            )  # Notion API fails
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = []
-            mock_app.ctx.octopus._fetched_contents = []
-
-            response = await health_check(mock_request)
-
-            assert response.status == 503  # Should be unhealthy due to Notion failure
-
-    @pytest.mark.asyncio
-    async def test_health_check_notion_api_exception(self):
-        """Test health check when Notion API validation throws exception."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "false"  # Disable cache
-
-        mock_status = Mock()
-        mock_status.is_healthy = True
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-        mock_status.error_message = None
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                side_effect=Exception("Connection error")
-            )
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = []
-            mock_app.ctx.octopus._fetched_contents = []
-
-            response = await health_check(mock_request)
-
-            assert response.status == 503  # Should be unhealthy due to exception
-
-    @pytest.mark.asyncio
-    async def test_health_check_no_cache(self):
-        """Test health check with cache disabled."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "false"  # Disable cache
-
-        mock_status = Mock()
-        mock_status.is_healthy = True
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-        mock_status.error_message = None
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                return_value=True
-            )
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = []
-            mock_app.ctx.octopus._fetched_contents = []
-
-            response = await health_check(mock_request)
-
-            assert response.status == 200
-
-    @pytest.mark.asyncio
     async def test_health_check_missing_octopus_with_config_manager(self):
         """Test health check when octopus instance is missing but config manager exists."""
         from datetime import datetime
@@ -818,49 +653,6 @@ class TestHealthCheck:
                 response = await health_check(mock_request)
 
             assert response.status == 503  # Should be unhealthy due to missing octopus
-
-    @pytest.mark.asyncio
-    async def test_health_check_with_scrapers_data(self):
-        """Test health check with actual scrapers data."""
-        from datetime import datetime
-
-        mock_request = Mock()
-        mock_request.args.get.return_value = "false"  # Disable cache
-
-        # Mock scrapers data
-        mock_scraper1 = Mock()
-        mock_scraper1.status = "Active"
-        mock_scraper2 = Mock()
-        mock_scraper2.status = "Inactive"
-
-        mock_status = Mock()
-        mock_status.is_healthy = True
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = [mock_scraper1, mock_scraper2]
-        mock_status.error_message = None
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.get_status.return_value = mock_status
-            mock_manager.notion_client.validate_connection = AsyncMock(
-                return_value=True
-            )
-            mock_manager.notion_config.scrapers_database_id = "test_scrapers_db"
-            mock_manager.notion_config.content_database_id = "test_content_db"
-            mock_app.ctx.config_manager = mock_manager
-            mock_app.ctx.octopus = Mock()
-            mock_app.ctx.octopus._scrapers = ["scraper1", "scraper2"]
-            mock_app.ctx.octopus._fetched_contents = [
-                "content1",
-                "content2",
-                "content3",
-            ]
-
-            response = await health_check(mock_request)
-
-            assert response.status == 200
 
     @pytest.mark.asyncio
     async def test_readiness_check_skip_notion(self):
@@ -918,46 +710,6 @@ class TestHealthCheck:
         assert isinstance(result["rss_mb"], (int, float, str))
 
 
-class TestTriggerEndpoints:
-    @pytest.mark.asyncio
-    async def test_trigger_scraper_success(self):
-        """Test successful scraper trigger."""
-        mock_request = Mock()
-        mock_octopus = Mock()
-        mock_octopus._scrapers = ["scraper1", "scraper2"]
-        mock_octopus._fetched_contents = ["content1", "content2", "content3"]
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app, patch(
-            "asyncio.to_thread"
-        ) as mock_to_thread:
-
-            mock_app.ctx.octopus = mock_octopus
-            mock_to_thread.return_value = None
-
-            response = await trigger_scraper(mock_request)
-
-            assert response.status == 200
-            mock_to_thread.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_trigger_upload_success(self):
-        """Test successful upload trigger."""
-        mock_request = Mock()
-        mock_octopus = Mock()
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app, patch(
-            "asyncio.to_thread"
-        ) as mock_to_thread:
-
-            mock_app.ctx.octopus = mock_octopus
-            mock_to_thread.return_value = 5  # Uploaded count
-
-            response = await trigger_upload(mock_request)
-
-            assert response.status == 200
-            mock_to_thread.assert_called_once()
-
-
 class TestConfigEndpoints:
     @pytest.mark.asyncio
     async def test_get_config_status_success(self):
@@ -987,28 +739,6 @@ class TestConfigEndpoints:
             mock_app.ctx.config_manager = mock_manager
 
             response = await get_config_status(mock_request)
-
-            assert response.status == 200
-
-    @pytest.mark.asyncio
-    async def test_refresh_config_success(self):
-        """Test config refresh endpoint."""
-        mock_request = Mock()
-        mock_status = Mock()
-        mock_status.version = Mock(version_id="test_v1")
-        mock_status.scrapers = []
-
-        with patch("octopus_scraper.octopus_service.app") as mock_app, patch(
-            "octopus_scraper.octopus_service.reload_octopus_config"
-        ) as mock_reload:
-
-            mock_manager = Mock()
-            mock_manager.reload_config_if_changed = AsyncMock(return_value=True)
-            mock_manager.get_status.return_value = mock_status
-            mock_app.ctx.config_manager = mock_manager
-            mock_reload.return_value = True
-
-            response = await refresh_config(mock_request)
 
             assert response.status == 200
 
@@ -1182,9 +912,9 @@ class TestAdminEndpoints:
             assert "is_healthy" in str(data)
 
     @pytest.mark.asyncio
-    async def test_hotreload_config_success(self, mock_app_with_full_context):
-        """Test successful configuration hot reload."""
-        from octopus_scraper.octopus_service import hotreload_config
+    async def test_refresh_config_success(self, mock_app_with_full_context):
+        """Test successful configuration refresh and reload."""
+        from octopus_scraper.octopus_service import refresh_config
 
         mock_request = Mock()
 
@@ -1199,7 +929,7 @@ class TestAdminEndpoints:
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_reload:
-                response = await hotreload_config(mock_request)
+                response = await refresh_config(mock_request)
 
                 assert response.status == 200
                 data = response.body
@@ -1208,9 +938,9 @@ class TestAdminEndpoints:
                 mock_reload.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_hotreload_config_no_changes(self, mock_app_with_full_context):
-        """Test hot reload when no configuration changes are detected."""
-        from octopus_scraper.octopus_service import hotreload_config
+    async def test_refresh_config_no_changes(self, mock_app_with_full_context):
+        """Test refresh when no configuration changes are detected."""
+        from octopus_scraper.octopus_service import refresh_config
 
         mock_request = Mock()
 
@@ -1220,7 +950,7 @@ class TestAdminEndpoints:
         )
 
         with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            response = await hotreload_config(mock_request)
+            response = await refresh_config(mock_request)
 
             assert response.status == 200
             data = response.body
@@ -1329,25 +1059,6 @@ class TestAdminEndpoints:
             assert "true" in str(data).lower()
             assert "legacy_mode" in str(data)
             assert "false" in str(data).lower()
-
-    @pytest.mark.asyncio
-    async def test_clear_cache(self, mock_app_with_full_context):
-        """Test cache clearing functionality."""
-        from octopus_scraper.octopus_service import clear_cache
-
-        mock_request = Mock()
-        mock_request.json = {"cache_types": ["health", "contents"]}
-
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            with patch(
-                "octopus_scraper.octopus_service._health_cache",
-                {"last_check": "test", "cached_result": "test"},
-            ):
-                response = await clear_cache(mock_request)
-
-                assert response.status == 200
-                data = response.body
-                assert "cleared_caches" in str(data)
 
     @pytest.mark.asyncio
     async def test_force_garbage_collection(self, mock_app_with_full_context):

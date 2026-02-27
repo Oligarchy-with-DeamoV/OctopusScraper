@@ -5,8 +5,6 @@ This module handles communication with Notion databases for
 loading and managing scraper configurations.
 """
 
-import asyncio
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -126,9 +124,15 @@ class NotionConfigClient:
         """Validate connection to Notion databases."""
         try:
             # Test access to scrapers database
+            logger.info(
+                "Start Testing databases connections.",
+                scrapers_db=self.config.scrapers_database_id,
+                content_db=self.config.content_database_id,
+            )
             await self.client.databases.retrieve(
                 database_id=self.config.scrapers_database_id
             )
+            logger.info("Notion connection validation scraper database successful")
 
             # Test access to content database
             await self.client.databases.retrieve(

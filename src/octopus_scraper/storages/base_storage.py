@@ -14,7 +14,7 @@ class BaseStorage(metaclass=ABCMeta):
         """存储单个内容到存储系统"""
         raise NotImplementedError("Subclasses should implement this method.")
 
-    def _get_all_content_ids(self) -> set:
+    def get_all_content_ids(self) -> set:
         """获取存储系统中所有已存在的内容ID"""
         raise NotImplementedError("Subclasses should implement this method.")
 
@@ -29,7 +29,7 @@ class BaseStorage(metaclass=ABCMeta):
         if not contents:
             return []
 
-        existing_content_ids = self._get_all_content_ids()
+        existing_content_ids = self.get_all_content_ids()
         store_contents = []
         if deduplicate:
             logger.info("Deduplication enabled, checking existing content IDs...")

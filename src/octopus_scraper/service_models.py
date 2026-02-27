@@ -1,19 +1,21 @@
 from dataclasses import dataclass
-from typing import Dict, Optional, Any, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class TriggerScraperResponse:
     status: str  # "success" | "error"
     message: str
-    data: Optional[Dict[str, int]]  # {"source_count": int, "item_count": int}
+    data: Optional[Dict[str, Any]] = None  # {"batch_id": str, "source_count": int}
 
 
 @dataclass
 class TriggerUploadResponse:
     status: str
     message: str
-    data: Optional[Dict[str, int]]  # {"uploaded_count": int}
+    data: Optional[Dict[str, Any]] = (
+        None  # {"uploaded_count": int, "tasks_processed": int, "errors": list}
+    )
 
 
 @dataclass
@@ -62,15 +64,6 @@ class ConfigValidationResponse:
     validation_errors: List[str]
     scrapers_count: int
     scrapers: List[Dict[str, str]]
-
-
-@dataclass
-class HotReloadResponse:
-    status: str
-    message: str
-    reload_performed: bool
-    changes: Optional[Dict[str, Any]]
-    timestamp: str
 
 
 @dataclass

@@ -74,32 +74,6 @@ def test_trigger_scraper(octopus_config, patch_scraper_scrap, patch_notion):
     assert stats["completed_tasks"] >= 1
 
 
-def test_trigger_upload(octopus_config, patch_scraper_scrap, patch_notion):
-    octopus = Octopus(octopus_config)
-
-    # Trigger scraper first
-    batch_id = octopus.trigger_scraper()
-    time.sleep(0.5)  # Wait for completion
-
-    # Now test upload - but since TaskManager handles content separately,
-    # we need to manually add some content for upload test
-    from octopus_scraper.scraper import Content
-
-    test_content = Content(
-        title="Test Title",
-        link="https://example.com",
-        summary="Test Summary",
-        content="Test Content",
-        content_id="test_id",
-        published="2025-04-06T13:50:59+08:00",
-    )
-    octopus._fetched_contents.append(test_content)
-
-    result = octopus.trigger_upload()
-    assert result >= 0  # Should return success count
-    assert len(octopus._fetched_contents) == 0  # Should be cleared after upload
-
-
 def test_set_max_concurrent_scrapers(octopus_config, patch_notion):
     """测试动态设置最大并发数"""
     octopus = Octopus(octopus_config)

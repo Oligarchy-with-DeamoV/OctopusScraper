@@ -42,7 +42,7 @@ class TestNotionStorage:
         with patch.object(
             notion_storage.notion.pages, "create"
         ) as mock_create, patch.object(
-            notion_storage, "_get_all_content_ids"
+            notion_storage, "get_all_content_ids"
         ) as mock_get_all_ids:
             mock_create.return_value = {"id": "test_page_id"}
             # Mock existing content IDs - first content exists, second doesn't
@@ -101,7 +101,7 @@ class TestNotionStorage:
                 "next_cursor": None,
             }
 
-            result = notion_storage._get_all_content_ids()
+            result = notion_storage.get_all_content_ids()
 
             assert result == {"content_id_1", "content_id_2"}
             mock_query.assert_called_once_with(
@@ -141,7 +141,7 @@ class TestNotionStorage:
                 },
             ]
 
-            result = notion_storage._get_all_content_ids()
+            result = notion_storage.get_all_content_ids()
 
             assert result == {"content_id_1", "content_id_2"}
             assert mock_query.call_count == 2
