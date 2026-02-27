@@ -50,10 +50,6 @@ services:
       - octopus-network
 
   rsshub:
-    # two ways to enable puppeteer:
-    # * comment out marked lines, then use this image instead: diygod/rsshub:chromium-bundled
-    # * (consumes more disk space and memory) leave everything unchanged
-    # image: diygod/rsshub # or ghcr.io/diygod/rsshub
     image: diygod/rsshub:chromium-bundled
     restart: always
     ports:
@@ -62,9 +58,6 @@ services:
       NODE_ENV: production
       CACHE_TYPE: redis
       REDIS_URL: "redis://redis:6379/"
-      XUEQIU_COOKIES: ssxmod_itna=1-euGQBKD5GK7Iox4kDRoIDI6FGR_vPDXDUwqiQGgDYq7=GF3DCEozD0Kc0hww33D7/Okr_KVnEMDD/ze4GzDiuPGhDBWYHeNtDi=9lR6vbq5AQiyXeVKTE0SxEsHGLbUV3AC/hKwwu91sfEW49Gy85aiYDnWeDQKDoxGkDi55D0FYoe4DxxDC18o5DD4D5xDWDWpbz4SAb97QhW04goRr=e41qli4Wj0N=QmjEZikCOWY=C0jljQeY6PbIKRra5R4y0gvh3SWDlKD6coDcaoDRxDd_/8j8SRD317l2LutPjux97uxYhXNx=meCjCrx3Qmp2pe1eklqxD; ssxmod_itna2=1-euGQBKD5GK7Iox4kDRoIDI6FGR_vPDXDUwqiQGgDYq7=GF3DCEozD0Kc0hww33D7/Okr_KVnP4DWhtRQnuwrrUL5PG4o4AIKtpKaD; acw_tc=2760822b17719900645113887e24efa8e7a4efc7e1e75c593ecd6dd5e71a0f; .thumbcache_f24b8bbe5a5934237bbc0eda20c1b6e7=0gTp/S5O+6Mvln/YeoV8MQQNHCv0dy0FE9GXzhXlpvT08lzrQG2j/NQZmQPwTJ05TdM1nA43WK50XFORJhYvVQ%3D%3D; u=1244822137; xq_a_token=cb63d29355e86bd0922a9d3f4a1962a9aa017025; xq_id_token=eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJ1aWQiOjEyNDQ4MjIxMzcsImlzcyI6InVjIiwiZXhwIjoxNzczODI2NjUzLCJjdG0iOjE3NzEyMzQ2NTM0NDQsImNpZCI6ImQ5ZDBuNEFadXAifQ.o5PCjzHBFJo_KEn_ZU9wvc3aLSnF3iYxRjQxPaBWv6LgGK27lLSVoxIvFz50rBe22L8dRyxqSma94erKqerU47sK2T3VXy_CspZW6zt69TuQrEweofqhytxy_qehB2prM1PQO_wtEyO0Jy7Vt6_bX6WAYUx91NHq80TiiGbSCEjN8xrC51AedQVNiMIyw7zvSCXNVPXHueZWuxjLSSbtOKYg0MQDmvOAhgwXQHsu7In58kq_nvv4zNwJB0qqJn1VfMFg0uBRLLEEMSE4pXbsboiJhRJhEiLRgXUef_kldjVuvOryJiz7YX9X-mnwvebLHUNy6S3-pmQNJ9DoU0yxCA; xq_is_login=1; xq_r_token=01a9ad36fe2ea7647913ffcf3142a9e0d34aac19; xqat=cb63d29355e86bd0922a9d3f4a1962a9aa017025; bid=73bf4cad73c911516be1f46ec79a0e70_mi2f9qsx; s=bm1191nnoa; cookiesu=921763340250030; device_id=4114a8b4acaa1576d2e19e3e25ff413e; smidV2=20251117084410fdf5fd25791f5505c01e18e2ba63dcc500938165515cad470
-      # PUPPETEER_WS_ENDPOINT: "ws://browserless:3000" # marked
-      # PUPPETEER_REAL_BROWSER_SERVICE: "http://real-browser:3000" # marked
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
       interval: 30s
@@ -72,18 +65,8 @@ services:
       retries: 3
     depends_on:
       - redis
-      # - browserless # marked
-
-  real-browser:
-    image: ghcr.io/hyoban/puppeteer-real-browser-hono
-    restart: always
-    ports:
-      - "3001:3000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    networks:
+      - octopus-network
 
   redis:
     image: redis:alpine
@@ -96,21 +79,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 5s
-
-  # 可选：添加 Nginx 代理
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: octopus-nginx
-  #   ports:
-  #     - "80:80"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #   depends_on:
-  #     octopus-service:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-  #   networks:
-  #     - octopus-network
+    networks:
+      - octopus-network
 
 networks:
   octopus-network:
@@ -119,4 +89,3 @@ networks:
 volumes:
   logs:
   redis-data:
-

@@ -266,7 +266,7 @@ async def reload_octopus_config(app):
                 }
                 for scraper in current_scrapers
             ],
-            "notion_api_config": app.ctx.octopus._notion_api,  # Keep existing notion config
+            "notion_api_config": app.ctx.octopus._config.notion_api_config,  # Keep existing notion config
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
