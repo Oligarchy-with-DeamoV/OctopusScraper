@@ -49,6 +49,29 @@ services:
     networks:
       - octopus-network
 
+  # 定时调度服务：基于 cron，编辑 scheduler/crontab 即可管理所有定时任务
+  scheduler:
+    image: alpine:3.19
+    container_name: octopus-scheduler
+    restart: unless-stopped
+    depends_on:
+      octopus-service:
+        condition: service_healthy
+    volumes:
+      - ./scheduler/crontab:/etc/scheduler/crontab:ro
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        apk add --no-cache curl > /dev/null 2>&1
+        cp /etc/scheduler/crontab /var/spool/cron/crontabs/root
+        chmod 600 /var/spool/cron/crontabs/root
+        echo "Scheduler started with cron jobs:"
+        cat /var/spool/cron/crontabs/root
+        crond -f -l 2
+    networks:
+      - octopus-network
+
   rsshub:
     image: diygod/rsshub:chromium-bundled
     restart: always
