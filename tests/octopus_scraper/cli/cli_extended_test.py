@@ -1,16 +1,11 @@
-import argparse
-import os
-import tempfile
 from unittest.mock import Mock, mock_open, patch
 
 import pytest
 import yaml
 
 from octopus_scraper.cli import (
-    create_args,
     create_service_args,
     load_yml_config,
-    run_octopus_go,
     run_octopus_service,
 )
 
@@ -38,26 +33,6 @@ class TestCLI:
             with pytest.raises(yaml.YAMLError):
                 load_yml_config("invalid.yml")
 
-    @patch("sys.argv", ["script", "--config", "test.yml"])
-    def test_create_args_required_config(self):
-        """测试必须提供config参数"""
-        args = create_args()
-        assert args.config == "test.yml"
-        assert args.notion_upload is False
-
-    @patch("sys.argv", ["script", "--config", "test.yml", "--notion_upload"])
-    def test_create_args_with_notion_upload(self):
-        """测试带notion_upload参数"""
-        args = create_args()
-        assert args.config == "test.yml"
-        assert args.notion_upload is True
-
-    @patch("sys.argv", ["script"])
-    def test_create_args_missing_config(self):
-        """测试缺少必须的config参数"""
-        with pytest.raises(SystemExit):
-            create_args()
-
     @patch("sys.argv", ["service", "--host", "127.0.0.1", "--port", "9000", "--debug"])
     def test_create_service_args_custom_values(self):
         """测试自定义服务参数"""
@@ -77,68 +52,6 @@ class TestCLI:
         """测试日志格式选择"""
         args = create_service_args()
         assert args.log_format == "json"
-
-    @patch("octopus_scraper.cli.create_args")
-    @patch("octopus_scraper.cli.load_yml_config")
-    @patch("octopus_scraper.cli.Octopus")
-    def test_run_octopus_go_without_notion_upload(
-        self, mock_octopus, mock_load_config, mock_create_args
-    ):
-        """测试运行octopus不上传notion"""
-        # Setup mocks
-        mock_args = Mock()
-        mock_args.config = "test.yml"
-        mock_args.notion_upload = False
-        mock_create_args.return_value = mock_args
-
-        mock_config = {
-            "scrapers_config_with_fetch_params": [],
-            "notion_api_config": {"api_key": "test", "database_id": "test"},
-        }
-        mock_load_config.return_value = mock_config
-
-        mock_instance = Mock()
-        mock_octopus.return_value = mock_instance
-
-        # Run function
-        run_octopus_go()
-
-        # Verify calls
-        mock_load_config.assert_called_once_with("test.yml")
-        mock_octopus.assert_called_once_with(mock_config)
-        mock_instance.trigger_scraper.assert_called_once()
-        mock_instance.trigger_upload.assert_not_called()
-
-    @patch("octopus_scraper.cli.create_args")
-    @patch("octopus_scraper.cli.load_yml_config")
-    @patch("octopus_scraper.cli.Octopus")
-    def test_run_octopus_go_with_notion_upload(
-        self, mock_octopus, mock_load_config, mock_create_args
-    ):
-        """测试运行octopus并上传notion"""
-        # Setup mocks
-        mock_args = Mock()
-        mock_args.config = "test.yml"
-        mock_args.notion_upload = True
-        mock_create_args.return_value = mock_args
-
-        mock_config = {
-            "scrapers_config_with_fetch_params": [],
-            "notion_api_config": {"api_key": "test", "database_id": "test"},
-        }
-        mock_load_config.return_value = mock_config
-
-        mock_instance = Mock()
-        mock_octopus.return_value = mock_instance
-
-        # Run function
-        run_octopus_go()
-
-        # Verify calls
-        mock_load_config.assert_called_once_with("test.yml")
-        mock_octopus.assert_called_once_with(mock_config)
-        mock_instance.trigger_scraper.assert_called_once()
-        mock_instance.trigger_upload.assert_called_once()
 
     @patch("octopus_scraper.cli.create_service_args")
     @patch("octopus_scraper.octopus_service.app")

@@ -40,7 +40,6 @@ url = "https://mirrors.aliyun.com/pypi/simple/"
 priority = "primary"
 
 [tool.poetry.scripts]
-octopus_go = "octopus_scraper.cli:run_octopus_go"
 octopus_service = "octopus_scraper.cli:run_octopus_service"
 
 [tool.pytest.ini_options]
