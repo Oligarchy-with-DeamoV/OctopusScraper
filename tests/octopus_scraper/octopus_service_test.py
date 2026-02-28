@@ -599,7 +599,12 @@ class TestAdminEndpoints:
 
     @pytest.mark.asyncio
     async def test_refresh_config_no_changes(self, mock_app_with_full_context):
-        """Test refresh when no configuration changes are detected."""
+        """Test refresh when no configuration changes are detected.
+
+        Even when ConfigManager reports no changes, the endpoint should
+        still reload Octopus to ensure it is in sync (the background
+        watcher may have updated ConfigManager without recreating Octopus).
+        """
         from octopus_scraper.octopus_service import refresh_config
 
         mock_request = Mock()
@@ -610,13 +615,19 @@ class TestAdminEndpoints:
         )
 
         with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
-            response = await refresh_config(mock_request)
+            with patch(
+                "octopus_scraper.octopus_service.reload_octopus_config",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_reload:
+                response = await refresh_config(mock_request)
 
-            assert response.status == 200
-            data = response.body
-            assert "reload_performed" in str(data)
-            assert "false" in str(data).lower()
-            assert "No configuration changes detected" in str(data)
+                assert response.status == 200
+                data = response.body
+                assert "reload_performed" in str(data)
+                assert "true" in str(data).lower()
+                # Octopus reload is always performed to stay in sync
+                mock_reload.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_list_scrapers(self, mock_app_with_full_context):

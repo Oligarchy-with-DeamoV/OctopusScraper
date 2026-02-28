@@ -42,6 +42,12 @@ class ConfigManager:
         self._is_healthy: bool = True
         self._error_message: Optional[str] = None
 
+        # Callback invoked when configuration changes are applied.
+        # Registered via set_on_config_changed(); used by the background
+        # watcher to trigger Octopus reload without needing a direct
+        # reference to the Sanic app.
+        self._on_config_changed_callback: Optional[Any] = None
+
         # Background task control
         self._watcher_task: Optional[asyncio.Task] = None
         self._stop_watcher: bool = False
@@ -90,6 +96,17 @@ class ConfigManager:
             )
             raise
 
+    def set_on_config_changed(self, callback) -> None:
+        """Register an async callback invoked when configuration changes.
+
+        The callback receives no arguments and should handle reloading
+        any dependent components (e.g. recreating the Octopus instance).
+
+        Args:
+            callback: An async callable invoked after config changes are applied.
+        """
+        self._on_config_changed_callback = callback
+
     def start_config_watcher(self):
         """Start background task to monitor configuration changes."""
         if self._watcher_task and not self._watcher_task.done():
@@ -124,7 +141,18 @@ class ConfigManager:
                 # Check if configuration has changed
                 if await self.notion_client.check_config_changes():
                     logger.info("Configuration changes detected, reloading...")
-                    await self.reload_config_if_changed()
+                    config_changed = await self.reload_config_if_changed()
+                    # Notify dependent components (e.g. Octopus) so they
+                    # reload with the updated scraper configuration.
+                    if config_changed and self._on_config_changed_callback:
+                        try:
+                            await self._on_config_changed_callback()
+                        except Exception as cb_err:
+                            logger.error(
+                                "on_config_changed callback failed",
+                                error=str(cb_err),
+                                exc_info=True,
+                            )
                 else:
                     logger.debug("No configuration changes detected")
 

@@ -167,6 +167,13 @@ async def setup_octopus(app, _):
 
         # Start configuration monitoring
         config_manager.start_config_watcher()
+
+        # Register callback so the background watcher also reloads
+        # Octopus when configuration changes are detected.
+        async def _on_config_changed():
+            await reload_octopus_config(app)
+
+        config_manager.set_on_config_changed(_on_config_changed)
         logger.info("Configuration monitoring started")
 
     except Exception as e:
@@ -634,58 +641,52 @@ async def refresh_config(request):
         # Check if configuration has changed and reload if necessary
         config_changed = await config_manager.reload_config_if_changed()
 
-        if config_changed:
-            # Reload Octopus with new configuration
-            reload_success = await reload_octopus_config(app)
+        # Always reload Octopus to ensure it is in sync with ConfigManager.
+        # The background config watcher may have updated ConfigManager
+        # without recreating the Octopus instance, causing a mismatch
+        # where /admin/scrapers shows the new config but trigger_scraper
+        # still uses the stale startup configuration.
+        reload_success = await reload_octopus_config(app)
 
-            if reload_success:
-                new_version = config_manager.get_current_version()
-                new_scrapers_count = len(config_manager.get_current_scrapers())
+        if reload_success:
+            new_version = config_manager.get_current_version()
+            new_scrapers_count = len(config_manager.get_current_scrapers())
 
-                return json(
-                    {
-                        "status": "success",
-                        "message": "Configuration refreshed and reloaded successfully",
-                        "config_changed": True,
-                        "reload_performed": True,
-                        "changes": {
-                            "old_version": (
-                                old_version.version_id if old_version else None
-                            ),
-                            "new_version": (
-                                new_version.version_id if new_version else None
-                            ),
-                            "old_scrapers_count": old_scrapers_count,
-                            "new_scrapers_count": new_scrapers_count,
-                            "change_summary": (
-                                new_version.change_summary if new_version else None
-                            ),
-                        },
-                        "timestamp": datetime.now().isoformat(),
-                    }
-                )
-            else:
-                return json(
-                    {
-                        "status": "error",
-                        "message": "Configuration changed but reload failed",
-                        "config_changed": True,
-                        "reload_performed": False,
-                    },
-                    status=500,
-                )
-        else:
             return json(
                 {
                     "status": "success",
-                    "message": "No configuration changes detected",
-                    "config_changed": False,
-                    "reload_performed": False,
-                    "current_version": (
-                        old_version.version_id if old_version else None
+                    "message": (
+                        "Configuration refreshed and reloaded successfully"
+                        if config_changed
+                        else "Octopus reloaded with current configuration"
                     ),
-                    "scrapers_count": old_scrapers_count,
+                    "config_changed": config_changed,
+                    "reload_performed": True,
+                    "changes": {
+                        "old_version": (
+                            old_version.version_id if old_version else None
+                        ),
+                        "new_version": (
+                            new_version.version_id if new_version else None
+                        ),
+                        "old_scrapers_count": old_scrapers_count,
+                        "new_scrapers_count": new_scrapers_count,
+                        "change_summary": (
+                            new_version.change_summary if new_version else None
+                        ),
+                    },
+                    "timestamp": datetime.now().isoformat(),
                 }
+            )
+        else:
+            return json(
+                {
+                    "status": "error",
+                    "message": "Octopus reload failed",
+                    "config_changed": config_changed,
+                    "reload_performed": False,
+                },
+                status=500,
             )
 
     except Exception as e:

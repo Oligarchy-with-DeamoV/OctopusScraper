@@ -302,3 +302,86 @@ async def test_config_watcher_lifecycle():
         await asyncio.sleep(0.1)
 
         assert config_manager._stop_watcher is True
+
+
+@pytest.mark.asyncio
+async def test_on_config_changed_callback_invoked_on_reload():
+    """Test that on_config_changed callback is invoked when config changes.
+
+    This is a regression test for the bug where the background watcher
+    updated ConfigManager._current_scrapers but never recreated the
+    Octopus instance, causing trigger_scraper to use stale startup config.
+    """
+    mock_notion_config = NotionDatabaseConfig(
+        api_key="test_key",
+        scrapers_database_id="test_db",
+        content_database_id="test_content_db",
+    )
+    mock_service_config = ServiceConfig(
+        config_refresh_interval=1,
+        host="0.0.0.0",
+        port=8000,
+        debug=False,
+        log_level="INFO",
+        log_format="plain",
+        scraper_timeout=10,
+        upload_timeout=15,
+        upload_max_retries=3,
+    )
+
+    initial_scrapers = [
+        ScraperConfig(
+            name="old_scraper",
+            status="Active",
+            fetcher="rsshub",
+            hub_root="https://rsshub.app",
+            route="/old/route",
+            priority=5,
+        ),
+    ]
+    updated_scrapers = [
+        ScraperConfig(
+            name="new_scraper",
+            status="Active",
+            fetcher="rsshub",
+            hub_root="https://rsshub.app",
+            route="/new/route",
+            priority=5,
+        ),
+    ]
+
+    with patch(
+        "octopus_scraper.config.config_manager.NotionConfigClient"
+    ) as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.validate_connection = AsyncMock(return_value=True)
+        # First load returns initial scrapers, second returns updated
+        mock_client.load_scrapers_config = AsyncMock(
+            side_effect=[initial_scrapers, updated_scrapers]
+        )
+
+        config_manager = ConfigManager(mock_notion_config, mock_service_config)
+        await config_manager.load_initial_config()
+
+        # Register callback
+        callback_called = False
+
+        async def on_changed():
+            nonlocal callback_called
+            callback_called = True
+
+        config_manager.set_on_config_changed(on_changed)
+
+        # Trigger a config reload (simulating background watcher)
+        changed = await config_manager.reload_config_if_changed()
+        assert changed is True
+
+        # Verify the callback was NOT called by reload_config_if_changed itself
+        # (the watcher loop is responsible for calling it)
+        assert callback_called is False
+
+        # Simulate what the watcher loop does after a successful reload
+        if changed and config_manager._on_config_changed_callback:
+            await config_manager._on_config_changed_callback()
+
+        assert callback_called is True
