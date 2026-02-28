@@ -32,10 +32,18 @@ class TestNotionStorage:
                 content_id=uuid.uuid4().hex[:20],
                 content="content",
                 published="2025-04-06T13:50:59+08:00",
+                scraper_name="test-scraper",
             )
             result = notion_storage._store_content(content)
             assert result == True
             mock_create.assert_called_once()
+
+            # Verify the Source select property is included in the call
+            call_kwargs = mock_create.call_args
+            properties = call_kwargs.kwargs.get(
+                "properties", call_kwargs[1].get("properties", {})
+            )
+            assert properties["Source"] == {"select": {"name": "test-scraper"}}
 
     def test_store_contents(self, notion_storage):
         """Test the optimized batch storage method with deduplication"""
@@ -76,8 +84,34 @@ class TestNotionStorage:
             # Should call get_all_content_ids only once for batch dedup
             mock_get_all_ids.assert_called_once()
 
-    def test_get_all_content_ids(self, notion_storage):
-        """Test getting all content IDs from Notion database"""
+    def test_build_properties_with_scraper_name(self, notion_storage):
+        """Test _build_properties includes Source select when scraper_name is set."""
+        content = Content(
+            title="test",
+            link="https://example.com",
+            summary="summary",
+            content_id="abc123",
+            content="body",
+            published="2025-04-06T13:50:59+08:00",
+            scraper_name="hacker-news",
+        )
+        properties = notion_storage._build_properties(content)
+        assert properties["Source"] == {"select": {"name": "hacker-news"}}
+
+    def test_build_properties_without_scraper_name(self, notion_storage):
+        """Test _build_properties sets Source to null select when scraper_name is None."""
+        content = Content(
+            title="test",
+            link="https://example.com",
+            summary="summary",
+            content_id="abc123",
+            content="body",
+            published="2025-04-06T13:50:59+08:00",
+        )
+        properties = notion_storage._build_properties(content)
+        assert properties["Source"] == {"select": None}
+
+    def test_get_all_content_ids_basic(self, notion_storage):
         with patch.object(notion_storage.notion.databases, "query") as mock_query:
             # Mock first page response
             mock_query.return_value = {

@@ -389,6 +389,11 @@ class TaskManager:
                 duration_seconds=result.duration_seconds,
             )
 
+            # Stamp each content with the scraper source name for tracking
+            for content_item in contents:
+                if not content_item.scraper_name:
+                    content_item.scraper_name = task.scraper_name
+
             # Store contents for later upload (if needed)
             # This could be enhanced to use a proper content store
             result.metadata["contents"] = contents

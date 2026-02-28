@@ -1,6 +1,7 @@
 """
 Tests for config/models.py module.
 """
+
 from datetime import datetime
 
 import pytest
@@ -36,6 +37,7 @@ class TestScraperConfig:
             "route": "/test",
             "fetch_params": {"key": "value"},
             "priority": 3,
+            "content_processor_configs": {},
         }
 
         assert octopus_config == expected

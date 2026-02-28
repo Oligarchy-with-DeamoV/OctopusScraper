@@ -92,7 +92,8 @@ class Octopus:
         for scraper, params in self._scrapers:
             # 从 scraper 配置中提取信息
             scraper_config = {
-                "name": getattr(scraper.config, "fetcher_name", "unknown"),
+                "name": getattr(scraper.config, "scraper_name", None)
+                or getattr(scraper.config, "fetcher_name", "unknown"),
                 "fetcher_name": scraper.config.fetcher_name,
                 "fetcher_config": scraper.config.fetcher_config,
                 "content_processor_configs": scraper.config.content_processor_configs,

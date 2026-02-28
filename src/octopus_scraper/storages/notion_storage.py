@@ -19,6 +19,7 @@ NOTION_PROPERTIY_URL = "URL"
 NOTION_PROPERTY_AUTHOR_NAME = "Author"
 NOTION_PROPERTY_KEYWORDS_NAME = "Keywords"
 NOTION_PROPERTY_TAGS_NAME = "Tags"
+NOTION_PROPERTY_SOURCE_NAME = "Source"
 
 
 @dataclass
@@ -99,6 +100,7 @@ class NotionStorage(BaseStorage):
                 NOTION_PROPERTY_AUTHOR_NAME: {"rich_text": {}},
                 NOTION_PROPERTY_KEYWORDS_NAME: {"multi_select": {}},
                 NOTION_PROPERTY_TAGS_NAME: {"multi_select": {}},
+                NOTION_PROPERTY_SOURCE_NAME: {"select": {}},
             },
         )
 
@@ -132,6 +134,11 @@ class NotionStorage(BaseStorage):
             NOTION_PROPERTY_TAGS_NAME: {
                 "multi_select": [{"name": tag} for tag in (content.tags or [])],
             },
+            NOTION_PROPERTY_SOURCE_NAME: (
+                {"select": {"name": content.scraper_name}}
+                if content.scraper_name
+                else {"select": None}
+            ),
         }
 
     def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:

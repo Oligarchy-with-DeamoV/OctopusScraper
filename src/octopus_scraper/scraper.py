@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Text
+from typing import Any, Dict, List, Literal, Optional, Text
 
 import structlog
 from dacite import from_dict
@@ -16,9 +16,12 @@ logger = structlog.getLogger(__name__)
 
 @dataclass
 class BaseScraperConfig:
+    """Base configuration for a scraper instance."""
+
     fetcher_name: str
     fetcher_config: Any
     content_processor_configs: Dict[Text, Any]
+    scraper_name: Optional[str] = None  # Human-readable name of the scraper source
 
 
 class Scraper:
