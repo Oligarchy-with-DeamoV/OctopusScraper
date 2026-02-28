@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import structlog
 from dacite import Config, from_dict
@@ -20,6 +20,7 @@ NOTION_PROPERTY_AUTHOR_NAME = "Author"
 NOTION_PROPERTY_KEYWORDS_NAME = "Keywords"
 NOTION_PROPERTY_TAGS_NAME = "Tags"
 NOTION_PROPERTY_SOURCE_NAME = "Source"
+NOTION_PROPERTY_PUBLISHED_DATE = "Published Date"
 
 
 @dataclass
@@ -101,6 +102,7 @@ class NotionStorage(BaseStorage):
                 NOTION_PROPERTY_KEYWORDS_NAME: {"multi_select": {}},
                 NOTION_PROPERTY_TAGS_NAME: {"multi_select": {}},
                 NOTION_PROPERTY_SOURCE_NAME: {"select": {}},
+                NOTION_PROPERTY_PUBLISHED_DATE: {"date": {}},
             },
         )
 
@@ -139,7 +141,36 @@ class NotionStorage(BaseStorage):
                 if content.scraper_name
                 else {"select": None}
             ),
+            NOTION_PROPERTY_PUBLISHED_DATE: (
+                {"date": {"start": parsed_date}}
+                if (parsed_date := self._parse_published_date(content.published))
+                else {"date": None}
+            ),
         }
+
+    def _parse_published_date(self, published: str) -> Optional[str]:
+        """Parse published date string to ISO 8601 format for Notion.
+
+        Args:
+            published: Date string from RSS feed (e.g. '2025-04-06T13:50:59+08:00').
+
+        Returns:
+            ISO 8601 formatted date string, or None if parsing fails.
+        """
+        if not published:
+            return None
+        try:
+            from dateutil import parser as date_parser
+
+            dt = date_parser.parse(published)
+            return dt.isoformat()
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                "Failed to parse published date",
+                published=published,
+                error=str(e),
+            )
+            return None
 
     def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:
         """将长文本按自然段落分割成符合Notion限制的块"""

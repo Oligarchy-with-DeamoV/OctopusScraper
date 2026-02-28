@@ -45,6 +45,11 @@ class TestNotionStorage:
             )
             assert properties["Source"] == {"select": {"name": "test-scraper"}}
 
+            # Verify the Published Date property is included in the call
+            assert properties["Published Date"] == {
+                "date": {"start": "2025-04-06T13:50:59+08:00"}
+            }
+
     def test_store_contents(self, notion_storage):
         """Test the optimized batch storage method with deduplication"""
         with patch.object(
@@ -110,6 +115,47 @@ class TestNotionStorage:
         )
         properties = notion_storage._build_properties(content)
         assert properties["Source"] == {"select": None}
+
+    def test_build_properties_with_published_date(self, notion_storage):
+        """Test _build_properties includes Published Date when published is a valid date."""
+        content = Content(
+            title="test",
+            link="https://example.com",
+            summary="summary",
+            content_id="abc123",
+            content="body",
+            published="2025-04-06T13:50:59+08:00",
+        )
+        properties = notion_storage._build_properties(content)
+        assert properties["Published Date"] == {
+            "date": {"start": "2025-04-06T13:50:59+08:00"}
+        }
+
+    def test_build_properties_with_empty_published(self, notion_storage):
+        """Test _build_properties sets Published Date to null when published is empty."""
+        content = Content(
+            title="test",
+            link="https://example.com",
+            summary="summary",
+            content_id="abc123",
+            content="body",
+            published="",
+        )
+        properties = notion_storage._build_properties(content)
+        assert properties["Published Date"] == {"date": None}
+
+    def test_build_properties_with_unparseable_published(self, notion_storage):
+        """Test _build_properties handles unparseable published date gracefully."""
+        content = Content(
+            title="test",
+            link="https://example.com",
+            summary="summary",
+            content_id="abc123",
+            content="body",
+            published="not-a-valid-date",
+        )
+        properties = notion_storage._build_properties(content)
+        assert properties["Published Date"] == {"date": None}
 
     def test_get_all_content_ids_basic(self, notion_storage):
         with patch.object(notion_storage.notion.databases, "query") as mock_query:
