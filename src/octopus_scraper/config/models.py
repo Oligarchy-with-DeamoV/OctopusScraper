@@ -18,6 +18,7 @@ class ScraperConfig:
     route: str
     fetch_params: Optional[Dict[str, Any]] = None
     priority: int = 5
+    content_processor_configs: Dict[str, Any] = field(default_factory=dict)
 
     def to_octopus_config(self) -> Dict[str, Any]:
         """Convert to format expected by Octopus class."""
@@ -28,6 +29,7 @@ class ScraperConfig:
             "route": self.route,
             "fetch_params": self.fetch_params or {},
             "priority": self.priority,
+            "content_processor_configs": self.content_processor_configs,
         }
 
     @classmethod
@@ -38,21 +40,24 @@ class ScraperConfig:
         # Extract properties from Notion record
         properties = record.get("properties", {})
 
-        name = properties.get("Name", {}).get("title", [{}])[0].get("plain_text", "")
+        # Helper: safely get first element's plain_text from a list property
+        def _get_first_text(prop: dict, field_type: str) -> str:
+            items = prop.get(field_type, [])
+            if not items:
+                return ""
+            return items[0].get("plain_text", "")
+
+        name = _get_first_text(properties.get("Name", {}), "title")
         status = properties.get("Status", {}).get("select", {}).get("name", "Inactive")
         fetcher = properties.get("Fetcher", {}).get("select", {}).get("name", "rsshub")
         hub_root = properties.get("Hub Root", {}).get("url", "")
-        route = (
-            properties.get("Route", {}).get("rich_text", [{}])[0].get("plain_text", "")
-        )
+        route = _get_first_text(properties.get("Route", {}), "rich_text")
         priority_value = properties.get("Priority", {}).get("number")
         priority = priority_value if priority_value is not None else 5
 
         # Parse fetch params JSON
-        fetch_params_text = (
-            properties.get("Fetch Params", {})
-            .get("rich_text", [{}])[0]
-            .get("plain_text", "")
+        fetch_params_text = _get_first_text(
+            properties.get("Fetch Params", {}), "rich_text"
         )
         fetch_params = None
         if fetch_params_text:
@@ -69,6 +74,35 @@ class ScraperConfig:
                     fetch_params_text=fetch_params_text,
                 )
 
+        # Parse content processor configs JSON
+        content_processor_configs: Dict[str, Any] = {}
+        content_processors_text = _get_first_text(
+            properties.get("Content Processors", {}), "rich_text"
+        )
+        if content_processors_text:
+            try:
+                parsed_configs = json.loads(content_processors_text)
+                if isinstance(parsed_configs, dict):
+                    content_processor_configs = parsed_configs
+                else:
+                    import structlog
+
+                    logger = structlog.get_logger()
+                    logger.warning(
+                        "Content Processors must be a JSON object, ignoring",
+                        scraper_name=name,
+                        content_processors_text=content_processors_text,
+                    )
+            except json.JSONDecodeError:
+                import structlog
+
+                logger = structlog.get_logger()
+                logger.warning(
+                    "Invalid JSON in Content Processors",
+                    scraper_name=name,
+                    content_processors_text=content_processors_text,
+                )
+
         return cls(
             name=name,
             status=status,
@@ -77,6 +111,7 @@ class ScraperConfig:
             route=route,
             fetch_params=fetch_params,
             priority=priority,
+            content_processor_configs=content_processor_configs,
         )
 
 

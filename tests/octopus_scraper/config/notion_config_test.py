@@ -1,6 +1,7 @@
 """
 Tests for config/notion_config.py module.
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -28,13 +29,17 @@ class TestNotionConfigClient:
         """Test successful connection validation."""
         with patch.object(
             notion_client.client.databases, "retrieve", new_callable=AsyncMock
-        ) as mock_retrieve:
-            mock_retrieve.return_value = {"id": "database_id"}
+        ) as mock_retrieve, patch.object(
+            notion_client.client.databases, "update", new_callable=AsyncMock
+        ) as mock_update:
+            mock_retrieve.return_value = {"id": "database_id", "properties": {}}
+            mock_update.return_value = {"id": "database_id"}
 
             result = await notion_client.validate_connection()
 
             assert result == True
-            assert mock_retrieve.call_count == 2  # Called for both databases
+            # 3 calls: scrapers DB, schema check retrieve, content DB
+            assert mock_retrieve.call_count == 3
 
     @pytest.mark.asyncio
     async def test_validate_connection_failure(self, notion_client):
@@ -47,6 +52,92 @@ class TestNotionConfigClient:
             result = await notion_client.validate_connection()
 
             assert result == False
+
+    @pytest.mark.asyncio
+    async def test_ensure_scrapers_database_schema_creates_missing_columns(
+        self, notion_client
+    ):
+        """Test that _ensure_scrapers_database_schema only creates missing columns."""
+        with patch.object(
+            notion_client.client.databases, "retrieve", new_callable=AsyncMock
+        ) as mock_retrieve, patch.object(
+            notion_client.client.databases, "update", new_callable=AsyncMock
+        ) as mock_update:
+            # Simulate existing columns — everything except Content Processors
+            mock_retrieve.return_value = {
+                "id": "database_id",
+                "properties": {
+                    "Name": {"id": "title"},
+                    "Status": {"id": "sel1"},
+                    "Fetcher": {"id": "sel2"},
+                    "Hub Root": {"id": "url1"},
+                    "Route": {"id": "rt1"},
+                    "Priority": {"id": "num1"},
+                    "Fetch Params": {"id": "rt2"},
+                },
+            }
+            mock_update.return_value = {"id": "database_id"}
+
+            await notion_client._ensure_scrapers_database_schema()
+
+            mock_update.assert_called_once()
+            call_kwargs = mock_update.call_args
+            properties = call_kwargs.kwargs.get("properties", {}) or call_kwargs[1].get(
+                "properties", {}
+            )
+            # Only the missing column should be created
+            assert "Content Processors" in properties
+            assert properties["Content Processors"] == {"rich_text": {}}
+            # Existing columns should NOT be included (avoids clearing select options)
+            assert "Status" not in properties
+            assert "Fetcher" not in properties
+            assert "Name" not in properties
+
+    @pytest.mark.asyncio
+    async def test_ensure_schema_skips_update_when_all_columns_exist(
+        self, notion_client
+    ):
+        """No databases.update() call when all required columns already exist."""
+        with patch.object(
+            notion_client.client.databases, "retrieve", new_callable=AsyncMock
+        ) as mock_retrieve, patch.object(
+            notion_client.client.databases, "update", new_callable=AsyncMock
+        ) as mock_update:
+            # All columns already exist
+            mock_retrieve.return_value = {
+                "id": "database_id",
+                "properties": {
+                    "Name": {"id": "title"},
+                    "Status": {"id": "sel1"},
+                    "Fetcher": {"id": "sel2"},
+                    "Hub Root": {"id": "url1"},
+                    "Route": {"id": "rt1"},
+                    "Priority": {"id": "num1"},
+                    "Fetch Params": {"id": "rt2"},
+                    "Content Processors": {"id": "rt3"},
+                },
+            }
+
+            await notion_client._ensure_scrapers_database_schema()
+
+            # Should NOT call update since nothing is missing
+            mock_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ensure_schema_failure_does_not_break_validation(self, notion_client):
+        """Schema initialization failure should not prevent validate_connection from succeeding."""
+        with patch.object(
+            notion_client.client.databases, "retrieve", new_callable=AsyncMock
+        ) as mock_retrieve, patch.object(
+            notion_client.client.databases, "update", new_callable=AsyncMock
+        ) as mock_update:
+            mock_retrieve.return_value = {"id": "database_id", "properties": {}}
+            mock_update.side_effect = Exception("Permission denied")
+
+            result = await notion_client.validate_connection()
+
+            # Should still succeed — schema init failure is a warning, not fatal
+            assert result == True
 
     @pytest.mark.asyncio
     async def test_load_scrapers_config_success(self, notion_client):

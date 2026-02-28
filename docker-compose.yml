@@ -26,7 +26,13 @@ services:
 
     # 健康检查配置（slim 镜像无 curl，使用 Python 内置检查）
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/liveness')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/liveness')",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -252,6 +252,25 @@ class ConfigManager:
                     f"Scraper '{scraper.name}' has invalid priority: {scraper.priority}"
                 )
 
+            # Validate content_processor_configs
+            if scraper.content_processor_configs:
+                from octopus_scraper.processors import AVALIABLE_PROCESSOR
+
+                for (
+                    processor_key,
+                    processor_cfg,
+                ) in scraper.content_processor_configs.items():
+                    if processor_key not in AVALIABLE_PROCESSOR:
+                        errors.append(
+                            f"Scraper '{scraper.name}' references unknown processor: "
+                            f"'{processor_key}'. Available: {list(AVALIABLE_PROCESSOR.keys())}"
+                        )
+                    if not isinstance(processor_cfg, dict):
+                        errors.append(
+                            f"Scraper '{scraper.name}' has invalid config for processor "
+                            f"'{processor_key}': must be a dict"
+                        )
+
         return errors
 
     def get_current_config_status(self) -> ConfigStatus:
@@ -316,6 +335,7 @@ class ConfigManager:
                     "route": scraper.route,
                     "fetch_params": scraper.fetch_params,
                     "priority": scraper.priority,
+                    "content_processor_configs": scraper.content_processor_configs,
                 }
             )
 

@@ -120,6 +120,75 @@ class NotionConfigClient:
             logger.error("Failed to get database info", error=str(e))
             return {}
 
+    async def _ensure_scrapers_database_schema(self) -> None:
+        """Ensure required columns exist in the scrapers Notion database.
+
+        Retrieves current database schema first, then only creates
+        columns that are missing. This avoids overwriting existing
+        select options (e.g. Status, Fetcher) which would be cleared
+        if we passed ``{"select": {}}`` for an existing select column.
+        """
+        # Define the expected schema — column name → property type definition
+        # For select columns, pre-populate options so new databases are ready to use
+        expected_properties: Dict[str, Dict[str, Any]] = {
+            "Name": {"title": {}},
+            "Status": {
+                "select": {
+                    "options": [
+                        {"name": "Active", "color": "green"},
+                        {"name": "Inactive", "color": "red"},
+                    ]
+                }
+            },
+            "Fetcher": {
+                "select": {
+                    "options": [
+                        {"name": "rsshub", "color": "blue"},
+                        {"name": "direct_rss", "color": "purple"},
+                    ]
+                }
+            },
+            "Hub Root": {"url": {}},
+            "Route": {"rich_text": {}},
+            "Priority": {"number": {}},
+            "Fetch Params": {"rich_text": {}},
+            "Content Processors": {"rich_text": {}},
+        }
+
+        try:
+            # Retrieve current database schema to find existing columns
+            db_info = await self.client.databases.retrieve(
+                database_id=self.config.scrapers_database_id
+            )
+            existing_properties = set(db_info.get("properties", {}).keys())
+
+            # Only add columns that are missing
+            missing_properties = {
+                name: prop_def
+                for name, prop_def in expected_properties.items()
+                if name not in existing_properties
+            }
+
+            if not missing_properties:
+                logger.debug("All required scrapers database columns already exist")
+                return
+
+            logger.info(
+                "Creating missing scrapers database columns",
+                missing_columns=list(missing_properties.keys()),
+            )
+
+            await self.client.databases.update(
+                database_id=self.config.scrapers_database_id,
+                properties=missing_properties,
+            )
+            logger.info("Scrapers database schema ensured successfully")
+        except Exception as e:
+            logger.warning(
+                "Failed to ensure scrapers database schema, columns may need manual creation",
+                error=str(e),
+            )
+
     async def validate_connection(self) -> bool:
         """Validate connection to Notion databases."""
         try:
@@ -133,6 +202,9 @@ class NotionConfigClient:
                 database_id=self.config.scrapers_database_id
             )
             logger.info("Notion connection validation scraper database successful")
+
+            # Ensure required columns exist (idempotent)
+            await self._ensure_scrapers_database_schema()
 
             # Test access to content database
             await self.client.databases.retrieve(
