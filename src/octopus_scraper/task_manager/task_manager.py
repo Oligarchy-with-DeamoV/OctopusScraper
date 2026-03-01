@@ -365,18 +365,40 @@ class TaskManager:
             contents = scraper.scrap_contents(task.fetch_params)
             execution_time = time.time() - start_time
 
-            # Update result
-            result.mark_completed(
-                items_fetched=len(contents),
-                items_processed=len(contents),  # Assume all fetched items are processed
-                items_uploaded=0,  # Upload happens separately
-            )
+            # Stamp each content with the scraper source name for tracking
+            # NOTE: This MUST happen BEFORE mark_completed() to avoid a
+            # race condition where trigger_upload sees the task as COMPLETED
+            # but the contents are not yet stamped or stored in metadata.
+            for content_item in contents:
+                if not content_item.scraper_name:
+                    content_item.scraper_name = task.scraper_name
+
+            # Verify all contents have scraper_name set
+            missing_source_count = sum(1 for c in contents if not c.scraper_name)
+            if missing_source_count > 0:
+                logger.warning(
+                    "Some contents still missing scraper_name after stamping",
+                    task_id=task.task_id,
+                    missing_count=missing_source_count,
+                    total_count=len(contents),
+                )
+
+            # Store contents in metadata BEFORE marking completed
             result.metadata.update(
                 {
                     "execution_time_seconds": execution_time,
                     "scraper_config": task.scraper_name,
                     "fetch_params": task.fetch_params,
+                    "contents": contents,
                 }
+            )
+
+            # Mark completed AFTER contents are stamped and stored,
+            # so trigger_upload never sees a COMPLETED task without contents.
+            result.mark_completed(
+                items_fetched=len(contents),
+                items_processed=len(contents),
+                items_uploaded=0,  # Upload happens separately
             )
 
             self._stats["completed_tasks"] += 1
@@ -388,15 +410,6 @@ class TaskManager:
                 items_fetched=len(contents),
                 duration_seconds=result.duration_seconds,
             )
-
-            # Stamp each content with the scraper source name for tracking
-            for content_item in contents:
-                if not content_item.scraper_name:
-                    content_item.scraper_name = task.scraper_name
-
-            # Store contents for later upload (if needed)
-            # This could be enhanced to use a proper content store
-            result.metadata["contents"] = contents
 
         except Exception as e:
             # Handle task failure

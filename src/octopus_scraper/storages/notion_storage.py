@@ -255,23 +255,37 @@ class NotionStorage(BaseStorage):
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _store_content(self, content: Content) -> bool:
-        """存储单个内容，不做重复性检查"""
-        try:
-            content_chunks = self._split_text_chunks(
-                content.content, max_len=MAX_NOTION_SUMMARY_LENGTH
-            )
-            children = []
-            for chunk in content_chunks:
-                children.extend(self._parse_markdown_to_notion_blocks(chunk))
+        """存储单个内容，不做重复性检查。
 
-            # 直接存储，不检查是否存在
-            self.notion.pages.create(
-                parent={"database_id": self.config.database_id},
-                properties=self._build_properties(content),
-                children=children,
+        Raises on transient API errors so that the @retry decorator can retry.
+        Returns False only for permanent/non-retryable failures.
+        """
+        # Warn if scraper_name (Source) is missing — helps diagnose unstable Source field
+        if not content.scraper_name:
+            logger.warning(
+                "Content has no scraper_name (Source will be empty in Notion)",
+                content_id=content.content_id,
+                title=content.title[:80],
             )
-            logger.info("Content stored successfully", content_id=content.content_id)
-            return True
-        except Exception as e:
-            logger.error(f"存储失败: {e}", content_id=content.content_id)
-            return False
+
+        content_chunks = self._split_text_chunks(
+            content.content, max_len=MAX_NOTION_SUMMARY_LENGTH
+        )
+        children = []
+        for chunk in content_chunks:
+            children.extend(self._parse_markdown_to_notion_blocks(chunk))
+
+        # Let exceptions propagate so @retry can handle transient API errors.
+        # This fixes the previous bug where all exceptions were caught inside
+        # try/except, making the @retry decorator completely ineffective.
+        self.notion.pages.create(
+            parent={"database_id": self.config.database_id},
+            properties=self._build_properties(content),
+            children=children,
+        )
+        logger.info(
+            "Content stored successfully",
+            content_id=content.content_id,
+            source=content.scraper_name,
+        )
+        return True

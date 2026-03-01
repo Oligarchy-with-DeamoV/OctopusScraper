@@ -47,13 +47,25 @@ class BaseStorage(metaclass=ABCMeta):
         # Upload Contents
         results = []
         for content in store_contents:
-            results.append(self._store_content(content))
+            try:
+                results.append(self._store_content(content))
+            except Exception as e:
+                logger.error(
+                    "Failed to store content after retries",
+                    content_id=content.content_id,
+                    error=str(e),
+                )
+                results.append(False)
 
         # 为已存在的内容返回 True（表示"处理成功"）
         skipped_count = len(contents) - len(store_contents)
         results.extend([True] * skipped_count)
 
+        success_count = sum(1 for r in results if r)
+        failure_count = sum(1 for r in results if not r)
         logger.info(
-            f"Batch storage completed: {len(store_contents)} stored, {skipped_count} skipped (1 API call for deduplicate check)"
+            f"Batch storage completed: {success_count} stored, "
+            f"{failure_count} failed, {skipped_count} skipped "
+            f"(1 API call for deduplicate check)"
         )
         return results
