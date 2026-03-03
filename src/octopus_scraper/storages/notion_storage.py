@@ -91,19 +91,50 @@ class NotionStorage(BaseStorage):
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
     def _check_property_exist(self):
+        """Ensure required properties exist in the content database.
+
+        Retrieves the current database schema first and only creates
+        properties that are missing.  This avoids overwriting existing
+        select / multi_select options (e.g. Source, Tags, Keywords)
+        which would be cleared if we unconditionally passed
+        ``{"select": {}}`` for an existing column.
+        """
+        # Define expected property schemas
+        expected_properties = {
+            NOTION_PROPERTIY_TITLE_NAME: {"title": {}},
+            NOTION_PROPERTIY_SUMMARY_NAME: {"rich_text": {}},
+            NOTION_PROPERTIY_URL: {"url": {}},
+            NOTION_PROPERTIY_CONTENT_ID: {"rich_text": {}},
+            NOTION_PROPERTY_AUTHOR_NAME: {"rich_text": {}},
+            NOTION_PROPERTY_KEYWORDS_NAME: {"multi_select": {}},
+            NOTION_PROPERTY_TAGS_NAME: {"multi_select": {}},
+            NOTION_PROPERTY_SOURCE_NAME: {"select": {}},
+            NOTION_PROPERTY_PUBLISHED_DATE: {"date": {}},
+        }
+
+        # Retrieve current database schema to find existing columns
+        db_info = self.notion.databases.retrieve(database_id=self.config.database_id)
+        existing_properties = set(db_info.get("properties", {}).keys())
+
+        # Only add columns that are missing
+        missing_properties = {
+            name: prop_def
+            for name, prop_def in expected_properties.items()
+            if name not in existing_properties
+        }
+
+        if not missing_properties:
+            logger.debug("All required content database columns already exist")
+            return
+
+        logger.info(
+            "Creating missing content database columns",
+            missing_columns=list(missing_properties.keys()),
+        )
+
         self.notion.databases.update(
             database_id=self.config.database_id,
-            properties={
-                NOTION_PROPERTIY_TITLE_NAME: {"title": {}},
-                NOTION_PROPERTIY_SUMMARY_NAME: {"rich_text": {}},
-                NOTION_PROPERTIY_URL: {"url": {}},
-                NOTION_PROPERTIY_CONTENT_ID: {"rich_text": {}},
-                NOTION_PROPERTY_AUTHOR_NAME: {"rich_text": {}},
-                NOTION_PROPERTY_KEYWORDS_NAME: {"multi_select": {}},
-                NOTION_PROPERTY_TAGS_NAME: {"multi_select": {}},
-                NOTION_PROPERTY_SOURCE_NAME: {"select": {}},
-                NOTION_PROPERTY_PUBLISHED_DATE: {"date": {}},
-            },
+            properties=missing_properties,
         )
 
     def _build_properties(self, content: Content) -> dict:
