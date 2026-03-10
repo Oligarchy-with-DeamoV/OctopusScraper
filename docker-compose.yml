@@ -23,6 +23,7 @@ services:
       - SERVICE_PORT=${SERVICE_PORT:-8000}
       - DEBUG=${DEBUG:-false}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      - OCTOPUS_LOG_LEVEL=INFO
 
     # 健康检查配置（slim 镜像无 curl，使用 Python 内置检查）
     healthcheck:
@@ -79,7 +80,7 @@ services:
       - octopus-network
 
   rsshub:
-    image: diygod/rsshub:chromium-bundled
+    image: rsshub:local_dev
     restart: always
     ports:
       - "1200:1200"

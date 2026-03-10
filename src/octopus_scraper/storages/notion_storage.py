@@ -1,11 +1,13 @@
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+import httpx
 import structlog
 from dacite import Config, from_dict
 from notion_client import Client
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from octopus_scraper.protos import Content
 from octopus_scraper.storages.base_storage import BaseStorage
@@ -21,6 +23,10 @@ NOTION_PROPERTY_KEYWORDS_NAME = "Keywords"
 NOTION_PROPERTY_TAGS_NAME = "Tags"
 NOTION_PROPERTY_SOURCE_NAME = "Source"
 NOTION_PROPERTY_PUBLISHED_DATE = "Published Date"
+
+# Rate limiting: Notion recommends 3 requests per second
+# We'll be more conservative and use 2 requests per second
+NOTION_MIN_REQUEST_INTERVAL = 0.5  # 500ms between requests = 2 req/sec
 
 
 @dataclass
@@ -48,6 +54,28 @@ class NotionStorage(BaseStorage):
 
         self.notion = Client(auth=self.config.api_key)
         self._check_property_exist()
+
+        # Rate limiting: track last request time
+        self._last_request_time = 0.0
+
+    def _rate_limit(self):
+        """Enforce rate limiting to avoid hitting Notion API limits.
+
+        Notion recommends max 3 requests per second. We use 2 req/sec to be safe.
+        This method ensures minimum interval between requests.
+        """
+        current_time = time.time()
+        time_since_last_request = current_time - self._last_request_time
+
+        if time_since_last_request < NOTION_MIN_REQUEST_INTERVAL:
+            sleep_time = NOTION_MIN_REQUEST_INTERVAL - time_since_last_request
+            logger.debug(
+                f"Rate limiting: sleeping {sleep_time:.2f}s",
+                min_interval=NOTION_MIN_REQUEST_INTERVAL,
+            )
+            time.sleep(sleep_time)
+
+        self._last_request_time = time.time()
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
     def get_all_content_ids(self) -> set:
@@ -137,22 +165,132 @@ class NotionStorage(BaseStorage):
             properties=missing_properties,
         )
 
+    def _sanitize_option_name(self, name: str, max_length: int = 100) -> str:
+        """Sanitize select/multi-select option names for Notion API.
+
+        Notion enforces a 100-character limit on option names and rejects
+        names with certain special characters (newlines, etc.).
+
+        Args:
+            name: Raw option name
+            max_length: Maximum allowed length (Notion limit is 100)
+
+        Returns:
+            Sanitized name that meets Notion requirements, or empty string if invalid
+        """
+        if not name or not isinstance(name, str):
+            return ""
+
+        # Remove leading/trailing whitespace
+        name = name.strip()
+        if not name:
+            return ""
+
+        # Replace newlines and multiple spaces with single space
+        name = re.sub(r"[\r\n]+", " ", name)
+        name = re.sub(r"\s+", " ", name)
+
+        # Truncate if too long
+        if len(name) > max_length:
+            name = name[: max_length - 3] + "..."
+            logger.debug(
+                f"Truncated option name to {max_length} chars",
+                original_length=len(name) + 3,
+            )
+
+        return name
+
+    def _validate_url(self, url: str) -> Optional[str]:
+        """Validate and sanitize URL for Notion URL property.
+
+        Args:
+            url: URL string to validate
+
+        Returns:
+            Valid URL or None if invalid/empty
+        """
+        if not url or not isinstance(url, str):
+            return None
+
+        # Remove all whitespace including newlines
+        url = url.strip()
+        if not url:
+            return None
+
+        # Basic URL validation - must start with http:// or https://
+        if not url.startswith(("http://", "https://")):
+            logger.warning(
+                "Invalid URL format (missing protocol), setting to None", url=url[:100]
+            )
+            return None
+
+        # Check for spaces and other invalid characters (after stripping)
+        if " " in url or "\n" in url or "\r" in url or "\t" in url:
+            logger.warning(
+                "Invalid URL (contains whitespace), setting to None", url=url[:100]
+            )
+            return None
+
+        return url
+
     def _build_properties(self, content: Content) -> dict:
         """构建Notion属性结构"""
-        if len(content.summary) > MAX_NOTION_SUMMARY_LENGTH:
+        # Validate and sanitize title (cannot be empty)
+        title = content.title.strip() if content.title else ""
+        if not title:
+            title = "Untitled"
             logger.warning(
-                f"Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will be cut off."
+                "Content has empty title, using 'Untitled'",
+                content_id=content.content_id,
             )
+
+        # Validate and sanitize summary
+        summary = content.summary if content.summary else ""
+        if len(summary) > MAX_NOTION_SUMMARY_LENGTH:
+            logger.warning(
+                f"Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will be cut off.",
+                content_id=content.content_id,
+            )
+        summary = summary[:MAX_NOTION_SUMMARY_LENGTH]
+        if not summary.strip():
+            summary = "[No summary available]"
+
+        # Validate URL
+        validated_url = self._validate_url(content.link)
+        if not validated_url and content.link:
+            logger.warning(
+                "Invalid URL detected, setting to None",
+                content_id=content.content_id,
+                original_url=content.link[:100] if content.link else None,
+            )
+
+        # Sanitize keywords (filter empty and truncate long ones)
+        sanitized_keywords = [
+            self._sanitize_option_name(keyword) for keyword in (content.keywords or [])
+        ]
+        sanitized_keywords = [
+            k for k in sanitized_keywords if k
+        ]  # Remove empty strings
+
+        # Sanitize tags (filter empty and truncate long ones)
+        sanitized_tags = [
+            self._sanitize_option_name(tag) for tag in (content.tags or [])
+        ]
+        sanitized_tags = [t for t in sanitized_tags if t]  # Remove empty strings
+
+        # Sanitize scraper name
+        sanitized_scraper_name = (
+            self._sanitize_option_name(content.scraper_name)
+            if content.scraper_name
+            else None
+        )
+
         return {
-            NOTION_PROPERTIY_TITLE_NAME: {
-                "title": [{"text": {"content": content.title}}]
-            },
+            NOTION_PROPERTIY_TITLE_NAME: {"title": [{"text": {"content": title}}]},
             NOTION_PROPERTIY_SUMMARY_NAME: {
-                "rich_text": [
-                    {"text": {"content": content.summary[:MAX_NOTION_SUMMARY_LENGTH]}}
-                ]
+                "rich_text": [{"text": {"content": summary}}]
             },
-            NOTION_PROPERTIY_URL: {"url": content.link},
+            NOTION_PROPERTIY_URL: {"url": validated_url},
             NOTION_PROPERTIY_CONTENT_ID: {
                 "rich_text": [{"text": {"content": content.content_id}}]
             },
@@ -160,16 +298,14 @@ class NotionStorage(BaseStorage):
                 "rich_text": [{"text": {"content": content.author or ""}}]
             },
             NOTION_PROPERTY_KEYWORDS_NAME: {
-                "multi_select": [
-                    {"name": keyword} for keyword in (content.keywords or [])
-                ]
+                "multi_select": [{"name": keyword} for keyword in sanitized_keywords]
             },
             NOTION_PROPERTY_TAGS_NAME: {
-                "multi_select": [{"name": tag} for tag in (content.tags or [])],
+                "multi_select": [{"name": tag} for tag in sanitized_tags],
             },
             NOTION_PROPERTY_SOURCE_NAME: (
-                {"select": {"name": content.scraper_name}}
-                if content.scraper_name
+                {"select": {"name": sanitized_scraper_name}}
+                if sanitized_scraper_name
                 else {"select": None}
             ),
             NOTION_PROPERTY_PUBLISHED_DATE: (
@@ -243,6 +379,33 @@ class NotionStorage(BaseStorage):
                 }
             ]
 
+        # Check for markdown code fence (```language or just ```)
+        if content.startswith("```"):
+            # Extract language if specified (e.g., ```python or ```javascript)
+            code_fence_match = re.match(r"```(\w+)?", content)
+            language = "plain text"  # Default
+            if code_fence_match and code_fence_match.group(1):
+                language = code_fence_match.group(1).lower()
+
+            # Remove the code fence markers
+            code_content = content.strip("`").strip()
+            # Remove language identifier if it was at the start
+            if code_fence_match and code_fence_match.group(1):
+                code_content = code_content.replace(
+                    code_fence_match.group(1), "", 1
+                ).strip()
+
+            return [
+                {
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "rich_text": [{"text": {"content": code_content}}],
+                        "language": language,
+                    },
+                }
+            ]
+
         handlers = {
             "#": lambda c: {
                 "object": "block",
@@ -268,7 +431,10 @@ class NotionStorage(BaseStorage):
             "`": lambda c: {
                 "object": "block",
                 "type": "code",
-                "code": {"rich_text": [{"text": {"content": c.strip("`").strip()}}]},
+                "code": {
+                    "rich_text": [{"text": {"content": c.strip("`").strip()}}],
+                    "language": "plain text",  # Default language for inline code
+                },
             },
         }
 
@@ -284,7 +450,17 @@ class NotionStorage(BaseStorage):
             }
         ]
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(2),
+        retry=retry_if_exception_type(
+            (
+                httpx.ReadTimeout,
+                httpx.ConnectTimeout,
+                httpx.RemoteProtocolError,
+            )
+        ),
+    )
     def _store_content(self, content: Content) -> bool:
         """存储单个内容，不做重复性检查。
 
@@ -296,7 +472,7 @@ class NotionStorage(BaseStorage):
             logger.warning(
                 "Content has no scraper_name (Source will be empty in Notion)",
                 content_id=content.content_id,
-                title=content.title[:80],
+                title=content.title[:80] if content.title else "N/A",
             )
 
         content_chunks = self._split_text_chunks(
@@ -306,17 +482,126 @@ class NotionStorage(BaseStorage):
         for chunk in content_chunks:
             children.extend(self._parse_markdown_to_notion_blocks(chunk))
 
-        # Let exceptions propagate so @retry can handle transient API errors.
-        # This fixes the previous bug where all exceptions were caught inside
-        # try/except, making the @retry decorator completely ineffective.
-        self.notion.pages.create(
-            parent={"database_id": self.config.database_id},
-            properties=self._build_properties(content),
-            children=children,
+        # Build validated properties
+        properties = self._build_properties(content)
+
+        # Notion has a limit of ~100 blocks per page creation
+        # If we have more blocks, we'll create the page with first 100,
+        # then append the rest in batches
+        max_blocks_per_request = 100
+        initial_children = children[:max_blocks_per_request]
+        remaining_children = children[max_blocks_per_request:]
+
+        # Log payload for debugging (helpful for diagnosing 400 errors)
+        logger.debug(
+            "Creating Notion page",
+            content_id=content.content_id,
+            title=properties.get(NOTION_PROPERTIY_TITLE_NAME, {})
+            .get("title", [{}])[0]
+            .get("text", {})
+            .get("content", "N/A")[:50],
+            url=properties.get(NOTION_PROPERTIY_URL, {}).get("url"),
+            total_blocks=len(children),
+            initial_blocks=len(initial_children),
+            remaining_blocks=len(remaining_children),
         )
+
+        # Apply rate limiting before API call
+        self._rate_limit()
+
+        try:
+            page = self.notion.pages.create(
+                parent={"database_id": self.config.database_id},
+                properties=properties,
+                children=initial_children,
+            )
+            page_id = page["id"]
+        except Exception as e:
+            # Log detailed error information for 400 errors
+            error_details = {
+                "content_id": content.content_id,
+                "title": content.title[:100] if content.title else "N/A",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+
+            # Try to extract detailed error message from APIResponseError
+            if hasattr(e, "body"):
+                error_details["notion_error_body"] = str(e.body)[:500]
+            if hasattr(e, "code"):
+                error_details["notion_error_code"] = e.code
+
+            logger.error(
+                "Failed to create Notion page - detailed error",
+                **error_details,
+            )
+
+            # Log a sample of the properties that failed
+            logger.debug(
+                "Failed properties sample",
+                content_id=content.content_id,
+                title=properties.get(NOTION_PROPERTIY_TITLE_NAME, {})
+                .get("title", [{}])[0]
+                .get("text", {})
+                .get("content", "N/A")[:100],
+                url=properties.get(NOTION_PROPERTIY_URL, {}).get("url"),
+                keywords_count=len(
+                    properties.get(NOTION_PROPERTY_KEYWORDS_NAME, {}).get(
+                        "multi_select", []
+                    )
+                ),
+                tags_count=len(
+                    properties.get(NOTION_PROPERTY_TAGS_NAME, {}).get(
+                        "multi_select", []
+                    )
+                ),
+            )
+
+            # Re-raise to let retry decorator handle it
+            raise
+
+        # If there are remaining blocks, append them in batches
+        if remaining_children:
+            logger.info(
+                f"Appending {len(remaining_children)} additional blocks to page",
+                content_id=content.content_id,
+                page_id=page_id,
+            )
+
+            # Append remaining blocks in batches of 100
+            for i in range(0, len(remaining_children), max_blocks_per_request):
+                batch = remaining_children[i : i + max_blocks_per_request]
+
+                # Apply rate limiting before each batch append
+                self._rate_limit()
+
+                try:
+                    self.notion.blocks.children.append(
+                        block_id=page_id,
+                        children=batch,
+                    )
+                    logger.debug(
+                        f"Appended batch of {len(batch)} blocks",
+                        content_id=content.content_id,
+                        batch_start=i,
+                        batch_size=len(batch),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to append block batch",
+                        content_id=content.content_id,
+                        page_id=page_id,
+                        batch_start=i,
+                        batch_size=len(batch),
+                        error=str(e),
+                    )
+                    # Continue trying other batches even if one fails
+                    continue
+
         logger.info(
             "Content stored successfully",
             content_id=content.content_id,
             source=content.scraper_name,
+            total_blocks=len(children),
         )
         return True
