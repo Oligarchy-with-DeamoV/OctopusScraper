@@ -2,6 +2,7 @@
 Integration tests for enhanced Octopus with TaskManager.
 """
 
+import threading
 import time
 from datetime import datetime
 from unittest.mock import Mock, patch
@@ -362,6 +363,130 @@ class TestOctopusErrorHandling:
         tasks = octopus.list_tasks(status="invalid_status")
         assert isinstance(tasks, list)
         assert len(tasks) == 0  # Should return empty list for invalid status
+
+        # Clean up
+        octopus.cleanup_task_manager()
+
+
+class TestOctopusUploadConcurrency:
+    """Test that concurrent trigger_upload calls are serialized by the lock."""
+
+    @patch("octopus_scraper.octopus.NotionStorage")
+    def test_concurrent_upload_only_runs_once(
+        self, mock_notion_class, octopus_config_with_task_manager
+    ):
+        """Two threads calling trigger_upload concurrently: only one should
+        actually execute the upload (call store_contents), the other should
+        return immediately with zero counts."""
+        mock_storage = Mock()
+        # Simulate a slow upload so the second thread arrives while the first
+        # is still holding the lock.
+        upload_event = threading.Event()
+
+        def slow_store_contents(contents, deduplicate=False):
+            upload_event.set()  # signal that upload has started
+            time.sleep(0.3)
+            return [True] * len(contents)
+
+        mock_storage.store_contents.side_effect = slow_store_contents
+        mock_storage.get_all_content_ids.return_value = set()
+        mock_notion_class.return_value = mock_storage
+
+        octopus = Octopus(octopus_config_with_task_manager)
+
+        # Manually inject a completed task with pending contents
+        from octopus_scraper.task_manager.models import TaskResult, TaskStatus
+
+        fake_result = TaskResult(
+            task_id="test_task_1",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            items_uploaded=0,
+            metadata={
+                "contents": [
+                    {
+                        "content_id": "c1",
+                        "title": "Article 1",
+                        "link": "https://example.com/1",
+                        "summary": "s",
+                        "content": "c",
+                        "published": "2025-01-01",
+                    }
+                ]
+            },
+        )
+        octopus._task_manager._task_results["test_task_1"] = fake_result
+
+        results = [None, None]
+
+        def run_upload(index):
+            results[index] = octopus.trigger_upload()
+
+        t1 = threading.Thread(target=run_upload, args=(0,))
+        t2 = threading.Thread(target=run_upload, args=(1,))
+
+        t1.start()
+        # Wait until the first thread actually starts uploading before
+        # launching the second thread, to ensure lock contention.
+        upload_event.wait(timeout=2)
+        t2.start()
+
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        # One thread should have done the upload, the other should have skipped
+        tasks_processed = [r["tasks_processed"] for r in results]
+
+        # Exactly one thread should have processed the task
+        assert sorted(tasks_processed) == [0, 1]
+        # store_contents should only have been called once
+        assert mock_storage.store_contents.call_count == 1
+
+        # Clean up
+        octopus.cleanup_task_manager()
+
+    @patch("octopus_scraper.octopus.NotionStorage")
+    def test_upload_lock_released_on_exception(
+        self, mock_notion_class, octopus_config_with_task_manager
+    ):
+        """Verify that the lock is released even when upload raises an exception,
+        so subsequent calls are not permanently blocked."""
+        mock_storage = Mock()
+        mock_storage.store_contents.side_effect = RuntimeError("Notion API error")
+        mock_storage.get_all_content_ids.return_value = set()
+        mock_notion_class.return_value = mock_storage
+
+        octopus = Octopus(octopus_config_with_task_manager)
+
+        # Inject a completed task
+        from octopus_scraper.task_manager.models import TaskResult, TaskStatus
+
+        fake_result = TaskResult(
+            task_id="test_task_err",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            items_uploaded=0,
+            metadata={
+                "contents": [
+                    {
+                        "content_id": "c_err",
+                        "title": "Error Article",
+                        "link": "https://example.com/err",
+                        "summary": "s",
+                        "content": "c",
+                        "published": "2025-01-01",
+                    }
+                ]
+            },
+        )
+        octopus._task_manager._task_results["test_task_err"] = fake_result
+
+        # First call should raise
+        with pytest.raises(RuntimeError, match="Failed to upload"):
+            octopus.trigger_upload()
+
+        # Lock should be released — second call should NOT block
+        assert not octopus._upload_lock.locked()
 
         # Clean up
         octopus.cleanup_task_manager()
