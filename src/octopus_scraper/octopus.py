@@ -1,3 +1,4 @@
+import threading
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,6 +49,7 @@ class Octopus:
             ),
         )
         self._task_manager.set_storage(self._notion_api)
+        self._upload_lock = threading.Lock()
 
         try:
             self._setup()
@@ -124,12 +126,29 @@ class Octopus:
     def trigger_upload(self) -> Dict[str, Any]:
         """从 TaskManager 已完成任务中收集未上传的内容并批量上传到 Notion。
 
+        Uses a non-blocking lock to prevent concurrent uploads. If an upload
+        is already in progress, returns immediately with zero counts.
+
         Returns:
             Dict containing upload statistics:
                 - uploaded_count: Number of successfully uploaded items.
                 - tasks_processed: Number of completed tasks whose contents were uploaded.
                 - errors: List of error messages if any tasks failed to upload.
         """
+        if not self._upload_lock.acquire(blocking=False):
+            logger.info("Upload already in progress, skipping")
+            return {
+                "uploaded_count": 0,
+                "tasks_processed": 0,
+                "errors": [],
+            }
+        try:
+            return self._do_upload()
+        finally:
+            self._upload_lock.release()
+
+    def _do_upload(self) -> Dict[str, Any]:
+        """Internal upload logic. Must be called while holding _upload_lock."""
         from octopus_scraper.task_manager.models import TaskStatus
 
         upload_stats: Dict[str, Any] = {
