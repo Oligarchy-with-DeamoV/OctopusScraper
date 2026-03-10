@@ -80,6 +80,8 @@ services:
       - octopus-network
 
   rsshub:
+    # if used default rsshub use image below
+    # image: diygod/rsshub:chromium-bundled
     image: rsshub:local_dev
     restart: always
     ports:
