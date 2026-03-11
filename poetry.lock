@@ -1839,6 +1839,26 @@ url = "https://mirrors.aliyun.com/pypi/simple"
 reference = "aliyun for china users"
 
 [[package]]
+name = "mistune"
+version = "3.2.0"
+description = "A sane and fast Markdown parser with useful plugins and renderers"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mistune-3.2.0-py3-none-any.whl", hash = "sha256:febdc629a3c78616b94393c6580551e0e34cc289987ec6c35ed3f4be42d0eee1"},
+    {file = "mistune-3.2.0.tar.gz", hash = "sha256:708487c8a8cdd99c9d90eb3ed4c3ed961246ff78ac82f03418f5183ab70e398a"},
+]
+
+[package.dependencies]
+typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
+
+[package.source]
+type = "legacy"
+url = "https://mirrors.aliyun.com/pypi/simple"
+reference = "aliyun for china users"
+
+[[package]]
 name = "multidict"
 version = "6.4.4"
 description = "multidict implementation"
@@ -4280,4 +4300,4 @@ reference = "aliyun for china users"
 [metadata]
 lock-version = "2.1"
 python-versions = ">3.9, <3.11"
-content-hash = "a0159c724d672f39e7b391a7240f8f7b22adf533dda0f1ecf7ecc6cc1e5c6785"
+content-hash = "a9df26186d88391b50f2608d49d2635640071d7825bd0f52ecca574031f20e48"
