@@ -35,8 +35,20 @@ def test_convert_contents_to_mk():
         {"value": HTML_CONTENT},
     ]
     markdown = convert_contents_to_mk(html_content)
-    expected = "This is **bold** text.\n\nAnd *italic* text.\n\n欢迎来到我的网页\n========\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n\\* 星号处理测试"
+    expected = "This is **bold** text.\n\nAnd *italic* text.\n\n欢迎来到我的网页\n========\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问\n[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n\\* 星号处理测试"
     assert markdown.strip() == expected.strip()
+
+
+def test_convert_contents_preserves_markdown_links():
+    """P1-5/P1-6: Links should not be re-processed by BeautifulSoup."""
+    html_content = [
+        {
+            "value": '<p>Visit <a href="https://example.com">Example</a> and <a href="https://test.com">Test</a>.</p>'
+        }
+    ]
+    result = convert_contents_to_mk(html_content)
+    assert "[Example](https://example.com)" in result
+    assert "[Test](https://test.com)" in result
 
 
 def test_generate_stable_content_id():
