@@ -70,11 +70,12 @@ def test_generate_summary_from_entry():
     summary = generate_summary_from_entry(entry_normal)
     assert "Short summary" in summary
 
-    # Test long summary (should return empty)
-    long_text = "Very long summary. " * 100  # 创建超长文本
+    # Test long summary (should be truncated, not empty)
+    long_text = "Very long summary. " * 100
     entry_long = FeedParserDict({"summary": f"<p>{long_text}</p>"})
     summary = generate_summary_from_entry(entry_long, max_length=50)
-    assert summary == ""
+    assert len(summary) <= 50
+    assert summary.endswith("...")
 
     # Test empty summary
     entry_empty = FeedParserDict({})
@@ -130,7 +131,7 @@ def test_build_contents():
                         "published": "2025-06-21T10:00:00Z",
                     }
                 ),
-                # Entry with long summary (should be empty)
+                # Entry with long summary (should be truncated)
                 FeedParserDict(
                     {
                         "guid": "long-summary",
@@ -162,9 +163,10 @@ def test_build_contents():
     assert "Short summary" in contents[0].summary
     assert "Full content" in contents[0].content
 
-    # Check second entry (long summary should be empty)
+    # Check second entry (long summary should be truncated)
     assert contents[1].content_id == "6be180f0a44acaed"
-    assert contents[1].summary == ""  # Should be empty due to length
+    assert contents[1].summary.endswith("...")
+    assert len(contents[1].summary) <= DEFAULT_SUMMARY_MAX_LENGTH
     assert "Content here" in contents[1].content
 
     # Check third entry (hash ID and summary for content)
@@ -181,11 +183,22 @@ def test_summary_max_length_from_env():
     # Test with custom length
     entry_normal = FeedParserDict({"summary": "<p>Short summary</p>"})
     summary = generate_summary_from_entry(entry_normal, max_length=10)
-    assert summary == ""  # Should be empty because "Short summary" > 10 chars
+    assert len(summary) <= 10
+    assert summary.endswith("...")
 
     # Test with sufficient length
     summary = generate_summary_from_entry(entry_normal, max_length=50)
     assert "Short summary" in summary
+
+
+def test_generate_summary_truncates_instead_of_emptying():
+    """P2-8: Long summaries should be truncated, not emptied."""
+    long_text = "A" * 100
+    entry = FeedParserDict({"summary": f"<p>{long_text}</p>"})
+    summary = generate_summary_from_entry(entry, max_length=50)
+    assert len(summary) <= 50
+    assert summary != ""  # Should NOT be empty
+    assert summary.endswith("...")
 
 
 def test_env_variable_integration():

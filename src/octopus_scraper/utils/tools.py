@@ -82,19 +82,19 @@ def generate_stable_content_id(entry) -> str:
 def generate_summary_from_entry(
     entry, max_length: int = DEFAULT_SUMMARY_MAX_LENGTH
 ) -> str:
-    """根据长度限制生成summary，超过限制则返回空字符串"""
+    """Generate summary from entry, truncating if it exceeds max_length."""
     if not hasattr(entry, "summary") or not entry.get("summary"):
         return ""
 
     summary = convert_contents_to_mk([{"value": entry.summary}])
-    # 移除多余的换行和空格
+    # Remove extra whitespace
     summary = re.sub(r"\s+", " ", summary).strip()
 
     if len(summary) > max_length:
         logger.debug(
-            f"Summary too long ({len(summary)} chars), setting to empty for processor to handle"
+            f"Summary too long ({len(summary)} chars), truncating to {max_length}",
         )
-        return ""
+        summary = summary[: max_length - 3] + "..."
 
     return summary
 
