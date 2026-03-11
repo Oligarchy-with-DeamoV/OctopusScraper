@@ -35,8 +35,20 @@ def test_convert_contents_to_mk():
         {"value": HTML_CONTENT},
     ]
     markdown = convert_contents_to_mk(html_content)
-    expected = "This is **bold** text.\n\nAnd *italic* text.\n\n欢迎来到我的网页\n========\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n\\* 星号处理测试"
+    expected = "This is **bold** text.\n\nAnd *italic* text.\n\n欢迎来到我的网页\n========\n\n这是一个简单的HTML段落，用来展示如何使用HTML标签来编写内容。你可以在这里添加任意文本信息。\n\n想了解更多信息，请访问\n[我的主页](https://www.example.com)。\n\n3个换行的测试\n\n\\* 星号处理测试"
     assert markdown.strip() == expected.strip()
+
+
+def test_convert_contents_preserves_markdown_links():
+    """P1-5/P1-6: Links should not be re-processed by BeautifulSoup."""
+    html_content = [
+        {
+            "value": '<p>Visit <a href="https://example.com">Example</a> and <a href="https://test.com">Test</a>.</p>'
+        }
+    ]
+    result = convert_contents_to_mk(html_content)
+    assert "[Example](https://example.com)" in result
+    assert "[Test](https://test.com)" in result
 
 
 def test_generate_stable_content_id():
@@ -58,11 +70,12 @@ def test_generate_summary_from_entry():
     summary = generate_summary_from_entry(entry_normal)
     assert "Short summary" in summary
 
-    # Test long summary (should return empty)
-    long_text = "Very long summary. " * 100  # 创建超长文本
+    # Test long summary (should be truncated, not empty)
+    long_text = "Very long summary. " * 100
     entry_long = FeedParserDict({"summary": f"<p>{long_text}</p>"})
     summary = generate_summary_from_entry(entry_long, max_length=50)
-    assert summary == ""
+    assert len(summary) <= 50
+    assert summary.endswith("...")
 
     # Test empty summary
     entry_empty = FeedParserDict({})
@@ -118,7 +131,7 @@ def test_build_contents():
                         "published": "2025-06-21T10:00:00Z",
                     }
                 ),
-                # Entry with long summary (should be empty)
+                # Entry with long summary (should be truncated)
                 FeedParserDict(
                     {
                         "guid": "long-summary",
@@ -150,9 +163,10 @@ def test_build_contents():
     assert "Short summary" in contents[0].summary
     assert "Full content" in contents[0].content
 
-    # Check second entry (long summary should be empty)
+    # Check second entry (long summary should be truncated)
     assert contents[1].content_id == "6be180f0a44acaed"
-    assert contents[1].summary == ""  # Should be empty due to length
+    assert contents[1].summary.endswith("...")
+    assert len(contents[1].summary) <= DEFAULT_SUMMARY_MAX_LENGTH
     assert "Content here" in contents[1].content
 
     # Check third entry (hash ID and summary for content)
@@ -169,11 +183,22 @@ def test_summary_max_length_from_env():
     # Test with custom length
     entry_normal = FeedParserDict({"summary": "<p>Short summary</p>"})
     summary = generate_summary_from_entry(entry_normal, max_length=10)
-    assert summary == ""  # Should be empty because "Short summary" > 10 chars
+    assert len(summary) <= 10
+    assert summary.endswith("...")
 
     # Test with sufficient length
     summary = generate_summary_from_entry(entry_normal, max_length=50)
     assert "Short summary" in summary
+
+
+def test_generate_summary_truncates_instead_of_emptying():
+    """P2-8: Long summaries should be truncated, not emptied."""
+    long_text = "A" * 100
+    entry = FeedParserDict({"summary": f"<p>{long_text}</p>"})
+    summary = generate_summary_from_entry(entry, max_length=50)
+    assert len(summary) <= 50
+    assert summary != ""  # Should NOT be empty
+    assert summary.endswith("...")
 
 
 def test_env_variable_integration():

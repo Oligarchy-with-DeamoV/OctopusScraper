@@ -477,8 +477,9 @@ class TestNotionStorage:
 
     def test_store_content_appends_blocks_when_exceeding_100(self, notion_storage):
         """Test that blocks exceeding 100 are appended in batches after page creation."""
-        # Create content with very long text that will generate many blocks (>100)
-        long_content = "\n".join([f"Paragraph {i}" for i in range(200)])
+        # Create content with many paragraphs that will generate many blocks (>100)
+        # Use double newlines so each line becomes a separate paragraph block
+        long_content = "\n\n".join([f"Paragraph {i}" for i in range(200)])
         content = Content(
             content_id="test_id",
             title="Title",
@@ -517,32 +518,39 @@ class TestNotionStorage:
         # Total blocks should be 200 (100 initial + 100 appended)
         assert len(initial_children) + total_appended == 200
 
-    def test_parse_markdown_code_block_with_language(self, notion_storage):
-        """Test that code blocks with language specifier are parsed correctly."""
-        chunk = {"type": "text", "text": {"content": "```python\nprint('hello')\n```"}}
-        blocks = notion_storage._parse_markdown_to_notion_blocks(chunk)
+    def test_store_content_uses_markdown_converter(self, notion_storage):
+        """Test that _store_content uses MarkdownToNotionConverter instead of old parser."""
+        with patch.object(notion_storage.notion.pages, "create") as mock_create:
+            mock_create.return_value = {"id": "test_page_id"}
 
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "code"
-        assert blocks[0]["code"]["language"] == "python"
-        assert "print('hello')" in blocks[0]["code"]["rich_text"][0]["text"]["content"]
+            content = Content(
+                title="Test",
+                link="https://example.com",
+                summary="summary",
+                content_id="test123",
+                content="# Heading\n\nParagraph with **bold** text.\n\n- Item 1\n- Item 2",
+                published="2025-04-06T13:50:59+08:00",
+                scraper_name="test-scraper",
+            )
+            result = notion_storage._store_content(content)
+            assert result is True
 
-    def test_parse_markdown_code_block_without_language(self, notion_storage):
-        """Test that code blocks without language get 'plain text' as default."""
-        chunk = {"type": "text", "text": {"content": "```\nsome code\n```"}}
-        blocks = notion_storage._parse_markdown_to_notion_blocks(chunk)
+            call_kwargs = mock_create.call_args
+            children = call_kwargs.kwargs.get(
+                "children", call_kwargs[1].get("children", [])
+            )
 
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "code"
-        assert blocks[0]["code"]["language"] == "plain text"
-        assert "some code" in blocks[0]["code"]["rich_text"][0]["text"]["content"]
+            # Should have heading, paragraph, and list items
+            types = [c["type"] for c in children]
+            assert "heading_1" in types
+            assert "paragraph" in types
+            assert "bulleted_list_item" in types
 
-    def test_parse_markdown_inline_code(self, notion_storage):
-        """Test that inline code (single backtick) gets 'plain text' language."""
-        chunk = {"type": "text", "text": {"content": "`inline code`"}}
-        blocks = notion_storage._parse_markdown_to_notion_blocks(chunk)
-
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "code"
-        assert blocks[0]["code"]["language"] == "plain text"
-        assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "inline code"
+            # The paragraph should contain bold annotation
+            para_blocks = [c for c in children if c["type"] == "paragraph"]
+            for para in para_blocks:
+                rt = para["paragraph"]["rich_text"]
+                bold_segs = [s for s in rt if s.get("annotations", {}).get("bold")]
+                if bold_segs:
+                    assert bold_segs[0]["text"]["content"] == "bold"
+                    break
