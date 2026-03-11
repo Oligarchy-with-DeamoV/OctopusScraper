@@ -11,6 +11,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from octopus_scraper.protos import Content
 from octopus_scraper.storages.base_storage import BaseStorage
+from octopus_scraper.storages.markdown_to_notion import MarkdownToNotionConverter
 
 logger = structlog.getLogger(__name__)
 MAX_NOTION_SUMMARY_LENGTH = 2000
@@ -57,6 +58,8 @@ class NotionStorage(BaseStorage):
 
         # Rate limiting: track last request time
         self._last_request_time = 0.0
+
+        self._markdown_converter = MarkdownToNotionConverter()
 
     def _rate_limit(self):
         """Enforce rate limiting to avoid hitting Notion API limits.
@@ -339,117 +342,6 @@ class NotionStorage(BaseStorage):
             )
             return None
 
-    def _split_text_chunks(self, text: str, max_len: int) -> List[Dict]:
-        """将长文本按自然段落分割成符合Notion限制的块"""
-        paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-
-        chunks = []
-        current_chunk = ""
-
-        for para in paragraphs:
-            if len(para) + 1 <= max_len:
-                current_chunk = f"{para}\n"
-                chunks.append({"type": "text", "text": {"content": current_chunk}})
-            else:
-                for i in range(0, len(para), max_len):
-                    chunks.append(
-                        {"type": "text", "text": {"content": para[i : i + max_len]}}
-                    )
-
-        return chunks
-
-    def _parse_markdown_to_notion_blocks(self, chunk: Dict) -> List[Dict]:
-        """将Markdown块转换为Notion块"""
-        content = chunk["text"]["content"]
-
-        if match := re.search(r"\[([^\]]+)\]\(([^)]+)\)", content):
-            return [
-                {
-                    "object": "block",
-                    "type": "bookmark",
-                    "bookmark": {
-                        "url": match.group(2).strip(),
-                        "caption": [
-                            {
-                                "type": "text",
-                                "text": {"content": match.group(1).strip()},
-                            }
-                        ],
-                    },
-                }
-            ]
-
-        # Check for markdown code fence (```language or just ```)
-        if content.startswith("```"):
-            # Extract language if specified (e.g., ```python or ```javascript)
-            code_fence_match = re.match(r"```(\w+)?", content)
-            language = "plain text"  # Default
-            if code_fence_match and code_fence_match.group(1):
-                language = code_fence_match.group(1).lower()
-
-            # Remove the code fence markers
-            code_content = content.strip("`").strip()
-            # Remove language identifier if it was at the start
-            if code_fence_match and code_fence_match.group(1):
-                code_content = code_content.replace(
-                    code_fence_match.group(1), "", 1
-                ).strip()
-
-            return [
-                {
-                    "object": "block",
-                    "type": "code",
-                    "code": {
-                        "rich_text": [{"text": {"content": code_content}}],
-                        "language": language,
-                    },
-                }
-            ]
-
-        handlers = {
-            "#": lambda c: {
-                "object": "block",
-                "type": f"heading_{c.count('#', 0, 6)}",
-                f"heading_{c.count('#', 0, 6)}": {
-                    "rich_text": [{"text": {"content": c.lstrip("#").strip()}}]
-                },
-            },
-            "-": lambda c: {
-                "object": "block",
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": [{"text": {"content": c[2:].strip()}}]
-                },
-            },
-            "*": lambda c: {
-                "object": "block",
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": [{"text": {"content": c[2:].strip()}}]
-                },
-            },
-            "`": lambda c: {
-                "object": "block",
-                "type": "code",
-                "code": {
-                    "rich_text": [{"text": {"content": c.strip("`").strip()}}],
-                    "language": "plain text",  # Default language for inline code
-                },
-            },
-        }
-
-        for prefix, handler in handlers.items():
-            if content.startswith(prefix):
-                return [handler(content)]
-
-        return [
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {"rich_text": [chunk]},
-            }
-        ]
-
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(2),
@@ -475,12 +367,7 @@ class NotionStorage(BaseStorage):
                 title=content.title[:80] if content.title else "N/A",
             )
 
-        content_chunks = self._split_text_chunks(
-            content.content, max_len=MAX_NOTION_SUMMARY_LENGTH
-        )
-        children = []
-        for chunk in content_chunks:
-            children.extend(self._parse_markdown_to_notion_blocks(chunk))
+        children = self._markdown_converter.convert(content.content)
 
         # Build validated properties
         properties = self._build_properties(content)
