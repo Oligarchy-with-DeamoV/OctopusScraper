@@ -1,6 +1,7 @@
 """
 Tests for CLI module functionality.
 """
+
 import os
 import tempfile
 from unittest.mock import patch

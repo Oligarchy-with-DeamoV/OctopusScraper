@@ -2,7 +2,7 @@
 """
 HTML内容处理器测试脚本
 """
-from unittest import mock
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -297,7 +297,7 @@ def test_html_content_processor_real_websites_comprehensive():
     # 验证结果 - 应该返回相同数量的内容
     assert len(processed_contents) == len(test_contents)
 
-    print(f"\n综合测试结果：")
+    print("\n综合测试结果：")
     print(f"输入内容数量: {len(test_contents)}")
     print(f"输出内容数量: {len(processed_contents)}")
 
@@ -318,7 +318,7 @@ def test_html_content_processor_config_initialization():
     config = {}
     processor = HTMLContentProcessor(config)
     assert processor.config.timeout == 30
-    assert processor.config.use_browser == True
+    assert processor.config.use_browser
     assert processor.config.browserless_url == ""
     assert processor.config.browser_timeout == 60000
 
@@ -331,7 +331,7 @@ def test_html_content_processor_config_initialization():
     }
     processor = HTMLContentProcessor(config)
     assert processor.config.timeout == 60
-    assert processor.config.use_browser == False
+    assert processor.config.use_browser
     assert processor.config.browserless_url == "http://localhost:3000"
     assert processor.config.browser_timeout == 30000
 
@@ -342,18 +342,18 @@ def test_html_content_processor_browserless_config():
     # 测试禁用浏览器模式
     config = {"use_browser": False, "browserless_url": ""}
     processor = HTMLContentProcessor(config)
-    assert processor.config.use_browser == False
+    assert processor.config.use_browser
 
     # 测试启用浏览器但无 URL
     config = {"use_browser": True, "browserless_url": ""}
     processor = HTMLContentProcessor(config)
-    assert processor.config.use_browser == True
+    assert processor.config.use_browser
     assert processor.config.browserless_url == ""
 
     # 测试启用浏览器且有 URL
     config = {"use_browser": True, "browserless_url": "http://localhost:3000"}
     processor = HTMLContentProcessor(config)
-    assert processor.config.use_browser == True
+    assert processor.config.use_browser
     assert processor.config.browserless_url == "http://localhost:3000"
 
 
@@ -485,7 +485,7 @@ def test_html_content_processor_config_validation():
     assert config.timeout == 45
     assert config.user_agent == "Custom Agent"
     assert config.browserless_url == "http://custom:3000"
-    assert config.use_browser == False
+    assert not config.use_browser
     assert config.browser_timeout == 45000
 
 
