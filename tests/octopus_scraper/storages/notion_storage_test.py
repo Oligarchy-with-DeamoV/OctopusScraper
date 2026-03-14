@@ -554,3 +554,69 @@ class TestNotionStorage:
                 if bold_segs:
                     assert bold_segs[0]["text"]["content"] == "bold"
                     break
+
+    # ------------------------------------------------------------------
+    # Tests for HTML stripping in summary (_strip_html + _build_properties)
+    # ------------------------------------------------------------------
+
+    def test_strip_html_removes_anchor_tags(self, notion_storage):
+        """HTML anchor tags should be removed, leaving the link text."""
+        raw = '有沒有試過拉黑 <a href="https://xueqiu.com/n/%E5%B0%8F%E7%A7%98%E4%B9%A6">@小秘书</a>？'
+        result = notion_storage._strip_html(raw)
+        assert "<a" not in result
+        assert "href" not in result
+        assert "@小秘书" in result
+
+    def test_strip_html_removes_img_tags(self, notion_storage):
+        """HTML img tags should be completely removed (no alt text to preserve here)."""
+        raw = 'Text <img src="https://example.com/img.png"> more text'
+        result = notion_storage._strip_html(raw)
+        assert "<img" not in result
+        assert "src=" not in result
+        assert "more text" in result
+
+    def test_strip_html_decodes_entities(self, notion_storage):
+        """HTML entities like &gt;, &amp; should be decoded to plain characters."""
+        raw = "&gt; Some quoted text &amp; another &lt;part&gt;"
+        result = notion_storage._strip_html(raw)
+        assert "&gt;" not in result
+        assert "&amp;" not in result
+        assert "&lt;" not in result
+        assert ">" in result
+        assert "&" in result
+
+    def test_strip_html_preserves_plain_text(self, notion_storage):
+        """Plain text with no HTML should pass through unchanged."""
+        plain = "Just plain text without any markup."
+        assert notion_storage._strip_html(plain) == plain
+
+    def test_strip_html_handles_empty_string(self, notion_storage):
+        """Empty string and None should be handled gracefully."""
+        assert notion_storage._strip_html("") == ""
+        assert notion_storage._strip_html(None) is None
+
+    def test_build_properties_strips_html_from_summary(self, notion_storage):
+        """HTML tags in the summary field must be stripped before storage."""
+        html_summary = (
+            '有沒有試過拉黑 <a href="https://xueqiu.com/n/%E5%B0%8F%E7%A7%98%E4%B9%A6">@小秘书</a>？'
+            '<img src="https://assets.imedao.com/emoji.png"> &gt; 陈chensir: 内容.'
+        )
+        content = Content(
+            content_id="test_html_id",
+            title="Title",
+            link="https://example.com",
+            summary=html_summary,
+            content="Body",
+            published="2025-01-01T00:00:00Z",
+        )
+        properties = notion_storage._build_properties(content)
+        summary_text = properties["Summary"]["rich_text"][0]["text"]["content"]
+        # HTML tags must be absent
+        assert "<a" not in summary_text
+        assert "<img" not in summary_text
+        assert "href" not in summary_text
+        # Link text must be preserved
+        assert "@小秘书" in summary_text
+        # Entities must be decoded
+        assert "&gt;" not in summary_text
+        assert ">" in summary_text

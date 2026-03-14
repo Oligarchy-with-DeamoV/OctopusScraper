@@ -23,6 +23,9 @@ _DEFAULT_ANNOTATIONS = {
 # Notion API max length for a single rich text content segment
 _MAX_TEXT_LENGTH = 2000
 
+# Notion API max number of rich_text elements per block (paragraph, heading, etc.)
+_MAX_RICH_TEXT_PER_BLOCK = 100
+
 
 class MarkdownToNotionConverter:
     """Converts Markdown text into a list of Notion API block dicts.
@@ -52,7 +55,9 @@ class MarkdownToNotionConverter:
             tokens = self._md(markdown_text)
         except Exception:
             logger.warning("markdown_parse_failed", text_preview=markdown_text[:100])
-            return [self._make_paragraph([self._make_text_segment(markdown_text)])]
+            return self._split_rich_text_to_blocks(
+                self._make_text_segments(markdown_text), "paragraph"
+            )
 
         blocks = []
         for token in tokens:
@@ -78,7 +83,12 @@ class MarkdownToNotionConverter:
         return None
 
     def _block_paragraph(self, token: Dict) -> Optional[Dict | List[Dict]]:
-        """Render a paragraph block, detecting inline images."""
+        """Render a paragraph block, detecting inline images.
+
+        If the resulting rich_text exceeds the Notion API limit of
+        _MAX_RICH_TEXT_PER_BLOCK elements, the paragraph is split into
+        multiple consecutive paragraph blocks.
+        """
         children = token.get("children", [])
         # Detect image tokens inside paragraph children
         image_result = self._try_extract_image(children)
@@ -88,7 +98,8 @@ class MarkdownToNotionConverter:
         rich_text = self._render_rich_text(children)
         if not rich_text:
             return None
-        return self._make_paragraph(rich_text)
+        blocks = self._split_rich_text_to_blocks(rich_text, "paragraph")
+        return blocks if len(blocks) > 1 else blocks[0]
 
     def _block_heading(self, token: Dict) -> Dict:
         """Render heading_1, heading_2, or heading_3. Levels 4-6 downgrade to 3."""
@@ -123,14 +134,23 @@ class MarkdownToNotionConverter:
                 )
         return blocks
 
-    def _block_block_quote(self, token: Dict) -> Dict:
-        """Render a blockquote."""
+    def _block_block_quote(self, token: Dict) -> Dict | List[Dict]:
+        """Render a blockquote.
+
+        If the resulting rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK elements,
+        the quote is split into multiple consecutive quote blocks.
+        """
         # block_quote children are typically paragraphs
         all_rich_text = []
         for child in token.get("children", []):
             if child.get("type") == "paragraph":
                 all_rich_text.extend(self._render_rich_text(child.get("children", [])))
-        return {"type": "quote", "quote": {"rich_text": all_rich_text}}
+        blocks = self._split_rich_text_to_blocks(all_rich_text, "quote")
+        if len(blocks) > 1:
+            return blocks
+        if blocks:
+            return blocks[0]
+        return {"type": "quote", "quote": {"rich_text": []}}
 
     def _block_thematic_break(self, token: Dict) -> Dict:
         """Render a horizontal rule / divider."""
@@ -257,7 +277,7 @@ class MarkdownToNotionConverter:
                 if remaining_children:
                     rich_text = self._render_rich_text(remaining_children)
                     if rich_text:
-                        results.append(self._make_paragraph(rich_text))
+                        results.extend(self._split_rich_text_to_blocks(rich_text, "paragraph"))
                     remaining_children = []
 
                 url = child.get("attrs", {}).get("url", "")
@@ -277,13 +297,36 @@ class MarkdownToNotionConverter:
         if remaining_children:
             rich_text = self._render_rich_text(remaining_children)
             if rich_text:
-                results.append(self._make_paragraph(rich_text))
+                results.extend(self._split_rich_text_to_blocks(rich_text, "paragraph"))
 
         return results if len(results) > 1 else results[0] if results else None
 
     # ---------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------
+
+    def _split_rich_text_to_blocks(self, rich_text: List[Dict], block_type: str) -> List[Dict]:
+        """Create Notion blocks from rich_text, splitting into multiple if over limit.
+
+        Notion API limits rich_text arrays to _MAX_RICH_TEXT_PER_BLOCK elements per
+        block. This method splits the list into chunks and wraps each in a block of
+        the given type.
+
+        Args:
+            rich_text: List of Notion rich_text segment dicts.
+            block_type: The Notion block type string (e.g. ``"paragraph"``, ``"quote"``).
+
+        Returns:
+            List of one or more Notion block dicts, each with at most
+            _MAX_RICH_TEXT_PER_BLOCK rich_text segments.
+        """
+        if not rich_text:
+            return [{"type": block_type, block_type: {"rich_text": []}}]
+        blocks = []
+        for i in range(0, len(rich_text), _MAX_RICH_TEXT_PER_BLOCK):
+            chunk = rich_text[i : i + _MAX_RICH_TEXT_PER_BLOCK]
+            blocks.append({"type": block_type, block_type: {"rich_text": chunk}})
+        return blocks
 
     def _extract_list_item_text(self, item: Dict) -> List[Dict]:
         """Extract rich text from a list_item token."""
@@ -342,7 +385,3 @@ class MarkdownToNotionConverter:
             "text": {"content": text},
             "annotations": merged_annotations,
         }
-
-    def _make_paragraph(self, rich_text: List[Dict]) -> Dict:
-        """Build a Notion paragraph block from rich_text segments."""
-        return {"type": "paragraph", "paragraph": {"rich_text": rich_text}}

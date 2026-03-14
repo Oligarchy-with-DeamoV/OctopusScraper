@@ -262,3 +262,69 @@ def hello():
         assert "bulleted_list_item" in block_types
         assert "code" in block_types
         assert "quote" in block_types
+
+
+class TestRichTextLengthLimit:
+    """Tests for Notion API rich_text array length limit (max 100 per block)."""
+
+    def test_paragraph_with_exactly_100_segments_stays_single_block(self, converter):
+        # A paragraph whose inline tokens produce exactly 100 rich_text segments
+        # should not be split.
+        # Build 100 link segments: "[n](https://example.com/n)" separated by spaces.
+        # Each link produces 1 segment; spaces are additional text segments,
+        # so construct exactly 100 text-only segments instead.
+        # Use 100 separate bold words wrapped in a single paragraph token by
+        # injecting the result directly through the internal helper.
+        from octopus_scraper.storages.markdown_to_notion import _MAX_RICH_TEXT_PER_BLOCK
+
+        segments = [
+            {"type": "text", "text": {"content": f"word{i} "}, "annotations": {}}
+            for i in range(_MAX_RICH_TEXT_PER_BLOCK)
+        ]
+        blocks = converter._split_rich_text_to_blocks(segments, "paragraph")
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "paragraph"
+        assert len(blocks[0]["paragraph"]["rich_text"]) == _MAX_RICH_TEXT_PER_BLOCK
+
+    def test_paragraph_with_101_segments_splits_into_two_blocks(self, converter):
+        from octopus_scraper.storages.markdown_to_notion import _MAX_RICH_TEXT_PER_BLOCK
+
+        segments = [
+            {"type": "text", "text": {"content": f"w{i}"}, "annotations": {}}
+            for i in range(_MAX_RICH_TEXT_PER_BLOCK + 1)
+        ]
+        blocks = converter._split_rich_text_to_blocks(segments, "paragraph")
+        assert len(blocks) == 2
+        assert all(b["type"] == "paragraph" for b in blocks)
+        assert len(blocks[0]["paragraph"]["rich_text"]) == _MAX_RICH_TEXT_PER_BLOCK
+        assert len(blocks[1]["paragraph"]["rich_text"]) == 1
+
+    def test_paragraph_with_many_links_does_not_exceed_limit(self, converter):
+        # Build a markdown paragraph with 150 links – each link yields 1 rich_text
+        # segment, so the total would be 150 without splitting.
+        links = " ".join(f"[L{i}](https://example.com/{i})" for i in range(150))
+        blocks = converter.convert(links)
+        # All generated blocks must be paragraphs (no other types expected)
+        paragraph_blocks = [b for b in blocks if b["type"] == "paragraph"]
+        assert len(paragraph_blocks) >= 2, "Expected the content to be split into multiple paragraphs"
+        # Every paragraph block must have ≤ 100 rich_text segments
+        for block in paragraph_blocks:
+            assert len(block["paragraph"]["rich_text"]) <= 100
+
+    def test_quote_with_many_segments_splits(self, converter):
+        from octopus_scraper.storages.markdown_to_notion import _MAX_RICH_TEXT_PER_BLOCK
+
+        segments = [
+            {"type": "text", "text": {"content": f"q{i}"}, "annotations": {}}
+            for i in range(_MAX_RICH_TEXT_PER_BLOCK + 5)
+        ]
+        blocks = converter._split_rich_text_to_blocks(segments, "quote")
+        assert len(blocks) == 2
+        assert all(b["type"] == "quote" for b in blocks)
+        assert len(blocks[0]["quote"]["rich_text"]) == _MAX_RICH_TEXT_PER_BLOCK
+        assert len(blocks[1]["quote"]["rich_text"]) == 5
+
+    def test_empty_rich_text_produces_single_empty_block(self, converter):
+        blocks = converter._split_rich_text_to_blocks([], "paragraph")
+        assert len(blocks) == 1
+        assert blocks[0]["paragraph"]["rich_text"] == []
