@@ -1,3 +1,4 @@
+import html as html_module
 import re
 import time
 from dataclasses import dataclass
@@ -203,6 +204,30 @@ class NotionStorage(BaseStorage):
 
         return name
 
+    def _strip_html(self, text: str) -> str:
+        """Strip HTML tags and decode HTML entities from plain-text properties.
+
+        Notion ``rich_text`` database properties do not render HTML markup, so
+        raw HTML in the summary field would appear as literal tag characters.
+        This method converts such content to readable plain text.
+
+        Args:
+            text: Raw text that may contain HTML tags and entities.
+
+        Returns:
+            Plain text with HTML tags removed and entities decoded.
+        """
+        if not text:
+            return text
+        # Decode HTML entities first (e.g. &gt; → >, &amp; → &, &#39; → ')
+        text = html_module.unescape(text)
+        # Remove HTML tags
+        text = re.sub(r"<[^>]+>", "", text)
+        # Normalise whitespace introduced by removed tags
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
     def _validate_url(self, url: str) -> Optional[str]:
         """Validate and sanitize URL for Notion URL property.
 
@@ -249,6 +274,8 @@ class NotionStorage(BaseStorage):
 
         # Validate and sanitize summary
         summary = content.summary if content.summary else ""
+        # Strip HTML tags/entities – Notion text properties don't render HTML
+        summary = self._strip_html(summary)
         if len(summary) > MAX_NOTION_SUMMARY_LENGTH:
             logger.warning(
                 f"Content summary return larger than {MAX_NOTION_SUMMARY_LENGTH}. Summary will be cut off.",

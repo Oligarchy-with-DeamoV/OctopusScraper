@@ -8,7 +8,7 @@ authors = [
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9"
+python = ">3.9, <3.11"
 feedparser = "^6.0.11"
 tenacity = "^9.0.0"
 notion_client = "^2.3.0"
