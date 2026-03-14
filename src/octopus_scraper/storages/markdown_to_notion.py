@@ -55,7 +55,9 @@ class MarkdownToNotionConverter:
             tokens = self._md(markdown_text)
         except Exception:
             logger.warning("markdown_parse_failed", text_preview=markdown_text[:100])
-            return [self._make_paragraph([self._make_text_segment(markdown_text)])]
+            return self._split_rich_text_to_blocks(
+                self._make_text_segments(markdown_text), "paragraph"
+            )
 
         blocks = []
         for token in tokens:
@@ -383,7 +385,3 @@ class MarkdownToNotionConverter:
             "text": {"content": text},
             "annotations": merged_annotations,
         }
-
-    def _make_paragraph(self, rich_text: List[Dict]) -> Dict:
-        """Build a Notion paragraph block from rich_text segments."""
-        return {"type": "paragraph", "paragraph": {"rich_text": rich_text}}
