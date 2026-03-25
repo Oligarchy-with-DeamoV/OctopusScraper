@@ -82,7 +82,7 @@ services:
   rsshub:
     # if used default rsshub use image below
     # image: diygod/rsshub:chromium-bundled
-    image: rsshub:local_dev
+    image: info-channel:local_dev
     restart: always
     ports:
       - "1200:1200"
@@ -90,6 +90,7 @@ services:
       NODE_ENV: production
       CACHE_TYPE: redis
       REDIS_URL: "redis://redis:6379/"
+      XUEQIU_COOKIES: ${XUEQIU_COOKIES}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
       interval: 30s
