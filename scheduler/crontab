@@ -2,8 +2,8 @@
 # 格式: 分 时 日 月 周  命令
 # ──────────────────────────────────────────────────────────
 
-# 每 1 分钟触发 scraper
-* * * * * curl -sf -X POST http://octopus-service:8000/trigger_scraper 2>&1 | logger -t trigger_scraper
+# 每 30 分钟触发 scraper
+0,30 * * * * curl -sf -X POST http://octopus-service:8000/trigger_scraper 2>&1 | logger -t trigger_scraper
 
 # 每 1 分钟触发 upload
 * * * * * curl -sf -X POST http://octopus-service:8000/trigger_upload 2>&1 | logger -t trigger_upload
