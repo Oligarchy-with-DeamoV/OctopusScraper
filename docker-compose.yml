@@ -115,6 +115,24 @@ services:
     networks:
       - octopus-network
 
+  # Vector 日志监控服务：监控 rsshub 的 error 日志并发送到飞书
+  vector-alert:
+    image: timberio/vector:latest-alpine
+    container_name: vector-alert
+    environment:
+      - TZ=Asia/Shanghai
+      - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL}
+      - VECTOR_LOG=${VECTOR_LOG:-info}
+    volumes:
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - octopus-network
+    command: ["--config", "/etc/vector/vector.toml"]
+    restart: unless-stopped
+    depends_on:
+      - rsshub
+
 networks:
   octopus-network:
     driver: bridge

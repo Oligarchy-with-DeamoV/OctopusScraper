@@ -1,0 +1,123 @@
+# ==================== 数据源 ====================
+# 采集 rsshub 容器日志（通过 Docker Compose 服务名标签匹配）
+[sources.rsshub_logs]
+type = "docker_logs"
+docker_host = "unix:///var/run/docker.sock"
+# 使用标签匹配 Docker Compose 服务
+include_labels = ["com.docker.compose.service=rsshub"]
+
+# ==================== 转换1：过滤 error 日志 ====================
+[transforms.filter_errors]
+type = "filter"
+inputs = ["rsshub_logs"]
+# 匹配以 error 级别开头的日志（忽略 ANSI 转义码和大小写）
+condition = "match(string!(.message), r'(?i)(^|\\x1b\\[\\d+m)error\\x1b\\[\\d+m?:')"
+
+# ==================== 转换2：立即告警每条 error 日志 ====================
+[transforms.format_error]
+type = "remap"
+inputs = ["filter_errors"]
+source = '''
+  .alert_time = now()
+  .hostname = "RSSHub 服务"
+  .error_message = string!(.message)
+'''
+
+# ==================== 转换3：格式化为飞书 Webhook 消息（卡片格式）====================
+[transforms.format_feishu]
+type = "remap"
+inputs = ["format_error"]
+source = '''
+  host = string!(.hostname)
+  ts = to_string(format_timestamp!(.alert_time, format: "%Y-%m-%d %H:%M:%S", timezone: "Asia/Shanghai"))
+  # 清理 ANSI 转义码（颜色控制字符）
+  error_msg = replace(string!(.error_message), r'\x1b\[\d+(;\d+)*m', "")
+
+  # 构建飞书卡片消息
+  card = {
+    "msg_type": "interactive",
+    "card": {
+      "config": {
+        "wide_screen_mode": true
+      },
+      "header": {
+        "title": {
+          "tag": "plain_text",
+          "content": "🚨 RSSHub 错误告警"
+        },
+        "template": "red"
+      },
+      "elements": [
+        {
+          "tag": "div",
+          "fields": [
+            {
+              "is_short": true,
+              "text": {
+                "tag": "lark_md",
+                "content": "**服务名称**\n" + host
+              }
+            },
+            {
+              "is_short": true,
+              "text": {
+                "tag": "lark_md",
+                "content": "**告警时间**\n" + ts
+              }
+            }
+          ]
+        },
+        {
+          "tag": "hr"
+        },
+        {
+          "tag": "div",
+          "text": {
+            "tag": "lark_md",
+            "content": "**错误详情**\n" + error_msg
+          }
+        },
+        {
+          "tag": "note",
+          "elements": [
+            {
+              "tag": "plain_text",
+              "content": "由 Vector 自动监控并发送"
+            }
+          ]
+        }
+      ]
+    }
+  }
+
+  .message = encode_json(card)
+  del(.alert_time)
+  del(.hostname)
+  del(.error_message)
+'''
+
+# ==================== 输出1：打印到控制台（包括所有 rsshub 日志用于调试） ====================
+[sinks.console]
+type = "console"
+inputs = ["rsshub_logs"]
+encoding.codec = "json"
+
+# ==================== 输出2：打印过滤后的 error ====================
+[sinks.console_errors]
+type = "console"
+inputs = ["format_error"]
+encoding.codec = "json"
+
+# ==================== 输出2：发送飞书 Webhook ====================
+[sinks.feishu_webhook]
+type = "http"
+inputs = ["format_feishu"]
+uri = "${FEISHU_WEBHOOK_URL}"
+method = "post"
+encoding.codec = "raw_message"
+  [sinks.feishu_webhook.request]
+    timeout_secs = 5
+    headers = { "Content-Type" = "application/json" }
+  [sinks.feishu_webhook.buffer]
+    type = "memory"
+    max_events = 50
