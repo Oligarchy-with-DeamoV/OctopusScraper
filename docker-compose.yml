@@ -82,11 +82,12 @@ services:
   rsshub:
     # if used default rsshub use image below
     # image: diygod/rsshub:chromium-bundled
-    image: info-channel:local_dev
+    image: info-channel:1.0.0
     restart: always
     ports:
       - "1200:1200"
     environment:
+      TZ: Asia/Shanghai
       NODE_ENV: production
       CACHE_TYPE: redis
       REDIS_URL: "redis://redis:6379/"
