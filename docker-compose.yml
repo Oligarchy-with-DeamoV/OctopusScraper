@@ -92,6 +92,11 @@ services:
       CACHE_TYPE: redis
       REDIS_URL: "redis://redis:6379/"
       XUEQIU_COOKIES: ${XUEQIU_COOKIES}
+      XUEQIU_RATE_WINDOW_SECONDS: ${XUEQIU_RATE_WINDOW_SECONDS:-60}
+      XUEQIU_RATE_LIMIT: ${XUEQIU_RATE_LIMIT:-15}
+      XUEQIU_DELAY_MIN_MS: ${XUEQIU_DELAY_MIN_MS:-1000}
+      XUEQIU_DELAY_MAX_MS: ${XUEQIU_DELAY_MAX_MS:-2000}
+      XUEQIU_SCAN_POST_REPLIES: ${XUEQIU_SCAN_POST_REPLIES:-1}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
       interval: 30s
