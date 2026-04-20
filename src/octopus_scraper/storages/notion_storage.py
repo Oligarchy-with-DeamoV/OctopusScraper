@@ -1,6 +1,8 @@
 import html as html_module
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -30,6 +32,12 @@ NOTION_PROPERTY_PUBLISHED_DATE = "Published Date"
 # We'll be more conservative and use 2 requests per second
 NOTION_MIN_REQUEST_INTERVAL = 0.5  # 500ms between requests = 2 req/sec
 
+# Cache TTL for content IDs (seconds)
+CONTENT_IDS_CACHE_TTL = 300  # 5 minutes
+
+# Max concurrent workers for page creation (bounded by Notion rate limit)
+MAX_UPLOAD_WORKERS = 2
+
 
 @dataclass
 class NotionAPIConfig:
@@ -57,36 +65,67 @@ class NotionStorage(BaseStorage):
         self.notion = Client(auth=self.config.api_key)
         self._check_property_exist()
 
-        # Rate limiting: track last request time
+        # Thread-safe rate limiting
         self._last_request_time = 0.0
+        self._rate_limit_lock = threading.Lock()
+
+        # Cache for content IDs to avoid repeated full-database scans
+        self._content_ids_cache: Optional[set] = None
+        self._content_ids_cache_time: float = 0.0
 
         self._markdown_converter = MarkdownToNotionConverter()
 
     def _rate_limit(self):
         """Enforce rate limiting to avoid hitting Notion API limits.
 
+        Thread-safe: uses a lock to coordinate rate limiting across
+        concurrent upload workers.
+
         Notion recommends max 3 requests per second. We use 2 req/sec to be safe.
         This method ensures minimum interval between requests.
         """
-        current_time = time.time()
-        time_since_last_request = current_time - self._last_request_time
+        with self._rate_limit_lock:
+            current_time = time.time()
+            time_since_last_request = current_time - self._last_request_time
 
-        if time_since_last_request < NOTION_MIN_REQUEST_INTERVAL:
-            sleep_time = NOTION_MIN_REQUEST_INTERVAL - time_since_last_request
-            logger.debug(
-                f"Rate limiting: sleeping {sleep_time:.2f}s",
-                min_interval=NOTION_MIN_REQUEST_INTERVAL,
-            )
-            time.sleep(sleep_time)
+            if time_since_last_request < NOTION_MIN_REQUEST_INTERVAL:
+                sleep_time = NOTION_MIN_REQUEST_INTERVAL - time_since_last_request
+                logger.debug(
+                    f"Rate limiting: sleeping {sleep_time:.2f}s",
+                    min_interval=NOTION_MIN_REQUEST_INTERVAL,
+                )
+                time.sleep(sleep_time)
 
-        self._last_request_time = time.time()
+            self._last_request_time = time.time()
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
-    def get_all_content_ids(self) -> set:
-        """批量获取数据库中所有已存在的 content_id"""
+    def get_all_content_ids(self, force_refresh: bool = False) -> set:
+        """批量获取数据库中所有已存在的 content_id。
+
+        Uses a TTL-based cache to avoid repeated full-database scans.
+        The cache is automatically updated when new content is stored.
+
+        Args:
+            force_refresh: If True, bypass cache and query Notion directly.
+        """
+        # Return cached result if still valid
+        if not force_refresh and self._content_ids_cache is not None:
+            cache_age = time.time() - self._content_ids_cache_time
+            if cache_age < CONTENT_IDS_CACHE_TTL:
+                logger.debug(
+                    "Using cached content IDs",
+                    cache_size=len(self._content_ids_cache),
+                    cache_age_seconds=round(cache_age, 1),
+                )
+                return self._content_ids_cache.copy()
+
         all_content_ids = set()
         has_more = True
         next_cursor = None
+
+        # Resolve the property ID for ContentId to use filter_properties,
+        # which drastically reduces response payload size.
+        content_id_property_id = self._get_property_id(NOTION_PROPERTIY_CONTENT_ID)
 
         while has_more:
             query_params = {
@@ -96,6 +135,10 @@ class NotionStorage(BaseStorage):
 
             if next_cursor:
                 query_params["start_cursor"] = next_cursor
+
+            # Only request the ContentId property to reduce payload
+            if content_id_property_id:
+                query_params["filter_properties"] = [content_id_property_id]
 
             response = self.notion.databases.query(**query_params)
 
@@ -116,10 +159,44 @@ class NotionStorage(BaseStorage):
                 logger.error("Notion databases query response is not a dict.")
                 break
 
+        # Update cache
+        self._content_ids_cache = all_content_ids.copy()
+        self._content_ids_cache_time = time.time()
+
         logger.info(
             f"Retrieved {len(all_content_ids)} existing content IDs from Notion"
         )
         return all_content_ids
+
+    def invalidate_content_ids_cache(self):
+        """Invalidate the content IDs cache, forcing a fresh query on next access."""
+        self._content_ids_cache = None
+        self._content_ids_cache_time = 0.0
+        logger.debug("Content IDs cache invalidated")
+
+    def _get_property_id(self, property_name: str) -> Optional[str]:
+        """Retrieve the Notion-internal property ID for a given property name.
+
+        Used to pass ``filter_properties`` in database queries so that Notion
+        returns only the requested columns, reducing response payload size.
+
+        Returns:
+            The short property ID string, or None if lookup fails.
+        """
+        try:
+            db_info = self.notion.databases.retrieve(
+                database_id=self.config.database_id
+            )
+            props = db_info.get("properties", {})
+            prop = props.get(property_name, {})
+            return prop.get("id")
+        except Exception as e:
+            logger.debug(
+                "Failed to resolve property ID, will query without filter_properties",
+                property_name=property_name,
+                error=str(e),
+            )
+            return None
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
     def _check_property_exist(self):
@@ -518,4 +595,113 @@ class NotionStorage(BaseStorage):
             source=content.scraper_name,
             total_blocks=len(children),
         )
+
+        # Update cache so subsequent dedup checks don't miss this item
+        if self._content_ids_cache is not None:
+            self._content_ids_cache.add(content.content_id)
+
         return True
+
+    def store_contents(self, contents: List[Content], deduplicate=True) -> List[bool]:
+        """批量存储内容到 Notion 数据库（并发版本）。
+
+        Overrides BaseStorage.store_contents to upload pages concurrently
+        using a thread pool, significantly reducing total upload time while
+        respecting Notion's rate limits via the thread-safe ``_rate_limit``.
+
+        Args:
+            contents: 要存储的内容列表
+            deduplicate: 是否启用去重功能，默认为 True
+
+        Returns:
+            每个内容存储结果的列表，True 表示存储成功/已跳过
+        """
+        if not contents:
+            return []
+
+        existing_content_ids = self.get_all_content_ids()
+        store_contents = []
+        if deduplicate:
+            logger.info("Deduplication enabled, checking existing content IDs...")
+            for content in contents:
+                if content.content_id not in existing_content_ids:
+                    store_contents.append(content)
+                else:
+                    logger.debug(
+                        "Content already exists in storage, skipping",
+                        content_id=content.content_id,
+                    )
+        else:
+            store_contents = contents
+
+        # Upload contents concurrently with bounded parallelism
+        results = []
+        if store_contents:
+            results = self._concurrent_store(store_contents)
+
+        # 为已存在的内容返回 True（表示"处理成功"）
+        skipped_count = len(contents) - len(store_contents)
+        results.extend([True] * skipped_count)
+
+        success_count = sum(1 for r in results if r)
+        failure_count = sum(1 for r in results if not r)
+        logger.info(
+            f"Batch storage completed: {success_count} stored, "
+            f"{failure_count} failed, {skipped_count} skipped "
+            f"(1 API call for deduplicate check, concurrent upload)"
+        )
+        return results
+
+    def _concurrent_store(self, contents: List[Content]) -> List[bool]:
+        """Store multiple contents concurrently using a thread pool.
+
+        Rate limiting is enforced per-request via the thread-safe
+        ``_rate_limit`` method, keeping aggregate throughput within
+        Notion's limits.
+
+        Args:
+            contents: List of non-duplicate contents to store.
+
+        Returns:
+            Ordered list of booleans indicating success/failure.
+        """
+        results: List[Optional[bool]] = [None] * len(contents)
+
+        # For small batches, sequential is fine (avoids thread overhead)
+        if len(contents) <= 2:
+            for i, content in enumerate(contents):
+                try:
+                    results[i] = self._store_content(content)
+                except Exception as e:
+                    logger.error(
+                        "Failed to store content after retries",
+                        content_id=content.content_id,
+                        error=str(e),
+                    )
+                    results[i] = False
+            return [r if r is not None else False for r in results]
+
+        logger.info(
+            f"Starting concurrent upload of {len(contents)} items "
+            f"with {MAX_UPLOAD_WORKERS} workers"
+        )
+
+        with ThreadPoolExecutor(max_workers=MAX_UPLOAD_WORKERS) as executor:
+            future_to_index = {}
+            for i, content in enumerate(contents):
+                future = executor.submit(self._store_content, content)
+                future_to_index[future] = i
+
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as e:
+                    logger.error(
+                        "Failed to store content after retries",
+                        content_id=contents[idx].content_id,
+                        error=str(e),
+                    )
+                    results[idx] = False
+
+        return [r if r is not None else False for r in results]

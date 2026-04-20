@@ -620,3 +620,151 @@ class TestNotionStorage:
         # Entities must be decoded
         assert "&gt;" not in summary_text
         assert ">" in summary_text
+
+    # ------------------------------------------------------------------
+    # Tests for content IDs cache
+    # ------------------------------------------------------------------
+
+    def test_get_all_content_ids_uses_cache(self, notion_storage):
+        """Second call should return cached result without querying Notion."""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+            notion_storage, "_get_property_id", return_value=None
+        ):
+            mock_query.return_value = {
+                "results": [
+                    {
+                        "properties": {
+                            "ContentId": {
+                                "rich_text": [{"text": {"content": "id_1"}}]
+                            }
+                        }
+                    }
+                ],
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+            # First call — hits Notion
+            result1 = notion_storage.get_all_content_ids()
+            assert result1 == {"id_1"}
+            assert mock_query.call_count == 1
+
+            # Second call — should use cache
+            result2 = notion_storage.get_all_content_ids()
+            assert result2 == {"id_1"}
+            assert mock_query.call_count == 1  # No additional call
+
+    def test_get_all_content_ids_force_refresh_bypasses_cache(self, notion_storage):
+        """force_refresh=True should query Notion even when cache is valid."""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+            notion_storage, "_get_property_id", return_value=None
+        ):
+            mock_query.return_value = {
+                "results": [
+                    {
+                        "properties": {
+                            "ContentId": {
+                                "rich_text": [{"text": {"content": "id_1"}}]
+                            }
+                        }
+                    }
+                ],
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+            # Populate cache
+            notion_storage.get_all_content_ids()
+            assert mock_query.call_count == 1
+
+            # Force refresh
+            notion_storage.get_all_content_ids(force_refresh=True)
+            assert mock_query.call_count == 2
+
+    def test_store_content_updates_cache(self, notion_storage):
+        """After storing content, its ID should appear in the cache."""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+            notion_storage.notion.pages, "create"
+        ) as mock_create, patch.object(
+            notion_storage, "_get_property_id", return_value=None
+        ):
+            mock_query.return_value = {
+                "results": [],
+                "has_more": False,
+                "next_cursor": None,
+            }
+            mock_create.return_value = {"id": "page_1"}
+
+            # Populate cache (empty)
+            ids = notion_storage.get_all_content_ids()
+            assert len(ids) == 0
+
+            # Store a content item
+            content = Content(
+                title="test",
+                link="https://example.com",
+                summary="summary",
+                content_id="new_content_id",
+                content="body",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+            notion_storage._store_content(content)
+
+            # Cache should now include the new ID (without re-querying)
+            assert mock_query.call_count == 1
+            ids_after = notion_storage.get_all_content_ids()
+            assert "new_content_id" in ids_after
+            assert mock_query.call_count == 1  # Still no new query
+
+    def test_invalidate_content_ids_cache(self, notion_storage):
+        """invalidate_content_ids_cache should force next call to query Notion."""
+        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+            notion_storage, "_get_property_id", return_value=None
+        ):
+            mock_query.return_value = {
+                "results": [],
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+            # Populate cache
+            notion_storage.get_all_content_ids()
+            assert mock_query.call_count == 1
+
+            # Invalidate
+            notion_storage.invalidate_content_ids_cache()
+
+            # Next call should hit Notion again
+            notion_storage.get_all_content_ids()
+            assert mock_query.call_count == 2
+
+    def test_concurrent_store_contents(self, notion_storage):
+        """store_contents should handle multiple items with concurrent upload."""
+        with patch.object(
+            notion_storage.notion.pages, "create"
+        ) as mock_create, patch.object(
+            notion_storage, "get_all_content_ids"
+        ) as mock_get_ids:
+            mock_create.return_value = {"id": "page_id"}
+            mock_get_ids.return_value = set()
+
+            contents = [
+                Content(
+                    title=f"Content {i}",
+                    link=f"https://example.com/{i}",
+                    summary=f"Summary {i}",
+                    content_id=f"id_{i}",
+                    content=f"Body {i}",
+                    published="2025-01-01T00:00:00Z",
+                    scraper_name="test",
+                )
+                for i in range(5)
+            ]
+
+            results = notion_storage.store_contents(contents, deduplicate=True)
+
+            assert len(results) == 5
+            assert all(r is True for r in results)
+            assert mock_create.call_count == 5
+            mock_get_ids.assert_called_once()
