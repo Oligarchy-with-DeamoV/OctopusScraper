@@ -1,4 +1,5 @@
 import html as html_module
+import os
 import re
 import threading
 import time
@@ -38,6 +39,11 @@ CONTENT_IDS_CACHE_TTL = 300  # 5 minutes
 # Max concurrent workers for page creation (bounded by Notion rate limit)
 MAX_UPLOAD_WORKERS = 2
 
+# Default delay (seconds) before batch-level retry of failed uploads.
+# Gives Notion time to become consistent before re-querying.
+# Configurable via NOTION_UPLOAD_RETRY_DELAY env var.
+DEFAULT_UPLOAD_RETRY_DELAY = 30
+
 
 @dataclass
 class NotionAPIConfig:
@@ -74,6 +80,11 @@ class NotionStorage(BaseStorage):
         self._content_ids_cache_time: float = 0.0
 
         self._markdown_converter = MarkdownToNotionConverter()
+
+        # Configurable delay before batch-level retry
+        self._upload_retry_delay = float(
+            os.environ.get("NOTION_UPLOAD_RETRY_DELAY", str(DEFAULT_UPLOAD_RETRY_DELAY))
+        )
 
     def _rate_limit(self):
         """Enforce rate limiting to avoid hitting Notion API limits.
@@ -446,21 +457,11 @@ class NotionStorage(BaseStorage):
             )
             return None
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(2),
-        retry=retry_if_exception_type(
-            (
-                httpx.ReadTimeout,
-                httpx.ConnectTimeout,
-                httpx.RemoteProtocolError,
-            )
-        ),
-    )
     def _store_content(self, content: Content) -> bool:
         """存储单个内容，不做重复性检查。
 
-        Raises on transient API errors so that the @retry decorator can retry.
+        Does NOT retry internally. Batch-level retry is handled by
+        store_contents which re-checks Notion after a delay.
         Returns False only for permanent/non-retryable failures.
         """
         # Warn if scraper_name (Source) is missing — helps diagnose unstable Source field
@@ -548,8 +549,7 @@ class NotionStorage(BaseStorage):
                 ),
             )
 
-            # Re-raise to let retry decorator handle it
-            raise
+            return False
 
         # Update cache immediately after successful page creation,
         # before appending remaining blocks. This ensures retry logic
@@ -662,6 +662,53 @@ class NotionStorage(BaseStorage):
         results = []
         if store_contents_list:
             results = self._concurrent_store(store_contents_list)
+
+            # Batch-level retry: if any items failed, sleep then re-check Notion
+            failed_indices = [i for i, r in enumerate(results) if not r]
+            if failed_indices:
+                failed_contents = [store_contents_list[i] for i in failed_indices]
+                failed_ids = [c.content_id for c in failed_contents]
+                logger.warning(
+                    "Some items failed in first pass, will retry after delay",
+                    failed_count=len(failed_indices),
+                    retry_delay_seconds=self._upload_retry_delay,
+                    failed_content_ids=failed_ids,
+                )
+
+                time.sleep(self._upload_retry_delay)
+
+                # Force-refresh cache to get Notion's true state
+                self.invalidate_content_ids_cache()
+                refreshed_ids = self.get_all_content_ids(force_refresh=True)
+
+                # Only retry items confirmed NOT in Notion
+                retry_contents = []
+                retry_original_indices = []
+                for idx in failed_indices:
+                    content = store_contents_list[idx]
+                    if content.content_id in refreshed_ids:
+                        logger.info(
+                            "Failed item found in Notion after delay, skipping retry",
+                            content_id=content.content_id,
+                        )
+                        results[idx] = True  # It was actually created
+                    else:
+                        retry_contents.append(content)
+                        retry_original_indices.append(idx)
+
+                if retry_contents:
+                    logger.info(
+                        "Retrying confirmed-missing items",
+                        retry_count=len(retry_contents),
+                    )
+                    retry_results = self._concurrent_store(retry_contents)
+                    for i, orig_idx in enumerate(retry_original_indices):
+                        results[orig_idx] = retry_results[i]
+
+                    # If still failures after retry, invalidate cache for next cycle
+                    still_failed = any(not r for r in retry_results)
+                    if still_failed:
+                        self.invalidate_content_ids_cache()
 
         # Count skipped (both batch-internal dups and Notion-existing)
         skipped_count = len(contents) - len(store_contents_list)

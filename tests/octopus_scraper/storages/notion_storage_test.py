@@ -843,3 +843,100 @@ class TestNotionStorage:
             assert result is True
             # Cache should have been updated BEFORE block appending attempted
             assert "test_id_123" in notion_storage._content_ids_cache
+
+    def test_store_contents_retries_failed_items_after_sleep(self, notion_storage):
+        """After first pass failures, store_contents should sleep, refresh cache,
+        and retry only items confirmed not in Notion."""
+        import httpx
+
+        call_count = {"value": 0}
+
+        def create_side_effect(**kwargs):
+            call_count["value"] += 1
+            props = kwargs.get("properties", {})
+            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
+            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            # First attempt for id_c fails, second attempt succeeds
+            if cid == "id_c" and call_count["value"] <= 2:
+                raise httpx.ReadTimeout("timeout")
+            return {"id": f"page_{call_count['value']}"}
+
+        get_ids_call_count = {"value": 0}
+
+        def get_ids_side_effect(force_refresh=False):
+            get_ids_call_count["value"] += 1
+            if get_ids_call_count["value"] == 1:
+                return set()  # first call: nothing in Notion
+            # second call (after retry sleep): C was NOT actually created
+            return set()
+
+        with patch.object(
+            notion_storage.notion.pages, "create", side_effect=create_side_effect
+        ), patch.object(
+            notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
+        ), patch("octopus_scraper.storages.notion_storage.time.sleep") as mock_sleep:
+            notion_storage._upload_retry_delay = 0.1
+
+            contents = [
+                Content(
+                    title="A", link="https://a.com", summary="a",
+                    content_id="id_a", content="a", published="2025-01-01",
+                    scraper_name="t",
+                ),
+                Content(
+                    title="C", link="https://c.com", summary="c",
+                    content_id="id_c", content="c", published="2025-01-01",
+                    scraper_name="t",
+                ),
+            ]
+
+            results = notion_storage.store_contents(contents, deduplicate=True)
+
+            # Sleep was called for retry delay
+            mock_sleep.assert_called()
+            # get_all_content_ids called twice: once for initial dedup, once for retry
+            assert get_ids_call_count["value"] == 2
+            # Both should succeed (A on first pass, C on retry)
+            assert all(r is True for r in results)
+
+    def test_store_contents_skips_retry_for_items_found_in_notion(self, notion_storage):
+        """If a 'failed' item is found in Notion after sleep, skip it (it actually succeeded)."""
+        import httpx
+
+        def create_side_effect(**kwargs):
+            props = kwargs.get("properties", {})
+            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
+            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            if cid == "id_c":
+                raise httpx.ReadTimeout("timeout")
+            return {"id": "page_ok"}
+
+        get_ids_call_count = {"value": 0}
+
+        def get_ids_side_effect(force_refresh=False):
+            get_ids_call_count["value"] += 1
+            if get_ids_call_count["value"] == 1:
+                return set()
+            # After sleep: C IS in Notion (the timeout-ed create actually succeeded)
+            return {"id_c"}
+
+        with patch.object(
+            notion_storage.notion.pages, "create", side_effect=create_side_effect
+        ), patch.object(
+            notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
+        ), patch("octopus_scraper.storages.notion_storage.time.sleep"):
+            notion_storage._upload_retry_delay = 0.1
+
+            contents = [
+                Content(
+                    title="C", link="https://c.com", summary="c",
+                    content_id="id_c", content="c", published="2025-01-01",
+                    scraper_name="t",
+                ),
+            ]
+
+            results = notion_storage.store_contents(contents, deduplicate=True)
+
+            # C found in Notion after sleep — no retry needed, treated as success
+            assert results == [True]
+            # pages.create was only called once (the failed attempt, no retry)
