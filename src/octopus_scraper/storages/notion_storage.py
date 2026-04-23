@@ -619,28 +619,50 @@ class NotionStorage(BaseStorage):
         if not contents:
             return []
 
+        # Batch-internal dedup: keep first occurrence of each content_id
+        if deduplicate:
+            seen_ids: set = set()
+            unique_contents: List[Content] = []
+            batch_dup_count = 0
+            for content in contents:
+                if content.content_id not in seen_ids:
+                    seen_ids.add(content.content_id)
+                    unique_contents.append(content)
+                else:
+                    batch_dup_count += 1
+            if batch_dup_count > 0:
+                logger.warning(
+                    "Removed batch-internal duplicates",
+                    original_count=len(contents),
+                    unique_count=len(unique_contents),
+                    duplicates_removed=batch_dup_count,
+                )
+            contents_to_process = unique_contents
+        else:
+            contents_to_process = contents
+
         existing_content_ids = self.get_all_content_ids()
-        store_contents = []
+        store_contents_list = []
         if deduplicate:
             logger.info("Deduplication enabled, checking existing content IDs...")
-            for content in contents:
+            for content in contents_to_process:
                 if content.content_id not in existing_content_ids:
-                    store_contents.append(content)
+                    store_contents_list.append(content)
                 else:
                     logger.debug(
                         "Content already exists in storage, skipping",
                         content_id=content.content_id,
                     )
         else:
-            store_contents = contents
+            store_contents_list = contents_to_process
 
         # Upload contents concurrently with bounded parallelism
         results = []
-        if store_contents:
-            results = self._concurrent_store(store_contents)
+        if store_contents_list:
+            results = self._concurrent_store(store_contents_list)
 
-        # 为已存在的内容返回 True（表示"处理成功"）
-        skipped_count = len(contents) - len(store_contents)
+        # Count skipped (both batch-internal dups and Notion-existing)
+        skipped_count = len(contents) - len(store_contents_list)
         results.extend([True] * skipped_count)
 
         success_count = sum(1 for r in results if r)

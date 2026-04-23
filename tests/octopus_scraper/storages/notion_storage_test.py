@@ -94,6 +94,54 @@ class TestNotionStorage:
             # Should call get_all_content_ids only once for batch dedup
             mock_get_all_ids.assert_called_once()
 
+    def test_store_contents_deduplicates_within_batch(self, notion_storage):
+        """store_contents should deduplicate items with same content_id within the input batch."""
+        with patch.object(
+            notion_storage.notion.pages, "create"
+        ) as mock_create, patch.object(
+            notion_storage, "get_all_content_ids"
+        ) as mock_get_ids:
+            mock_create.return_value = {"id": "page_id"}
+            mock_get_ids.return_value = set()  # nothing in Notion yet
+
+            content_a = Content(
+                title="Content A",
+                link="https://example.com/a",
+                summary="Summary A",
+                content_id="same_id",
+                content="Body A",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+            content_a_dup = Content(
+                title="Content A duplicate",
+                link="https://example.com/a",
+                summary="Summary A dup",
+                content_id="same_id",
+                content="Body A dup",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+            content_b = Content(
+                title="Content B",
+                link="https://example.com/b",
+                summary="Summary B",
+                content_id="different_id",
+                content="Body B",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+
+            results = notion_storage.store_contents(
+                [content_a, content_a_dup, content_b], deduplicate=True
+            )
+
+            # Only 2 pages created (same_id uploaded once, different_id once)
+            assert mock_create.call_count == 2
+            # All 3 items reported as success (dup counted as "handled")
+            assert len(results) == 3
+            assert sum(1 for r in results if r) >= 2
+
     def test_build_properties_with_scraper_name(self, notion_storage):
         """Test _build_properties includes Source select when scraper_name is set."""
         content = Content(
