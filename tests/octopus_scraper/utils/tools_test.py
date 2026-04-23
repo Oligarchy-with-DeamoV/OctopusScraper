@@ -52,7 +52,7 @@ def test_convert_contents_preserves_markdown_links():
 
 
 def test_generate_stable_content_id():
-    # Test with hash
+    # Test without guid - falls back to url+published
     entry_no_id = FeedParserDict(
         {
             "link": "https://example.com/article?param=value",
@@ -62,6 +62,41 @@ def test_generate_stable_content_id():
     hash_id = generate_stable_content_id(entry_no_id)
     assert len(hash_id) == 16  # MD5 hash truncated to 16 chars
     assert isinstance(hash_id, str)
+
+
+def test_generate_stable_content_id_with_guid():
+    """Test that guid is included in hash when present."""
+    entry_with_guid = FeedParserDict(
+        {
+            "link": "https://example.com/article",
+            "published": "2025-06-21T10:00:00Z",
+            "id": "unique-guid-123",
+        }
+    )
+    entry_without_guid = FeedParserDict(
+        {
+            "link": "https://example.com/article",
+            "published": "2025-06-21T10:00:00Z",
+        }
+    )
+    id_with = generate_stable_content_id(entry_with_guid)
+    id_without = generate_stable_content_id(entry_without_guid)
+
+    # guid 的存在应导致不同的 content_id
+    assert id_with != id_without
+    assert len(id_with) == 16
+    assert len(id_without) == 16
+
+
+def test_generate_stable_content_id_same_guid_is_stable():
+    """Test that same inputs produce same hash."""
+    entry1 = FeedParserDict(
+        {"link": "https://example.com/a", "published": "2025-01-01", "id": "guid-1"}
+    )
+    entry2 = FeedParserDict(
+        {"link": "https://example.com/a", "published": "2025-01-01", "id": "guid-1"}
+    )
+    assert generate_stable_content_id(entry1) == generate_stable_content_id(entry2)
 
 
 def test_generate_summary_from_entry():
@@ -159,7 +194,7 @@ def test_build_contents():
     assert len(contents) == 3
 
     # Check first entry (normal)
-    assert contents[0].content_id == "099b1bfec8507133"
+    assert contents[0].content_id == "b76416b5b307a53f"
     assert "Short summary" in contents[0].summary
     assert "Full content" in contents[0].content
 

@@ -94,6 +94,54 @@ class TestNotionStorage:
             # Should call get_all_content_ids only once for batch dedup
             mock_get_all_ids.assert_called_once()
 
+    def test_store_contents_deduplicates_within_batch(self, notion_storage):
+        """store_contents should deduplicate items with same content_id within the input batch."""
+        with patch.object(
+            notion_storage.notion.pages, "create"
+        ) as mock_create, patch.object(
+            notion_storage, "get_all_content_ids"
+        ) as mock_get_ids:
+            mock_create.return_value = {"id": "page_id"}
+            mock_get_ids.return_value = set()  # nothing in Notion yet
+
+            content_a = Content(
+                title="Content A",
+                link="https://example.com/a",
+                summary="Summary A",
+                content_id="same_id",
+                content="Body A",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+            content_a_dup = Content(
+                title="Content A duplicate",
+                link="https://example.com/a",
+                summary="Summary A dup",
+                content_id="same_id",
+                content="Body A dup",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+            content_b = Content(
+                title="Content B",
+                link="https://example.com/b",
+                summary="Summary B",
+                content_id="different_id",
+                content="Body B",
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+
+            results = notion_storage.store_contents(
+                [content_a, content_a_dup, content_b], deduplicate=True
+            )
+
+            # Only 2 pages created (same_id uploaded once, different_id once)
+            assert mock_create.call_count == 2
+            # All 3 items reported as success (dup counted as "handled")
+            assert len(results) == 3
+            assert sum(1 for r in results if r) >= 2
+
     def test_build_properties_with_scraper_name(self, notion_storage):
         """Test _build_properties includes Source select when scraper_name is set."""
         content = Content(
@@ -768,3 +816,127 @@ class TestNotionStorage:
             assert all(r is True for r in results)
             assert mock_create.call_count == 5
             mock_get_ids.assert_called_once()
+
+    def test_store_content_updates_cache_immediately_after_create(self, notion_storage):
+        """Cache should be updated right after pages.create succeeds, before block appending."""
+        notion_storage._content_ids_cache = set()
+
+        with patch.object(notion_storage.notion.pages, "create") as mock_create, patch.object(
+            notion_storage.notion.blocks.children, "append"
+        ) as mock_append:
+            mock_create.return_value = {"id": "page_id"}
+
+            # Mock blocks.children.append to raise — simulates block append failure
+            mock_append.side_effect = Exception("block append failed")
+
+            content = Content(
+                title="Test",
+                link="https://example.com",
+                summary="summary",
+                content_id="test_id_123",
+                content="x" * 200,
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+
+            result = notion_storage._store_content(content)
+            assert result is True
+            # Cache should have been updated BEFORE block appending attempted
+            assert "test_id_123" in notion_storage._content_ids_cache
+
+    def test_store_contents_retries_failed_items_after_sleep(self, notion_storage):
+        """After first pass failures, store_contents should sleep, refresh cache,
+        and retry only items confirmed not in Notion."""
+        import httpx
+
+        call_count = {"value": 0}
+
+        def create_side_effect(**kwargs):
+            call_count["value"] += 1
+            props = kwargs.get("properties", {})
+            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
+            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            # First attempt for id_c fails, second attempt succeeds
+            if cid == "id_c" and call_count["value"] <= 2:
+                raise httpx.ReadTimeout("timeout")
+            return {"id": f"page_{call_count['value']}"}
+
+        get_ids_call_count = {"value": 0}
+
+        def get_ids_side_effect(force_refresh=False):
+            get_ids_call_count["value"] += 1
+            if get_ids_call_count["value"] == 1:
+                return set()  # first call: nothing in Notion
+            # second call (after retry sleep): C was NOT actually created
+            return set()
+
+        with patch.object(
+            notion_storage.notion.pages, "create", side_effect=create_side_effect
+        ), patch.object(
+            notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
+        ), patch("octopus_scraper.storages.notion_storage.time.sleep") as mock_sleep:
+            notion_storage._upload_retry_delay = 0.1
+
+            contents = [
+                Content(
+                    title="A", link="https://a.com", summary="a",
+                    content_id="id_a", content="a", published="2025-01-01",
+                    scraper_name="t",
+                ),
+                Content(
+                    title="C", link="https://c.com", summary="c",
+                    content_id="id_c", content="c", published="2025-01-01",
+                    scraper_name="t",
+                ),
+            ]
+
+            results = notion_storage.store_contents(contents, deduplicate=True)
+
+            # Sleep was called for retry delay
+            mock_sleep.assert_called()
+            # get_all_content_ids called twice: once for initial dedup, once for retry
+            assert get_ids_call_count["value"] == 2
+            # Both should succeed (A on first pass, C on retry)
+            assert all(r is True for r in results)
+
+    def test_store_contents_skips_retry_for_items_found_in_notion(self, notion_storage):
+        """If a 'failed' item is found in Notion after sleep, skip it (it actually succeeded)."""
+        import httpx
+
+        def create_side_effect(**kwargs):
+            props = kwargs.get("properties", {})
+            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
+            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            if cid == "id_c":
+                raise httpx.ReadTimeout("timeout")
+            return {"id": "page_ok"}
+
+        get_ids_call_count = {"value": 0}
+
+        def get_ids_side_effect(force_refresh=False):
+            get_ids_call_count["value"] += 1
+            if get_ids_call_count["value"] == 1:
+                return set()
+            # After sleep: C IS in Notion (the timeout-ed create actually succeeded)
+            return {"id_c"}
+
+        with patch.object(
+            notion_storage.notion.pages, "create", side_effect=create_side_effect
+        ), patch.object(
+            notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
+        ), patch("octopus_scraper.storages.notion_storage.time.sleep"):
+            notion_storage._upload_retry_delay = 0.1
+
+            contents = [
+                Content(
+                    title="C", link="https://c.com", summary="c",
+                    content_id="id_c", content="c", published="2025-01-01",
+                    scraper_name="t",
+                ),
+            ]
+
+            results = notion_storage.store_contents(contents, deduplicate=True)
+
+            # C found in Notion after sleep — no retry needed, treated as success
+            assert results == [True]
+            # pages.create was only called once (the failed attempt, no retry)

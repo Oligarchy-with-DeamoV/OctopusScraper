@@ -165,42 +165,76 @@ class Octopus:
 
             all_contents: List[Content] = []
             processed_task_ids: List[str] = []
+            # Track which content index belongs to which task
+            content_task_mapping: List[str] = []  # index -> task_id
 
             for task_result in completed_tasks:
-                # Skip tasks that have already been uploaded
-                if task_result.items_uploaded > 0:
+                # Skip tasks with no remaining contents to upload
+                contents = task_result.metadata.get("contents", [])
+                if not contents:
                     continue
 
-                # Extract contents from task metadata
-                contents = task_result.metadata.get("contents", [])
-                if contents:
-                    all_contents.extend(contents)
-                    processed_task_ids.append(task_result.task_id)
+                for content in contents:
+                    content_task_mapping.append(task_result.task_id)
+                all_contents.extend(contents)
+                processed_task_ids.append(task_result.task_id)
 
             if not all_contents:
                 logger.info("No pending contents to upload from completed tasks")
                 return upload_stats
 
             # Upload collected contents to Notion
-            success_cnt = sum(
-                self._notion_api.store_contents(all_contents, deduplicate=True)
+            upload_results = self._notion_api.store_contents(
+                all_contents, deduplicate=True
             )
 
-            # Mark tasks as uploaded by updating items_uploaded in their results
+            # Map results back to tasks: determine which contents succeeded per task
+            task_success_ids: Dict[str, set] = {}  # task_id -> set of succeeded content_ids
+            for i, (content, success) in enumerate(zip(all_contents, upload_results)):
+                task_id = content_task_mapping[i]
+                if success:
+                    if task_id not in task_success_ids:
+                        task_success_ids[task_id] = set()
+                    task_success_ids[task_id].add(content.content_id)
+
+            # Update each task: remove succeeded contents, keep failed ones
+            total_uploaded = 0
             for task_id in processed_task_ids:
                 task_result = self._task_manager.get_task_result(task_id)
-                if task_result:
-                    task_contents = task_result.metadata.get("contents", [])
-                    task_result.items_uploaded = len(task_contents)
-                    # Clear contents from metadata to free memory
+                if not task_result:
+                    continue
+
+                succeeded_ids = task_success_ids.get(task_id, set())
+                task_contents = task_result.metadata.get("contents", [])
+
+                # Separate succeeded and failed contents
+                failed_contents = [
+                    c for c in task_contents if c.content_id not in succeeded_ids
+                ]
+
+                # Update items_uploaded (cumulative)
+                task_result.items_uploaded += len(succeeded_ids)
+                total_uploaded += len(succeeded_ids)
+
+                if failed_contents:
+                    # Keep failed contents in metadata for next cycle
+                    task_result.metadata["contents"] = failed_contents
+                    logger.warning(
+                        "Some contents failed to upload, kept for retry",
+                        task_id=task_id,
+                        succeeded=len(succeeded_ids),
+                        failed=len(failed_contents),
+                    )
+                else:
+                    # All contents uploaded, clear metadata
                     task_result.metadata.pop("contents", None)
 
-            upload_stats["uploaded_count"] = success_cnt
+            upload_stats["uploaded_count"] = total_uploaded
             upload_stats["tasks_processed"] = len(processed_task_ids)
 
             logger.info(
-                "Upload completed successfully",
-                uploaded_count=success_cnt,
+                "Upload completed",
+                uploaded_count=total_uploaded,
                 tasks_processed=len(processed_task_ids),
                 total_contents_collected=len(all_contents),
             )
