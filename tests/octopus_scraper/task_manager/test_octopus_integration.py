@@ -404,14 +404,14 @@ class TestOctopusUploadConcurrency:
             items_uploaded=0,
             metadata={
                 "contents": [
-                    {
-                        "content_id": "c1",
-                        "title": "Article 1",
-                        "link": "https://example.com/1",
-                        "summary": "s",
-                        "content": "c",
-                        "published": "2025-01-01",
-                    }
+                    Content(
+                        content_id="c1",
+                        title="Article 1",
+                        link="https://example.com/1",
+                        summary="s",
+                        content="c",
+                        published="2025-01-01",
+                    )
                 ]
             },
         )
@@ -468,14 +468,14 @@ class TestOctopusUploadConcurrency:
             items_uploaded=0,
             metadata={
                 "contents": [
-                    {
-                        "content_id": "c_err",
-                        "title": "Error Article",
-                        "link": "https://example.com/err",
-                        "summary": "s",
-                        "content": "c",
-                        "published": "2025-01-01",
-                    }
+                    Content(
+                        content_id="c_err",
+                        title="Error Article",
+                        link="https://example.com/err",
+                        summary="s",
+                        content="c",
+                        published="2025-01-01",
+                    )
                 ]
             },
         )
@@ -487,6 +487,129 @@ class TestOctopusUploadConcurrency:
 
         # Lock should be released — second call should NOT block
         assert not octopus._upload_lock.locked()
+
+        # Clean up
+        octopus.cleanup_task_manager()
+
+
+class TestOctopusPartialUploadRetry:
+    """Test that partial upload failures preserve failed contents for retry."""
+
+    @patch("octopus_scraper.octopus.NotionStorage")
+    def test_do_upload_keeps_failed_contents_for_retry(
+        self, mock_notion_class, octopus_config_with_task_manager
+    ):
+        """When store_contents returns partial success, failed contents
+        remain in task metadata and are retried on the next upload cycle."""
+        mock_storage = Mock()
+        # First call: content_1 succeeds, content_2 fails
+        mock_storage.store_contents.return_value = [True, False]
+        mock_notion_class.return_value = mock_storage
+
+        octopus = Octopus(octopus_config_with_task_manager)
+
+        # Inject a completed task with two Content instances
+        from octopus_scraper.task_manager.models import TaskResult, TaskStatus
+
+        content_1 = Content(
+            content_id="c1",
+            title="Article 1",
+            link="https://example.com/1",
+            summary="s1",
+            content="body1",
+            published="2025-01-01",
+        )
+        content_2 = Content(
+            content_id="c2",
+            title="Article 2",
+            link="https://example.com/2",
+            summary="s2",
+            content="body2",
+            published="2025-01-02",
+        )
+
+        fake_result = TaskResult(
+            task_id="task_partial",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            items_uploaded=0,
+            metadata={"contents": [content_1, content_2]},
+        )
+        octopus._task_manager._task_results["task_partial"] = fake_result
+
+        # First upload cycle
+        stats = octopus.trigger_upload()
+
+        assert stats["uploaded_count"] == 1
+        assert stats["tasks_processed"] == 1
+
+        # Only the succeeded content should be counted
+        assert fake_result.items_uploaded == 1
+
+        # Failed content should remain in metadata
+        remaining = fake_result.metadata.get("contents", [])
+        assert len(remaining) == 1
+        assert remaining[0].content_id == "c2"
+
+        # Second upload cycle should pick up the failed content
+        mock_storage.store_contents.return_value = [True]
+        stats2 = octopus.trigger_upload()
+
+        assert stats2["uploaded_count"] == 1
+        assert fake_result.items_uploaded == 2
+        # Metadata contents should be cleared after full success
+        assert "contents" not in fake_result.metadata
+
+        # Clean up
+        octopus.cleanup_task_manager()
+
+    @patch("octopus_scraper.octopus.NotionStorage")
+    def test_do_upload_clears_all_on_full_success(
+        self, mock_notion_class, octopus_config_with_task_manager
+    ):
+        """When all contents upload successfully, metadata is cleared
+        and items_uploaded reflects the full count."""
+        mock_storage = Mock()
+        mock_storage.store_contents.return_value = [True, True]
+        mock_notion_class.return_value = mock_storage
+
+        octopus = Octopus(octopus_config_with_task_manager)
+
+        from octopus_scraper.task_manager.models import TaskResult, TaskStatus
+
+        content_a = Content(
+            content_id="ca",
+            title="Article A",
+            link="https://example.com/a",
+            summary="sa",
+            content="body_a",
+            published="2025-02-01",
+        )
+        content_b = Content(
+            content_id="cb",
+            title="Article B",
+            link="https://example.com/b",
+            summary="sb",
+            content="body_b",
+            published="2025-02-02",
+        )
+
+        fake_result = TaskResult(
+            task_id="task_full",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            items_uploaded=0,
+            metadata={"contents": [content_a, content_b]},
+        )
+        octopus._task_manager._task_results["task_full"] = fake_result
+
+        stats = octopus.trigger_upload()
+
+        assert stats["uploaded_count"] == 2
+        assert stats["tasks_processed"] == 1
+        assert fake_result.items_uploaded == 2
+        # All succeeded — metadata contents should be cleared
+        assert "contents" not in fake_result.metadata
 
         # Clean up
         octopus.cleanup_task_manager()
