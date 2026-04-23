@@ -816,3 +816,30 @@ class TestNotionStorage:
             assert all(r is True for r in results)
             assert mock_create.call_count == 5
             mock_get_ids.assert_called_once()
+
+    def test_store_content_updates_cache_immediately_after_create(self, notion_storage):
+        """Cache should be updated right after pages.create succeeds, before block appending."""
+        notion_storage._content_ids_cache = set()
+
+        with patch.object(notion_storage.notion.pages, "create") as mock_create, patch.object(
+            notion_storage.notion.blocks.children, "append"
+        ) as mock_append:
+            mock_create.return_value = {"id": "page_id"}
+
+            # Mock blocks.children.append to raise — simulates block append failure
+            mock_append.side_effect = Exception("block append failed")
+
+            content = Content(
+                title="Test",
+                link="https://example.com",
+                summary="summary",
+                content_id="test_id_123",
+                content="x" * 200,
+                published="2025-01-01T00:00:00Z",
+                scraper_name="test",
+            )
+
+            result = notion_storage._store_content(content)
+            assert result is True
+            # Cache should have been updated BEFORE block appending attempted
+            assert "test_id_123" in notion_storage._content_ids_cache

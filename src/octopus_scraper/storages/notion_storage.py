@@ -551,6 +551,12 @@ class NotionStorage(BaseStorage):
             # Re-raise to let retry decorator handle it
             raise
 
+        # Update cache immediately after successful page creation,
+        # before appending remaining blocks. This ensures retry logic
+        # and concurrent uploads can detect this item was already created.
+        if self._content_ids_cache is not None:
+            self._content_ids_cache.add(content.content_id)
+
         # If there are remaining blocks, append them in batches
         if remaining_children:
             logger.info(
@@ -595,10 +601,6 @@ class NotionStorage(BaseStorage):
             source=content.scraper_name,
             total_blocks=len(children),
         )
-
-        # Update cache so subsequent dedup checks don't miss this item
-        if self._content_ids_cache is not None:
-            self._content_ids_cache.add(content.content_id)
 
         return True
 
