@@ -58,22 +58,38 @@ def build_contents(feed: FeedParserDict) -> List[Content]:
 
 
 def generate_stable_content_id(entry) -> str:
-    """生成稳定的content_id"""
+    """生成稳定的content_id
 
-    # 使用 URL + 发布时间的哈希
+    优先使用 url + published + guid 三要素生成哈希，
+    当 guid 不存在时回退到 url + published 并记录警告日志。
+    """
     url = str(entry.link)
     published = str(entry.get("published", ""))
+    guid = str(entry.get("id", ""))
 
     # 规范化URL（移除查询参数中的临时参数）
     parsed_url = urlparse(url)
     clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
 
-    # 生成哈希ID
-    content_for_hash = f"{clean_url}|{published}"
+    # 拼接哈希要素：有 guid 时用 url+published+guid，否则回退到 url+published
+    if guid:
+        content_for_hash = f"{clean_url}|{published}|{guid}"
+    else:
+        content_for_hash = f"{clean_url}|{published}"
+        logger.warning(
+            "Entry missing guid/id field, falling back to url+published for content_id",
+            url=url,
+            published=published,
+        )
+
     hash_id = hashlib.md5(content_for_hash.encode()).hexdigest()[:16]
 
     logger.debug(
-        "Generated hash-based content_id", url=url, published=published, hash_id=hash_id
+        "Generated hash-based content_id",
+        url=url,
+        published=published,
+        guid=guid,
+        hash_id=hash_id,
     )
 
     return hash_id
