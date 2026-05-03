@@ -88,6 +88,9 @@ class MarkdownToNotionConverter:
         If the resulting rich_text exceeds the Notion API limit of
         _MAX_RICH_TEXT_PER_BLOCK elements, the paragraph is split into
         multiple consecutive paragraph blocks.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="paragraph"``, ``getattr(self, "_block_paragraph")`` resolves here.
         """
         children = token.get("children", [])
         # Detect image tokens inside paragraph children
@@ -101,17 +104,29 @@ class MarkdownToNotionConverter:
         blocks = self._split_rich_text_to_blocks(rich_text, "paragraph")
         return blocks if len(blocks) > 1 else blocks[0]
 
-    def _block_heading(self, token: Dict) -> Dict:
-        """Render heading_1, heading_2, or heading_3. Levels 4-6 downgrade to 3."""
+    def _block_heading(self, token: Dict) -> Dict | List[Dict]:
+        """Render heading_1, heading_2, or heading_3. Levels 4-6 downgrade to 3.
+
+        If the resulting rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK elements,
+        the heading is split into multiple consecutive heading blocks.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="heading"``, ``getattr(self, "_block_heading")`` resolves here.
+        """
         level = token.get("attrs", {}).get("level", 1)
         if level > 3:
             level = 3
         heading_type = f"heading_{level}"
         rich_text = self._render_rich_text(token.get("children", []))
-        return {"type": heading_type, heading_type: {"rich_text": rich_text}}
+        blocks = self._split_rich_text_to_blocks(rich_text, heading_type)
+        return blocks if len(blocks) > 1 else blocks[0]
 
     def _block_block_code(self, token: Dict) -> Dict:
-        """Render a fenced code block."""
+        """Render a fenced code block.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="block_code"``, ``getattr(self, "_block_block_code")`` resolves here.
+        """
         info = (token.get("attrs", {}).get("info") or "").strip()
         language = info if info else "plain text"
         raw = token.get("raw", "")
@@ -122,16 +137,21 @@ class MarkdownToNotionConverter:
         return {"type": "code", "code": {"rich_text": rich_text, "language": language}}
 
     def _block_list(self, token: Dict) -> List[Dict]:
-        """Render a list (ordered or unordered) as flat list item blocks."""
+        """Render a list (ordered or unordered) as flat list item blocks.
+
+        If a single list item's rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK,
+        it is split into multiple consecutive list item blocks.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="list"``, ``getattr(self, "_block_list")`` resolves here.
+        """
         ordered = token.get("attrs", {}).get("ordered", False)
         block_type = "numbered_list_item" if ordered else "bulleted_list_item"
         blocks = []
         for item in token.get("children", []):
             if item.get("type") == "list_item":
                 rich_text = self._extract_list_item_text(item)
-                blocks.append(
-                    {"type": block_type, block_type: {"rich_text": rich_text}}
-                )
+                blocks.extend(self._split_rich_text_to_blocks(rich_text, block_type))
         return blocks
 
     def _block_block_quote(self, token: Dict) -> Dict | List[Dict]:
@@ -139,6 +159,9 @@ class MarkdownToNotionConverter:
 
         If the resulting rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK elements,
         the quote is split into multiple consecutive quote blocks.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="block_quote"``, ``getattr(self, "_block_block_quote")`` resolves here.
         """
         # block_quote children are typically paragraphs
         all_rich_text = []
@@ -153,11 +176,19 @@ class MarkdownToNotionConverter:
         return {"type": "quote", "quote": {"rich_text": []}}
 
     def _block_thematic_break(self, token: Dict) -> Dict:
-        """Render a horizontal rule / divider."""
+        """Render a horizontal rule / divider.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="thematic_break"``, ``getattr(self, "_block_thematic_break")`` resolves here.
+        """
         return {"type": "divider", "divider": {}}
 
     def _block_table(self, token: Dict) -> Dict:
-        """Render a table block with table_row children."""
+        """Render a table block with table_row children.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="table"``, ``getattr(self, "_block_table")`` resolves here.
+        """
         rows = []
         table_width = 0
         has_header = False
@@ -185,7 +216,11 @@ class MarkdownToNotionConverter:
         }
 
     def _block_blank_line(self, token: Dict) -> None:
-        """Skip blank lines."""
+        """Skip blank lines.
+
+        Note: Dispatched via reflection in ``_render_block`` — when mistune emits
+        a token with ``type="blank_line"``, ``getattr(self, "_block_blank_line")`` resolves here.
+        """
         return None
 
     # ---------------------------------------------------------------

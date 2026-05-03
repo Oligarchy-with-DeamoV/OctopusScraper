@@ -324,6 +324,32 @@ class TestRichTextLengthLimit:
         assert len(blocks[0]["quote"]["rich_text"]) == _MAX_RICH_TEXT_PER_BLOCK
         assert len(blocks[1]["quote"]["rich_text"]) == 5
 
+    def test_numbered_list_item_with_many_segments_splits(self, converter):
+        """Regression test: numbered_list_item rich_text must not exceed 100 elements.
+
+        Previously, _block_list did not call _split_rich_text_to_blocks, causing
+        Notion API validation_error when a single list item had >100 rich_text segments.
+        See: body.children[N].numbered_list_item.rich_text.length should be ≤ 100
+        """
+        # Build markdown with a single list item containing 130 links
+        links = " ".join(f"[L{i}](https://example.com/{i})" for i in range(130))
+        md = f"1. {links}\n"
+        blocks = converter.convert(md)
+        list_blocks = [b for b in blocks if b["type"] == "numbered_list_item"]
+        assert len(list_blocks) >= 2, "Expected the list item to be split into multiple blocks"
+        for block in list_blocks:
+            assert len(block["numbered_list_item"]["rich_text"]) <= 100
+
+    def test_bulleted_list_item_with_many_segments_splits(self, converter):
+        """Bulleted list items should also split when rich_text exceeds limit."""
+        links = " ".join(f"[L{i}](https://example.com/{i})" for i in range(130))
+        md = f"- {links}\n"
+        blocks = converter.convert(md)
+        list_blocks = [b for b in blocks if b["type"] == "bulleted_list_item"]
+        assert len(list_blocks) >= 2, "Expected the list item to be split into multiple blocks"
+        for block in list_blocks:
+            assert len(block["bulleted_list_item"]["rich_text"]) <= 100
+
     def test_empty_rich_text_produces_single_empty_block(self, converter):
         blocks = converter._split_rich_text_to_blocks([], "paragraph")
         assert len(blocks) == 1
