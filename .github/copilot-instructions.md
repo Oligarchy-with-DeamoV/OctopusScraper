@@ -1,4 +1,55 @@
-# Python Developer Copilot Instructions
+# Copilot Instructions
+
+This file provides guidance to GitHub Copilot when working with code in this repository.
+
+## Project Overview
+
+OctopusScraper (v0.2.0) is a multi-functional information scraping tool that fetches, processes, and stores web content via RSS feeds with Notion database integration. Python 3.9-3.10, managed with Poetry.
+
+## Technology Stack
+
+- Python >3.9, <3.11
+- Sanic for web API
+- feedparser for RSS parsing
+- notion_client for Notion API integration
+- tenacity for retry logic
+- structlog for structured logging
+- python-dotenv for environment variable management
+- httpx for HTTP requests
+- playwright for browser automation
+- doraemon (custom internal wheel in `resources/whls/`)
+
+## Common Commands
+
+```bash
+# Install dependencies
+poetry install
+
+# Run all unit tests (excludes external/integration tests)
+poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
+
+# Run a single test file
+poetry run pytest tests/octopus_scraper/task_manager/test_task_manager.py
+
+# Run a single test by name
+poetry run pytest -k "test_function_name"
+
+# Run with coverage
+poetry run pytest --cov=src tests/
+
+# Format code
+black src/ tests/
+
+# Run the web service
+poetry run octopus_service
+```
+
+## Test Markers
+
+- `@pytest.mark.need_external_service` — tests requiring external APIs (Notion, LLM, etc.)
+- `@pytest.mark.integrate_test` — full integration tests against real RSS sources
+- Tests use `pytest-asyncio` with `asyncio_mode = "auto"` (no need for `@pytest.mark.asyncio`)
+- Attention: normal dev run pytest DO NOT mark need_external_service or integrate_test
 
 ## Role & Expertise
 
@@ -14,14 +65,12 @@
 - Use modular design.
 - Follow Single Responsibility Principle.
 - Follow DRY (Don't Repeat Yourself) Principle.
-- Use Black for code formatting.
-- Use Pylint for linting.
+- **Formatter**: Black, 120 char line length.
 - Follow PEP 8 and project-specific rules.
-- Use strict mode.
 - Indent using 4 spaces.
-- Limit line length to 120 characters.
 - Use # for single-line comments and ''' for multi-line comments.
-- Require comments in the code.
+- **Docstrings**: Google Python Style Guide format.
+- **Logging**: Use `structlog` throughout.
 
 ## Code Review
 
@@ -35,15 +84,9 @@
 - Use python-dotenv for environment variable management.
 - Manage secrets using environment variables.
 
-## Document Style
-
-- Require documentation for all code.
-- Use docstrings for documentation.
-- Follow the Google Python Style Guide for documentation.
-
 ## Testing
 
-- Pytest for testing, remember to use fixtures and use poetry run pytest.
+- Pytest for testing, remember to use fixtures and use `poetry run pytest`.
 - Require tests for all code.
 - Aim for 80% test coverage.
 - Include unit and integration tests.
@@ -51,26 +94,57 @@
 ## Error Handling
 
 - Prefer using try-except blocks for error handling.
-- Log errors appropriately.
+- Log errors appropriately using structlog.
 
 ## Dependency & Project Management
 
 - Always use poetry for installing dependencies to ensure consistency and efficiency.
 
-## General Guidelines
+## Architecture
 
-- Apply best practices for Python development, debugging, and performance optimization.
-- Reference project technology stack and requirements as needed.
+### Core Pipeline: Fetch → Process → Store
 
-## Technology Stack Context
+1. **Octopus** (`src/octopus_scraper/octopus.py`) — Main orchestrator. Manages scraper configs, delegates scraping to TaskManager, handles upload to Notion with a threading lock for concurrency control.
 
-This project utilizes the following technologies:
+2. **TaskManager** (`src/octopus_scraper/task_manager/task_manager.py`) — PriorityQueue-based task scheduler with ThreadPoolExecutor. Supports pre/post-execution hooks and result retention.
 
-- Python 3.10+
-- Click for command-line interface
-- SQLAlchemy for database interactions
-- Pandas for data manipulation and analysis
-- Structlog for structured logging
-- Tushare for financial data retrieval
-- Qlib for quantitative analysis and backtesting
-- Streamlit for web applications
+3. **Scraper** (`src/octopus_scraper/scraper.py`) — Fetches content using pluggable fetchers, runs it through a processor pipeline, and deduplicates against storage.
+
+4. **Processors** (`src/octopus_scraper/processors/`) — Ordered pipeline of content processors (HTML extraction, LLM summarization, keyword extraction, tag generation). Each extends `ProcessorBase`. Registered in `AVALIABLE_PROCESSOR` dict.
+
+5. **Storages** (`src/octopus_scraper/storages/`) — Persistence layer. `NotionStorage` handles Notion API writes with retry logic (tenacity).
+
+6. **ConfigManager** (`src/octopus_scraper/config/`) — Loads scraper configurations from a Notion database. Supports hot-reload with change detection via `set_on_config_changed()`.
+
+### Fetchers
+
+Pluggable data sources registered in `AVALIABLE_FETCHERS`:
+
+- `rsshub` — fetches via RSSHub instance
+- `direct_rss` — fetches RSS feeds directly
+
+### Web Service
+
+`octopus_service.py` provides a Sanic web API with endpoints like `/trigger_scraper` and `/trigger_upload`. Entry point: `octopus_scraper.cli:run_octopus_service`.
+
+### Data Model
+
+`Content` dataclass (`src/octopus_scraper/protos.py`) is the core data transfer object flowing through the pipeline.
+
+## Environment Variables
+
+Required in `.env` (loaded via python-dotenv):
+
+- `NOTION_API_KEY` — Notion integration token
+- `NOTION_SCRAPERS_DATABASE_ID` — Notion DB for scraper configurations
+- `NOTION_CONTENT_DATABASE_ID` — Notion DB for scraped content storage
+
+Service config: `OCTOPUS_HOST`, `OCTOPUS_PORT`, `OCTOPUS_DEBUG`, `OCTOPUS_LOG_LEVEL`, `OCTOPUS_LOG_FORMAT`
+
+## Key Patterns
+
+- **Strategy pattern** for fetchers and processors (pluggable via registry dicts)
+- **Non-blocking lock** in `Octopus.trigger_upload()` to prevent concurrent uploads
+- **Tenacity retry** decorators on Notion API calls
+- **Config hot-reload** via observer callback on ConfigManager
+- Custom `doraemon` wheel in `resources/whls/` provides internal utilities

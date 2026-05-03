@@ -1,5 +1,5 @@
 ---
-description: Specifies dependency management using Rye and virtual environments for consistent and isolated project dependencies.
+description: Specifies dependency management using Poetry and virtual environments for consistent and isolated project dependencies.
 globs: /**/pyproject.toml
 ---
 

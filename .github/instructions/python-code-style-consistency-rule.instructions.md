@@ -1,5 +1,5 @@
 ---
-description: Ensures code style consistency using Ruff for Python files to maintain a clean and uniform codebase.
+description: Ensures code style consistency using Black for Python files to maintain a clean and uniform codebase.
 globs: /**/*.py
 ---
 
