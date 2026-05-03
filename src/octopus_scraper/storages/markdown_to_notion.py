@@ -101,14 +101,19 @@ class MarkdownToNotionConverter:
         blocks = self._split_rich_text_to_blocks(rich_text, "paragraph")
         return blocks if len(blocks) > 1 else blocks[0]
 
-    def _block_heading(self, token: Dict) -> Dict:
-        """Render heading_1, heading_2, or heading_3. Levels 4-6 downgrade to 3."""
+    def _block_heading(self, token: Dict) -> Dict | List[Dict]:
+        """Render heading_1, heading_2, or heading_3. Levels 4-6 downgrade to 3.
+
+        If the resulting rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK elements,
+        the heading is split into multiple consecutive heading blocks.
+        """
         level = token.get("attrs", {}).get("level", 1)
         if level > 3:
             level = 3
         heading_type = f"heading_{level}"
         rich_text = self._render_rich_text(token.get("children", []))
-        return {"type": heading_type, heading_type: {"rich_text": rich_text}}
+        blocks = self._split_rich_text_to_blocks(rich_text, heading_type)
+        return blocks if len(blocks) > 1 else blocks[0]
 
     def _block_block_code(self, token: Dict) -> Dict:
         """Render a fenced code block."""
@@ -122,16 +127,18 @@ class MarkdownToNotionConverter:
         return {"type": "code", "code": {"rich_text": rich_text, "language": language}}
 
     def _block_list(self, token: Dict) -> List[Dict]:
-        """Render a list (ordered or unordered) as flat list item blocks."""
+        """Render a list (ordered or unordered) as flat list item blocks.
+
+        If a single list item's rich_text exceeds _MAX_RICH_TEXT_PER_BLOCK,
+        it is split into multiple consecutive list item blocks.
+        """
         ordered = token.get("attrs", {}).get("ordered", False)
         block_type = "numbered_list_item" if ordered else "bulleted_list_item"
         blocks = []
         for item in token.get("children", []):
             if item.get("type") == "list_item":
                 rich_text = self._extract_list_item_text(item)
-                blocks.append(
-                    {"type": block_type, block_type: {"rich_text": rich_text}}
-                )
+                blocks.extend(self._split_rich_text_to_blocks(rich_text, block_type))
         return blocks
 
     def _block_block_quote(self, token: Dict) -> Dict | List[Dict]:
