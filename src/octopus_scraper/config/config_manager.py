@@ -136,25 +136,18 @@ class ConfigManager:
                 if self._stop_watcher:
                     break
 
-                logger.debug("Checking for configuration changes")
+                logger.debug("Reloading configuration")
 
-                # Check if configuration has changed
-                if await self.notion_client.check_config_changes():
-                    logger.info("Configuration changes detected, reloading...")
-                    config_changed = await self.reload_config_if_changed()
-                    # Notify dependent components (e.g. Octopus) so they
-                    # reload with the updated scraper configuration.
-                    if config_changed and self._on_config_changed_callback:
-                        try:
-                            await self._on_config_changed_callback()
-                        except Exception as cb_err:
-                            logger.error(
-                                "on_config_changed callback failed",
-                                error=str(cb_err),
-                                exc_info=True,
-                            )
-                else:
-                    logger.debug("No configuration changes detected")
+                config_changed = await self.reload_config_if_changed()
+                if config_changed and self._on_config_changed_callback:
+                    try:
+                        await self._on_config_changed_callback()
+                    except Exception as cb_err:
+                        logger.error(
+                            "on_config_changed callback failed",
+                            error=str(cb_err),
+                            exc_info=True,
+                        )
 
                 self._last_check = datetime.now()
 

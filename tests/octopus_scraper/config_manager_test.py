@@ -76,7 +76,6 @@ def mock_notion_client():
     mock_client = MagicMock()
     mock_client.validate_connection = AsyncMock(return_value=True)
     mock_client.load_scrapers_config = AsyncMock()
-    mock_client.check_config_changes = AsyncMock(return_value=False)
     return mock_client
 
 
@@ -115,7 +114,6 @@ class TestConfigManagerIntegration:
             mock_client.validate_connection = AsyncMock(return_value=True)
             mock_client.load_scrapers_config = AsyncMock(return_value=sample_scrapers)
             mock_client.check_config_changes = AsyncMock(return_value=True)
-
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
             await config_manager.load_initial_config()
 
@@ -283,7 +281,6 @@ async def test_config_watcher_lifecycle():
         mock_client = mock_client_class.return_value
         mock_client.validate_connection = AsyncMock(return_value=True)
         mock_client.load_scrapers_config = AsyncMock(return_value=[])
-        mock_client.check_config_changes = AsyncMock(return_value=False)
 
         config_manager = ConfigManager(mock_notion_config, mock_service_config)
         await config_manager.load_initial_config()

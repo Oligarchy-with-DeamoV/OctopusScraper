@@ -227,52 +227,6 @@ class TestNotionConfigClient:
             assert scrapers[0].status == "Active"
 
     @pytest.mark.asyncio
-    async def test_check_config_changes_true(self, notion_client):
-        """Test config changes detection when changes exist."""
-        from datetime import datetime
-
-        # Manually set last check time to simulate a previous call
-        notion_client._last_scrapers_check = datetime(2025, 6, 20, 10, 0, 0)
-
-        # Mock the database query to return changes
-        with patch.object(
-            notion_client.client.databases, "query", new_callable=AsyncMock
-        ) as mock_query:
-            mock_query.return_value = {
-                "results": [{"id": "changed_record"}]
-            }  # Has changes
-
-            result = await notion_client.check_config_changes()
-
-            assert result == True
-            # Verify the query was called with the correct filter
-            mock_query.assert_called_once()
-            call_args = mock_query.call_args
-            assert call_args[1]["filter"]["property"] == "Last edited time"
-
-    @pytest.mark.asyncio
-    async def test_check_config_changes_false(self, notion_client):
-        """Test config changes detection when no changes exist."""
-        from datetime import datetime
-
-        # Manually set last check time to simulate a previous call
-        notion_client._last_scrapers_check = datetime(2025, 6, 20, 10, 0, 0)
-
-        # Mock the database query to return no changes
-        with patch.object(
-            notion_client.client.databases, "query", new_callable=AsyncMock
-        ) as mock_query:
-            mock_query.return_value = {"results": []}  # No changes
-
-            result = await notion_client.check_config_changes()
-
-            assert result == False
-            # Verify the query was called with the correct filter
-            mock_query.assert_called_once()
-            call_args = mock_query.call_args
-            assert call_args[1]["filter"]["property"] == "Last edited time"
-
-    @pytest.mark.asyncio
     async def test_load_scrapers_config_with_invalid_json(self, notion_client):
         """Test loading scrapers config with invalid JSON in fetch_params."""
         mock_response = {

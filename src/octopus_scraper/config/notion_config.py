@@ -5,7 +5,6 @@ This module handles communication with Notion databases for
 loading and managing scraper configurations.
 """
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -22,7 +21,6 @@ class NotionConfigClient:
     def __init__(self, config: NotionDatabaseConfig):
         self.config = config
         self.client = AsyncClient(auth=config.api_key)
-        self._last_scrapers_check: Optional[datetime] = None
 
     async def load_scrapers_config(self) -> List[ScraperConfig]:
         """Load all active scraper configurations from Notion database."""
@@ -63,7 +61,6 @@ class NotionConfigClient:
                 scrapers_count=len(scrapers),
             )
 
-            self._last_scrapers_check = datetime.now()
             return scrapers
 
         except Exception as e:
@@ -71,38 +68,6 @@ class NotionConfigClient:
                 "Failed to load scrapers configuration", error=str(e), exc_info=True
             )
             raise
-
-    async def check_config_changes(self) -> bool:
-        """Check if scraper configuration has changed since last check."""
-        try:
-            if not self._last_scrapers_check:
-                return True  # First time, consider as changed
-
-            # Query for any records modified after last check
-            response = await self.client.databases.query(
-                database_id=self.config.scrapers_database_id,
-                filter={
-                    "property": "Last edited time",
-                    "last_edited_time": {
-                        "after": self._last_scrapers_check.isoformat()
-                    },
-                },
-                page_size=1,  # We only need to know if any changes exist
-            )
-
-            has_changes = len(response["results"]) > 0
-            logger.debug(
-                "Configuration change check completed",
-                has_changes=has_changes,
-                last_check=self._last_scrapers_check,
-            )
-
-            return has_changes
-
-        except Exception as e:
-            logger.error("Failed to check configuration changes", error=str(e))
-            # In case of error, assume there are changes to be safe
-            return True
 
     async def get_database_info(self) -> Dict[str, Any]:
         """Get information about the scrapers database."""
