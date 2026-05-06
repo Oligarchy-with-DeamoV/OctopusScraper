@@ -118,6 +118,7 @@ class NotionConfigClient:
             "Priority": {"number": {}},
             "Fetch Params": {"rich_text": {}},
             "Content Processors": {"rich_text": {}},
+            "Keywords": {"multi_select": {}},
         }
 
         try:

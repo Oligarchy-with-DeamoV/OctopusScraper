@@ -38,6 +38,7 @@ class TestScraperConfig:
             "fetch_params": {"key": "value"},
             "priority": 3,
             "content_processor_configs": {},
+            "default_keywords": [],
         }
 
         assert octopus_config == expected
@@ -70,6 +71,78 @@ class TestScraperConfig:
 
         assert scraper.fetch_params is None
         assert scraper.priority == 5
+        assert scraper.default_keywords == []
+
+    def test_from_notion_record_with_keywords(self):
+        """Test parsing default_keywords from Notion multi_select."""
+        record = {
+            "properties": {
+                "Name": {"title": [{"plain_text": "Test"}]},
+                "Status": {"select": {"name": "Active"}},
+                "Fetcher": {"select": {"name": "rsshub"}},
+                "Hub Root": {"url": "https://example.com"},
+                "Route": {"rich_text": [{"plain_text": "/test"}]},
+                "Priority": {"number": 5},
+                "Keywords": {
+                    "multi_select": [
+                        {"name": "AI"},
+                        {"name": "Machine Learning"},
+                    ]
+                },
+            }
+        }
+        scraper = ScraperConfig.from_notion_record(record)
+        assert scraper.default_keywords == ["AI", "Machine Learning"]
+
+    def test_from_notion_record_without_keywords(self):
+        """Test parsing when Keywords column is absent."""
+        record = {
+            "properties": {
+                "Name": {"title": [{"plain_text": "Test"}]},
+                "Status": {"select": {"name": "Active"}},
+                "Fetcher": {"select": {"name": "rsshub"}},
+                "Hub Root": {"url": "https://example.com"},
+                "Route": {"rich_text": [{"plain_text": "/test"}]},
+                "Priority": {"number": 5},
+            }
+        }
+        scraper = ScraperConfig.from_notion_record(record)
+        assert scraper.default_keywords == []
+
+    def test_from_notion_record_keywords_with_whitespace(self):
+        """Test that whitespace-only keyword names are filtered out."""
+        record = {
+            "properties": {
+                "Name": {"title": [{"plain_text": "Test"}]},
+                "Status": {"select": {"name": "Active"}},
+                "Fetcher": {"select": {"name": "rsshub"}},
+                "Hub Root": {"url": "https://example.com"},
+                "Route": {"rich_text": [{"plain_text": "/test"}]},
+                "Priority": {"number": 5},
+                "Keywords": {
+                    "multi_select": [
+                        {"name": "AI"},
+                        {"name": "  "},
+                        {"name": ""},
+                    ]
+                },
+            }
+        }
+        scraper = ScraperConfig.from_notion_record(record)
+        assert scraper.default_keywords == ["AI"]
+
+    def test_to_octopus_config_with_keywords(self):
+        """Test that default_keywords is included in octopus config."""
+        scraper = ScraperConfig(
+            name="Test",
+            status="Active",
+            fetcher="rsshub",
+            hub_root="https://example.com",
+            route="/test",
+            default_keywords=["AI", "ML"],
+        )
+        config = scraper.to_octopus_config()
+        assert config["default_keywords"] == ["AI", "ML"]
 
 
 class TestNotionDatabaseConfig:

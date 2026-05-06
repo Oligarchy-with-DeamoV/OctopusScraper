@@ -81,6 +81,7 @@ class ScraperTask:
     depends_on: Optional[List[str]] = None
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    default_keywords: List[str] = field(default_factory=list)
 
     def __lt__(self, other):
         """Support for ordering in priority queue."""
@@ -123,6 +124,7 @@ class ScraperTask:
             fetch_params=fetch_params,
             priority=priority,
             tags=[scraper_config.get("fetcher", "unknown")],
+            default_keywords=scraper_config.get("default_keywords", []) or [],
             metadata={
                 "hub_root": scraper_config.get("hub_root", ""),
                 "route": scraper_config.get("route", ""),

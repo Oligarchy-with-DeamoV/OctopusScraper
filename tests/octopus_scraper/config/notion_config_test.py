@@ -115,6 +115,7 @@ class TestNotionConfigClient:
                     "Priority": {"id": "num1"},
                     "Fetch Params": {"id": "rt2"},
                     "Content Processors": {"id": "rt3"},
+                    "Keywords": {"id": "ms1"},
                 },
             }
 

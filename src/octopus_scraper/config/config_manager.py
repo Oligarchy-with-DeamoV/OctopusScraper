@@ -357,6 +357,7 @@ class ConfigManager:
                     "fetch_params": scraper.fetch_params,
                     "priority": scraper.priority,
                     "content_processor_configs": scraper.content_processor_configs,
+                    "default_keywords": scraper.default_keywords,
                 }
             )
 

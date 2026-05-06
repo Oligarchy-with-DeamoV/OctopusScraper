@@ -134,6 +134,7 @@ async def setup_octopus(app, _):
                         },
                         "content_processor_configs": scraper.content_processor_configs,
                         "scraper_name": scraper.name,
+                        "default_keywords": scraper.default_keywords,
                     },
                     "fetch_params": scraper.fetch_params or {},
                 }
@@ -251,6 +252,7 @@ async def reload_octopus_config(app):
                         },
                         "content_processor_configs": scraper.content_processor_configs,
                         "scraper_name": scraper.name,
+                        "default_keywords": scraper.default_keywords,
                     },
                     "fetch_params": scraper.fetch_params or {},
                 }
@@ -930,6 +932,7 @@ async def run_scraper_test(request, scraper_name):
             },
             "content_processor_configs": target_scraper_config.content_processor_configs,
             "scraper_name": target_scraper_config.name,
+            "default_keywords": target_scraper_config.default_keywords,
         }
 
         test_scraper = Scraper(test_scraper_config)
@@ -1200,6 +1203,7 @@ async def submit_individual_task(request):
             },
             "content_processor_configs": target_scraper.content_processor_configs,
             "scraper_name": target_scraper.name,
+            "default_keywords": target_scraper.default_keywords,
         }
 
         fetch_params = request_data.get(

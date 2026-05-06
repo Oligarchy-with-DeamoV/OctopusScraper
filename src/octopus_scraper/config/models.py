@@ -19,6 +19,7 @@ class ScraperConfig:
     fetch_params: Optional[Dict[str, Any]] = None
     priority: int = 5
     content_processor_configs: Dict[str, Any] = field(default_factory=dict)
+    default_keywords: List[str] = field(default_factory=list)
 
     def to_octopus_config(self) -> Dict[str, Any]:
         """Convert to format expected by Octopus class."""
@@ -30,6 +31,7 @@ class ScraperConfig:
             "fetch_params": self.fetch_params or {},
             "priority": self.priority,
             "content_processor_configs": self.content_processor_configs,
+            "default_keywords": self.default_keywords,
         }
 
     @classmethod
@@ -103,6 +105,13 @@ class ScraperConfig:
                     content_processors_text=content_processors_text,
                 )
 
+        # Parse default keywords from multi_select
+        default_keywords = [
+            opt.get("name", "")
+            for opt in properties.get("Keywords", {}).get("multi_select", [])
+        ]
+        default_keywords = [k.strip() for k in default_keywords if k.strip()]
+
         return cls(
             name=name,
             status=status,
@@ -112,6 +121,7 @@ class ScraperConfig:
             fetch_params=fetch_params,
             priority=priority,
             content_processor_configs=content_processor_configs,
+            default_keywords=default_keywords,
         )
 
 
