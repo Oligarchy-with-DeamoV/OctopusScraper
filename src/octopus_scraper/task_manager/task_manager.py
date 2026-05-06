@@ -373,6 +373,19 @@ class TaskManager:
                 if not content_item.scraper_name:
                     content_item.scraper_name = task.scraper_name
 
+            # Prepend default keywords from scraper config
+            if task.default_keywords:
+                for content_item in contents:
+                    existing = content_item.keywords or []
+                    seen = set()
+                    merged = []
+                    for kw in list(task.default_keywords) + existing:
+                        stripped = kw.strip() if kw else ""
+                        if stripped and stripped not in seen:
+                            seen.add(stripped)
+                            merged.append(stripped)
+                    content_item.keywords = merged
+
             # Verify all contents have scraper_name set
             missing_source_count = sum(1 for c in contents if not c.scraper_name)
             if missing_source_count > 0:
@@ -438,6 +451,7 @@ class TaskManager:
                     max_retries=task.max_retries,
                     retry_count=task.retry_count,
                     scheduled_at=task.get_next_retry_time(),
+                    default_keywords=task.default_keywords,
                     metadata={**task.metadata, "original_task_id": task.task_id},
                 )
 

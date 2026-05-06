@@ -251,6 +251,116 @@ class TestTaskExecution:
         # Verify storage was set on scraper
         mock_scraper.set_storage.assert_called_once_with(mock_storage)
 
+    @patch("octopus_scraper.task_manager.task_manager.Scraper")
+    def test_execute_task_prepends_default_keywords(self, mock_scraper_class, task_manager):
+        """Test that default_keywords from config are prepended to content keywords."""
+        from octopus_scraper.protos import Content
+
+        content = Content(
+            content_id="c1",
+            title="Test",
+            link="http://test.com",
+            summary="summary",
+            content="content",
+            published="2025-01-01",
+            keywords=["existing"],
+        )
+
+        mock_scraper = Mock()
+        mock_scraper.scrap_contents.return_value = [content]
+        mock_scraper_class.return_value = mock_scraper
+
+        task = ScraperTask(
+            task_id="test_kw",
+            scraper_name="test",
+            scraper_config={},
+            fetch_params={},
+            default_keywords=["AI", "ML"],
+        )
+
+        result = TaskResult(
+            task_id=task.task_id,
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+
+        task_manager._execute_task(task, result)
+
+        assert content.keywords == ["AI", "ML", "existing"]
+
+    @patch("octopus_scraper.task_manager.task_manager.Scraper")
+    def test_execute_task_default_keywords_deduplication(self, mock_scraper_class, task_manager):
+        """Test that duplicate keywords are removed when merging defaults."""
+        from octopus_scraper.protos import Content
+
+        content = Content(
+            content_id="c1",
+            title="Test",
+            link="http://test.com",
+            summary="summary",
+            content="content",
+            published="2025-01-01",
+            keywords=["ML", "Data"],
+        )
+
+        mock_scraper = Mock()
+        mock_scraper.scrap_contents.return_value = [content]
+        mock_scraper_class.return_value = mock_scraper
+
+        task = ScraperTask(
+            task_id="test_kw_dedup",
+            scraper_name="test",
+            scraper_config={},
+            fetch_params={},
+            default_keywords=["AI", "ML"],
+        )
+
+        result = TaskResult(
+            task_id=task.task_id,
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+
+        task_manager._execute_task(task, result)
+
+        assert content.keywords == ["AI", "ML", "Data"]
+
+    @patch("octopus_scraper.task_manager.task_manager.Scraper")
+    def test_execute_task_no_default_keywords(self, mock_scraper_class, task_manager):
+        """Test that content keywords are unchanged when no default_keywords configured."""
+        from octopus_scraper.protos import Content
+
+        content = Content(
+            content_id="c1",
+            title="Test",
+            link="http://test.com",
+            summary="summary",
+            content="content",
+            published="2025-01-01",
+            keywords=["existing"],
+        )
+
+        mock_scraper = Mock()
+        mock_scraper.scrap_contents.return_value = [content]
+        mock_scraper_class.return_value = mock_scraper
+
+        task = ScraperTask(
+            task_id="test_no_kw",
+            scraper_name="test",
+            scraper_config={},
+            fetch_params={},
+        )
+
+        result = TaskResult(
+            task_id=task.task_id,
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+
+        task_manager._execute_task(task, result)
+
+        assert content.keywords == ["existing"]
+
 
 class TestTaskRetrieval:
     """Test task result retrieval functionality."""

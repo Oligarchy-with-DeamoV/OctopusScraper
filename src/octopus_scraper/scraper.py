@@ -22,6 +22,7 @@ class BaseScraperConfig:
     fetcher_config: Any
     content_processor_configs: Dict[Text, Any]
     scraper_name: Optional[str] = None  # Human-readable name of the scraper source
+    default_keywords: Optional[List[str]] = None  # Default keywords from config
 
 
 class Scraper:

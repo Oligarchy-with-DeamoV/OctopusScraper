@@ -238,6 +238,27 @@ class TestScraperTask:
             next_retry = task.get_next_retry_time()
             assert next_retry == now + timedelta(seconds=3600)
 
+    def test_default_keywords_from_scraper_config(self):
+        """Test that default_keywords is parsed from scraper config."""
+        scraper_config = {
+            "name": "test_scraper",
+            "default_keywords": ["AI", "ML"],
+        }
+        task = ScraperTask.from_scraper_config(scraper_config, {})
+        assert task.default_keywords == ["AI", "ML"]
+
+    def test_default_keywords_empty_when_absent(self):
+        """Test that default_keywords defaults to empty list."""
+        scraper_config = {"name": "test_scraper"}
+        task = ScraperTask.from_scraper_config(scraper_config, {})
+        assert task.default_keywords == []
+
+    def test_default_keywords_handles_none(self):
+        """Test that default_keywords handles None in scraper config."""
+        scraper_config = {"name": "test_scraper", "default_keywords": None}
+        task = ScraperTask.from_scraper_config(scraper_config, {})
+        assert task.default_keywords == []
+
 
 class TestTaskBatch:
     """Test TaskBatch dataclass."""
