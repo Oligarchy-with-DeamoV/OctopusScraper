@@ -204,7 +204,7 @@ class TestServiceIntegration:
         with patch(
             "octopus_scraper.config.config_manager.NotionConfigClient"
         ) as mock_client_class:
-            with patch("octopus_scraper.octopus_service.Octopus") as mock_octopus_class:
+            with patch("octopus_scraper.service.lifecycle.Octopus") as mock_octopus_class:
                 with patch.dict(os.environ, env_vars, clear=False):
                     mock_client = mock_client_class.return_value
                     mock_client.validate_connection = AsyncMock(return_value=True)

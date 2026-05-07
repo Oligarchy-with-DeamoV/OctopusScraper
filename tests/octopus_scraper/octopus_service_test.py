@@ -115,11 +115,11 @@ class TestServiceLifecycle:
     async def test_setup_octopus_success(self, mock_app, mock_config_manager):
         """Test successful octopus setup."""
         with patch(
-            "octopus_scraper.octopus_service.create_config_from_env"
+            "octopus_scraper.service.lifecycle.create_config_from_env"
         ) as mock_create_config, patch(
-            "octopus_scraper.octopus_service.ConfigManager"
+            "octopus_scraper.service.lifecycle.ConfigManager"
         ) as mock_config_class, patch(
-            "octopus_scraper.octopus_service.Octopus"
+            "octopus_scraper.service.lifecycle.Octopus"
         ) as mock_octopus_class:
 
             # Setup mocks
@@ -147,7 +147,7 @@ class TestServiceLifecycle:
     async def test_setup_octopus_missing_config(self, mock_app):
         """Test setup failure with missing configuration."""
         with patch(
-            "octopus_scraper.octopus_service.create_config_from_env"
+            "octopus_scraper.service.lifecycle.create_config_from_env"
         ) as mock_create_config:
             mock_create_config.return_value = (
                 NotionDatabaseConfig("", "", ""),  # Missing required fields
@@ -186,7 +186,7 @@ class TestServiceLifecycle:
             version_id="test_v2"
         )
 
-        with patch("octopus_scraper.octopus_service.Octopus") as mock_octopus_class:
+        with patch("octopus_scraper.service.lifecycle.Octopus") as mock_octopus_class:
             mock_octopus_class.return_value = Mock()
 
             result = await reload_octopus_config(mock_app)
@@ -254,7 +254,7 @@ class TestHealthCheck:
         mock_status = Mock()
         mock_status.is_healthy = True
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.health.app") as mock_app:
             mock_manager = Mock()
             mock_manager.get_status.return_value = mock_status
             mock_manager.notion_client.get_database_info = AsyncMock(
@@ -296,7 +296,7 @@ class TestHealthCheck:
         mock_status.scrapers = []
         mock_status.error_message = None
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.health.app") as mock_app:
             # Create a mock context that has config_manager but no octopus
             mock_ctx = Mock()
             mock_manager = Mock()
@@ -334,7 +334,7 @@ class TestHealthCheck:
         mock_status = Mock()
         mock_status.is_healthy = True
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.health.app") as mock_app:
             mock_manager = Mock()
             mock_manager.get_status.return_value = mock_status
             mock_app.ctx.config_manager = mock_manager
@@ -354,7 +354,7 @@ class TestHealthCheck:
         mock_status = Mock()
         mock_status.is_healthy = True
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.health.app") as mock_app:
             mock_manager = Mock()
             mock_manager.get_status.return_value = mock_status
             mock_manager.notion_client.get_database_info = AsyncMock(
@@ -404,7 +404,7 @@ class TestConfigEndpoints:
         mock_status.version = mock_version
         mock_status.scrapers = []
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.admin.app") as mock_app:
             mock_manager = Mock()
             mock_manager.get_status.return_value = mock_status
             mock_app.ctx.config_manager = mock_manager
@@ -432,7 +432,7 @@ class TestConfigEndpoints:
             )
         ]
 
-        with patch("octopus_scraper.octopus_service.app") as mock_app:
+        with patch("octopus_scraper.service.admin.app") as mock_app:
             mock_manager = Mock()
             mock_manager.notion_client.load_scrapers_config = AsyncMock(
                 return_value=mock_scrapers
@@ -548,7 +548,7 @@ class TestAdminEndpoints:
 
         mock_request = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await admin_overview(mock_request)
 
             assert response.status == 200
@@ -563,7 +563,7 @@ class TestAdminEndpoints:
         """Test the config status endpoint."""
         mock_request = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await get_config_status(mock_request)
 
             assert response.status == 200
@@ -583,9 +583,9 @@ class TestAdminEndpoints:
             AsyncMock(return_value=True)
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             with patch(
-                "octopus_scraper.octopus_service.reload_octopus_config",
+                "octopus_scraper.service.admin.reload_octopus_config",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_reload:
@@ -614,9 +614,9 @@ class TestAdminEndpoints:
             AsyncMock(return_value=False)
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             with patch(
-                "octopus_scraper.octopus_service.reload_octopus_config",
+                "octopus_scraper.service.admin.reload_octopus_config",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_reload:
@@ -636,7 +636,7 @@ class TestAdminEndpoints:
 
         mock_request = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await list_scrapers(mock_request)
 
             assert response.status == 200
@@ -661,7 +661,7 @@ class TestAdminEndpoints:
         mock_content.published = "2024-01-01"
         mock_content.content_id = "test_id"
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             with patch("octopus_scraper.scraper.Scraper") as mock_scraper_class:
                 mock_scraper_instance = Mock()
                 mock_scraper_instance.scrap_contents.return_value = [mock_content]
@@ -692,7 +692,7 @@ class TestAdminEndpoints:
         mock_request = Mock()
         mock_request.json = {}
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await run_scraper_test(mock_request, "nonexistent_scraper")
 
             assert response.status == 404
@@ -721,7 +721,7 @@ class TestAdminEndpoints:
             mock_task_manager
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await get_task_stats(mock_request)
 
             assert response.status == 200
@@ -738,7 +738,7 @@ class TestAdminEndpoints:
 
         mock_request = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             with patch("gc.collect", return_value=5):
                 response = await force_garbage_collection(mock_request)
 
@@ -779,7 +779,7 @@ class TestAdminEndpoints:
             mock_service_config
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await manage_config_watcher(mock_request)
 
             assert response.status == 200
@@ -799,7 +799,7 @@ class TestAdminEndpoints:
         mock_app_with_full_context.ctx.config_manager.stop_config_watcher = Mock()
         mock_app_with_full_context.ctx.config_manager.start_config_watcher = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 response = await manage_config_watcher(mock_request)
 
@@ -827,7 +827,7 @@ class TestAdminEndpoints:
             },
         }
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             # Instead of calling the complex function, return a simple mock response
             response = json(mock_state_dump)
 
@@ -844,7 +844,7 @@ class TestAdminEndpoints:
 
         mock_request = Mock()
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await get_monitoring_metrics(mock_request)
 
             assert response.status == 200
@@ -868,7 +868,7 @@ class TestAdminEndpoints:
             "task_123"
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await submit_individual_task(mock_request)
 
             assert response.status == 200
@@ -894,7 +894,7 @@ class TestAdminEndpoints:
             return_value="task_123"
         )
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await submit_individual_task(mock_request)
 
             assert response.status == 200
@@ -921,7 +921,7 @@ class TestAdminEndpoints:
         ]
         mock_app_with_full_context.ctx.octopus.list_tasks = Mock(return_value=task_list)
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await list_tasks(mock_request)
 
             assert response.status == 200
@@ -951,7 +951,7 @@ class TestAdminEndpoints:
         ]
         mock_app_with_full_context.ctx.octopus.list_tasks = Mock(return_value=task_list)
 
-        with patch("octopus_scraper.octopus_service.app", mock_app_with_full_context):
+        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
             response = await list_tasks(mock_request)
 
             assert response.status == 200
