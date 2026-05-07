@@ -191,9 +191,9 @@ class Octopus:
             )
 
             # Map results back to tasks: determine which contents succeeded per task
-            task_success_ids: Dict[
-                str, set
-            ] = {}  # task_id -> set of succeeded content_ids
+            task_success_ids: Dict[str, set] = (
+                {}
+            )  # task_id -> set of succeeded content_ids
             for i, (content, success) in enumerate(zip(all_contents, upload_results)):
                 task_id = content_task_mapping[i]
                 if success:

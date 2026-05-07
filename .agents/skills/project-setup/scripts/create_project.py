@@ -38,7 +38,8 @@ def create_project(
         d.mkdir(parents=True, exist_ok=True)
 
     # Create pyproject.toml
-    pyproject = dedent(f'''
+    pyproject = dedent(
+        f"""
         [build-system]
         requires = ["setuptools>=61.0", "wheel"]
         build-backend = "setuptools.build_meta"
@@ -99,16 +100,19 @@ def create_project(
         [tool.coverage.run]
         branch = true
         source = ["src/{package_name}"]
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / "pyproject.toml").write_text(pyproject)
 
     # Create __init__.py
-    init_py = dedent(f'''
+    init_py = dedent(
+        f'''
         """{description}."""
 
         __version__ = "0.1.0"
-    ''').strip()
+    '''
+    ).strip()
 
     (project_dir / "src" / package_name / "__init__.py").write_text(init_py)
 
@@ -116,7 +120,8 @@ def create_project(
     (project_dir / "src" / package_name / "py.typed").write_text("")
 
     # Create test file
-    test_init = dedent(f'''
+    test_init = dedent(
+        f'''
         """Tests for {package_name}."""
 
         import {package_name}
@@ -125,13 +130,15 @@ def create_project(
         def test_version():
             """Test version is defined."""
             assert {package_name}.__version__
-    ''').strip()
+    '''
+    ).strip()
 
     (project_dir / "tests" / "__init__.py").write_text("")
     (project_dir / "tests" / f"test_{package_name}.py").write_text(test_init)
 
     # Create README
-    readme = dedent(f'''
+    readme = dedent(
+        f"""
         # {name}
 
         {description}
@@ -170,12 +177,14 @@ def create_project(
         ## License
 
         MIT License
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / "README.md").write_text(readme)
 
     # Create LICENSE
-    license_text = dedent('''
+    license_text = dedent(
+        """
         MIT License
 
         Copyright (c) 2024
@@ -197,12 +206,14 @@ def create_project(
         LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
         OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
         SOFTWARE.
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / "LICENSE").write_text(license_text)
 
     # Create .gitignore
-    gitignore = dedent('''
+    gitignore = dedent(
+        """
         # Python
         __pycache__/
         *.py[cod]
@@ -234,12 +245,14 @@ def create_project(
 
         # OS
         .DS_Store
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / ".gitignore").write_text(gitignore)
 
     # Create Makefile
-    makefile = dedent(f'''
+    makefile = dedent(
+        f"""
         .PHONY: help install dev test lint format clean
 
         help:
@@ -268,12 +281,14 @@ def create_project(
         \trm -rf .pytest_cache .mypy_cache .ruff_cache
         \trm -rf .coverage htmlcov
         \tfind . -type d -name __pycache__ -exec rm -rf {{}} +
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / "Makefile").write_text(makefile)
 
     # Create GitHub Actions CI
-    ci_yaml = dedent('''
+    ci_yaml = dedent(
+        """
         name: CI
 
         on:
@@ -312,12 +327,14 @@ def create_project(
               - name: Upload coverage
                 if: matrix.python-version == '3.11'
                 uses: codecov/codecov-action@v3
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / ".github" / "workflows" / "ci.yml").write_text(ci_yaml)
 
     # Create CHANGELOG
-    changelog = dedent('''
+    changelog = dedent(
+        """
         # Changelog
 
         All notable changes to this project will be documented in this file.
@@ -331,7 +348,8 @@ def create_project(
 
         ### Added
         - Initial release
-    ''').strip()
+    """
+    ).strip()
 
     (project_dir / "CHANGELOG.md").write_text(changelog)
 
@@ -339,13 +357,13 @@ def create_project(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Create a new Python library project"
-    )
+    parser = argparse.ArgumentParser(description="Create a new Python library project")
     parser.add_argument("name", help="Project name (e.g., my-library)")
     parser.add_argument("--author", default="Your Name", help="Author name")
     parser.add_argument("--email", default="you@example.com", help="Author email")
-    parser.add_argument("--description", default="A Python library", help="Project description")
+    parser.add_argument(
+        "--description", default="A Python library", help="Project description"
+    )
 
     args = parser.parse_args()
 

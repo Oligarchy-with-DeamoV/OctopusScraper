@@ -106,8 +106,8 @@ def update_version(
     setup_cfg = project_path / "setup.cfg"
     if update_file(
         setup_cfg,
-        r'version\s*=\s*[\d.]+',
-        f'version = {new_version}',
+        r"version\s*=\s*[\d.]+",
+        f"version = {new_version}",
         dry_run,
     ):
         updated_files.append(str(setup_cfg))
@@ -132,8 +132,8 @@ def update_changelog(
 
     # Replace [Unreleased] with new version
     new_content = re.sub(
-        r'\[Unreleased\]',
-        f'[Unreleased]\n\n## [{new_version}] - {today}',
+        r"\[Unreleased\]",
+        f"[Unreleased]\n\n## [{new_version}] - {today}",
         content,
         count=1,
     )
@@ -148,9 +148,7 @@ def update_changelog(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Bump version in project files"
-    )
+    parser = argparse.ArgumentParser(description="Bump version in project files")
     parser.add_argument(
         "bump_type",
         choices=["major", "minor", "patch"],
@@ -158,17 +156,20 @@ def main():
         help="Type of version bump (or specific version like 1.2.3)",
     )
     parser.add_argument(
-        "--version", "-v",
+        "--version",
+        "-v",
         help="Set specific version (e.g., 1.2.3)",
     )
     parser.add_argument(
-        "--project", "-p",
+        "--project",
+        "-p",
         type=Path,
         default=Path("."),
         help="Project path (default: current directory)",
     )
     parser.add_argument(
-        "--dry-run", "-n",
+        "--dry-run",
+        "-n",
         action="store_true",
         help="Show what would be changed without making changes",
     )

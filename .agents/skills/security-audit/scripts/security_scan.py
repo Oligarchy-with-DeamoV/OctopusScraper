@@ -147,11 +147,13 @@ def check_secrets(project_path: Path) -> ScanResult:
             findings = []
             for file_path, secrets in data.get("results", {}).items():
                 for secret in secrets:
-                    findings.append({
-                        "file": file_path,
-                        "type": secret.get("type"),
-                        "line": secret.get("line_number"),
-                    })
+                    findings.append(
+                        {
+                            "file": file_path,
+                            "type": secret.get("type"),
+                            "line": secret.get("line_number"),
+                        }
+                    )
             return ScanResult(
                 tool="detect-secrets",
                 success=True,
@@ -246,7 +248,8 @@ def main():
         help="Path to project (default: current directory)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         help="Output JSON report to file",
     )

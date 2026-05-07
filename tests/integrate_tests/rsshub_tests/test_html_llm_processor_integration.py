@@ -45,7 +45,9 @@ def test_octopus_with_html_and_llm_processors(
         "limit": 2
     }
 
-    print(f"配置的Scraper数量: {len(modified_config['scrapers_config_with_fetch_params'])}")
+    print(
+        f"配置的Scraper数量: {len(modified_config['scrapers_config_with_fetch_params'])}"
+    )
     print(
         f"配置的处理器: {list(modified_config['scrapers_config_with_fetch_params'][0]['scraper_config'].content_processor_configs.keys())}"
     )
@@ -271,7 +273,9 @@ def test_processor_execution_order(structured_llm_processor_config):
 
     # LLM应该排在HTML前面（因为优先级20 < 80）
     first_processor_name = sorted_processors[0][0]
-    assert first_processor_name == "llm", f"期望LLM处理器先执行，但实际是 {first_processor_name}"
+    assert (
+        first_processor_name == "llm"
+    ), f"期望LLM处理器先执行，但实际是 {first_processor_name}"
 
     print("✅ 处理器执行顺序验证通过！")
 

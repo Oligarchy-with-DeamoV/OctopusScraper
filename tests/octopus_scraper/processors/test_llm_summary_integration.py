@@ -49,21 +49,21 @@ class TestLLMSummaryProcessorIntegration:
                 link="https://example.com/ai-healthcare",
                 summary="",
                 content="""
-                Artificial Intelligence (AI) is revolutionizing healthcare in unprecedented ways. 
-                From diagnostic imaging to drug discovery, AI technologies are transforming how 
-                medical professionals approach patient care. Machine learning algorithms can now 
-                analyze medical images with accuracy comparable to human radiologists, often 
+                Artificial Intelligence (AI) is revolutionizing healthcare in unprecedented ways.
+                From diagnostic imaging to drug discovery, AI technologies are transforming how
+                medical professionals approach patient care. Machine learning algorithms can now
+                analyze medical images with accuracy comparable to human radiologists, often
                 detecting conditions that might be missed by the human eye.
-                
-                In drug discovery, AI is accelerating the identification of potential therapeutic 
-                compounds, reducing the time and cost of bringing new medicines to market. 
-                Companies like DeepMind have shown remarkable success in protein folding 
-                prediction, which could lead to breakthroughs in understanding diseases and 
+
+                In drug discovery, AI is accelerating the identification of potential therapeutic
+                compounds, reducing the time and cost of bringing new medicines to market.
+                Companies like DeepMind have shown remarkable success in protein folding
+                prediction, which could lead to breakthroughs in understanding diseases and
                 developing treatments.
-                
-                However, the integration of AI in healthcare also raises important questions 
-                about data privacy, algorithmic bias, and the need for regulatory frameworks 
-                to ensure patient safety. As we move forward, it will be crucial to balance 
+
+                However, the integration of AI in healthcare also raises important questions
+                about data privacy, algorithmic bias, and the need for regulatory frameworks
+                to ensure patient safety. As we move forward, it will be crucial to balance
                 innovation with responsible implementation.
                 """,
                 published="2025-01-01",
@@ -79,11 +79,11 @@ class TestLLMSummaryProcessorIntegration:
                 AI技术正在改变医疗专业人士治疗患者的方式。机器学习算法现在可以
                 分析医学影像，其准确性可与人类放射科医生相媲美，甚至能够发现
                 人眼可能遗漏的病症。
-                
+
                 在药物研发方面，AI正在加速潜在治疗化合物的识别，减少新药上市
                 所需的时间和成本。像DeepMind这样的公司在蛋白质折叠预测方面
                 取得了显著成功，这可能会带来对疾病理解和治疗开发的突破。
-                
+
                 然而，AI在医疗领域的整合也引发了关于数据隐私、算法偏见和监管
                 框架需求的重要问题，以确保患者安全。随着我们的前进，平衡创新
                 与负责任的实施将至关重要。
