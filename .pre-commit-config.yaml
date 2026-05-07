@@ -21,3 +21,4 @@ repos:
         entry: poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
         language: system
         types: [python]
+        pass_filenames: false
