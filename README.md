@@ -4,7 +4,7 @@
 ![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
-OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。
+OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。OctopusScraper 的核心在于「采集」而不是二次业务加工，因此涉及到「业务分析」相关的操作应当拒绝不包含在本仓库内。
 
 ## 📋 目录
 
@@ -16,15 +16,6 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 - [测试](#测试)
 - [更新日志](CHANGELOG.md)
 - [贡献](#贡献)
-
-## 📚 详细文档
-
-- **[完整文档](docs/README.md)** - 系统架构和详细说明
-- **[任务管理系统](docs/models/task_manager/)** - TaskManager详细文档
-- **[内容处理系统](docs/models/processors/)** - 处理器架构和开发指南
-- **[配置管理](docs/models/config/)** - 配置系统详细说明
-- **[Web服务接口](docs/interface/web_service/)** - API文档和管理界面
-- **[CLI工具](docs/interface/cli/)** - 命令行工具使用指南
 
 ## ⚡ 快速开始
 
@@ -45,7 +36,7 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 cd OctopusScraper
 
 # 创建 .env 文件
-cp envs/deploy.prod.env .env
+cp resources/envs/deploy.prod.env .env
 ```
 
 编辑 `.env` 文件，填入您的 Notion 配置：
@@ -55,6 +46,15 @@ cp envs/deploy.prod.env .env
 NOTION_API_KEY="api_key"
 NOTION_CONTENT_DATABASE_ID="database_id"
 NOTION_SCRAPERS_DATABASE_ID="scraper_database_id"
+
+# other envs...
+```
+
+编辑 `.env` 文件，填入您的飞书 Webhook 配置：
+
+```env
+# Vector Monitor
+FEISHU_WEBHOOK_URL="your feishu webhook"
 
 # other envs...
 ```
