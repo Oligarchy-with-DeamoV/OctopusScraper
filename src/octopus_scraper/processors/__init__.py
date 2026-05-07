@@ -251,13 +251,18 @@ def get_processor_info(name: str) -> Dict[str, Any]:
 
 
 # Legacy compatibility - maintain existing API
-AVALIABLE_PROCESSOR = {
+# NOTE: "AVALIABLE" is a known typo preserved for backward compatibility.
+# Prefer using the ProcessorRegistry/ProcessorFactory API instead.
+AVAILABLE_PROCESSOR = {
     "llm": LLMProcessor,
     "html_content": HTMLContentProcessor,
     "llm_summary": LLMSummaryProcessor,
     "llm_tags": LLMTagsProcessor,
     "llm_keywords": LLMKeywordsProcessor,
 }
+
+# Deprecated alias — will be removed in a future release
+AVALIABLE_PROCESSOR = AVAILABLE_PROCESSOR
 
 
 # Export public API
@@ -268,7 +273,8 @@ __all__ = [
     "create_processor",
     "get_available_processors",
     "get_processor_info",
-    "AVALIABLE_PROCESSOR",  # Legacy
+    "AVAILABLE_PROCESSOR",
+    "AVALIABLE_PROCESSOR",  # Deprecated alias
     # Processor classes
     "ProcessorBase",
     "HTMLContentProcessor",

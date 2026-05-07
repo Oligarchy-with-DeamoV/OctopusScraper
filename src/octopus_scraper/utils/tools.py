@@ -5,19 +5,20 @@ from typing import List
 from urllib.parse import urlparse
 
 import structlog
-from dotenv import load_dotenv
 from feedparser.util import FeedParserDict
 from markdownify import markdownify
 
 from octopus_scraper.protos import Content
 
-# Load environment variables
-load_dotenv()
-
 logger = structlog.getLogger(__name__)
 
-# Configuration constants
-DEFAULT_SUMMARY_MAX_LENGTH = int(os.getenv("OCTOPUS_SUMMARY_MAX_LENGTH", "500"))
+
+def _get_summary_max_length() -> int:
+    """Get max summary length from environment, with lazy loading."""
+    return int(os.getenv("OCTOPUS_SUMMARY_MAX_LENGTH", "500"))
+
+
+DEFAULT_SUMMARY_MAX_LENGTH = _get_summary_max_length()
 
 
 def convert_contents_to_mk(contents: List) -> str:
@@ -82,7 +83,7 @@ def generate_stable_content_id(entry) -> str:
             published=published,
         )
 
-    hash_id = hashlib.md5(content_for_hash.encode()).hexdigest()[:16]
+    hash_id = hashlib.sha256(content_for_hash.encode()).hexdigest()[:16]
 
     logger.debug(
         "Generated hash-based content_id",

@@ -275,16 +275,16 @@ class ConfigManager:
 
             # Validate content_processor_configs
             if scraper.content_processor_configs:
-                from octopus_scraper.processors import AVALIABLE_PROCESSOR
+                from octopus_scraper.processors import AVAILABLE_PROCESSOR
 
                 for (
                     processor_key,
                     processor_cfg,
                 ) in scraper.content_processor_configs.items():
-                    if processor_key not in AVALIABLE_PROCESSOR:
+                    if processor_key not in AVAILABLE_PROCESSOR:
                         errors.append(
                             f"Scraper '{scraper.name}' references unknown processor: "
-                            f"'{processor_key}'. Available: {list(AVALIABLE_PROCESSOR.keys())}"
+                            f"'{processor_key}'. Available: {list(AVAILABLE_PROCESSOR.keys())}"
                         )
                     if not isinstance(processor_cfg, dict):
                         errors.append(

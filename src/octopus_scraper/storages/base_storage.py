@@ -1,4 +1,4 @@
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 from typing import List
 
 import structlog
@@ -10,13 +10,15 @@ logger = structlog.getLogger(__name__)
 
 class BaseStorage(metaclass=ABCMeta):
 
+    @abstractmethod
     def _store_content(self, content: Content) -> bool:
-        """存储单个内容到存储系统"""
-        raise NotImplementedError("Subclasses should implement this method.")
+        """Store a single content item to the storage system."""
+        ...
 
+    @abstractmethod
     def get_all_content_ids(self) -> set:
-        """获取存储系统中所有已存在的内容ID"""
-        raise NotImplementedError("Subclasses should implement this method.")
+        """Get all existing content IDs from the storage system."""
+        ...
 
     def store_contents(self, contents: List[Content], deduplicate=True) -> List[bool]:
         """批量存储内容到 Notion 数据库

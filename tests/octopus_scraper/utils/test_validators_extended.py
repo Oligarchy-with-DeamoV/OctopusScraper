@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "sr
 
 from octopus_scraper.utils.validators import (
     DataValidator,
-    ValidationError,
+    DataValidationError,
     validate_json_schema,
 )
 
@@ -555,7 +555,7 @@ class TestValidationError:
 
     def test_validation_error_creation(self):
         """Test ValidationError creation."""
-        error = ValidationError("Test validation error")
+        error = DataValidationError("Test validation error")
 
         assert str(error) == "Test validation error"
         assert isinstance(error, Exception)

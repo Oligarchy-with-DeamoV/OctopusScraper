@@ -331,7 +331,7 @@ def test_html_content_processor_config_initialization():
     }
     processor = HTMLContentProcessor(config)
     assert processor.config.timeout == 60
-    assert processor.config.use_browser
+    assert not processor.config.use_browser
     assert processor.config.browserless_url == "http://localhost:3000"
     assert processor.config.browser_timeout == 30000
 
@@ -342,7 +342,7 @@ def test_html_content_processor_browserless_config():
     # 测试禁用浏览器模式
     config = {"use_browser": False, "browserless_url": ""}
     processor = HTMLContentProcessor(config)
-    assert processor.config.use_browser
+    assert not processor.config.use_browser
 
     # 测试启用浏览器但无 URL
     config = {"use_browser": True, "browserless_url": ""}

@@ -60,7 +60,7 @@ def test_generate_stable_content_id():
         }
     )
     hash_id = generate_stable_content_id(entry_no_id)
-    assert len(hash_id) == 16  # MD5 hash truncated to 16 chars
+    assert len(hash_id) == 16  # SHA-256 hash truncated to 16 chars
     assert isinstance(hash_id, str)
 
 
@@ -194,12 +194,12 @@ def test_build_contents():
     assert len(contents) == 3
 
     # Check first entry (normal)
-    assert contents[0].content_id == "b76416b5b307a53f"
+    assert contents[0].content_id == "2dac1533f10844ad"
     assert "Short summary" in contents[0].summary
     assert "Full content" in contents[0].content
 
     # Check second entry (long summary should be truncated)
-    assert contents[1].content_id == "6be180f0a44acaed"
+    assert contents[1].content_id == "364bba8d0f2ab043"
     assert contents[1].summary.endswith("...")
     assert len(contents[1].summary) <= DEFAULT_SUMMARY_MAX_LENGTH
     assert "Content here" in contents[1].content

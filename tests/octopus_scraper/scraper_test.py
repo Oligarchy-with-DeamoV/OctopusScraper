@@ -233,7 +233,7 @@ class TestScraper:
         mock_processor_class.return_value = mock_processor_instance
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {"llm": mock_processor_class},
         ):
             scraper = Scraper(config)

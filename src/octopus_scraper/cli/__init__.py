@@ -103,7 +103,7 @@ def run_octopus_service():
     }
 
     try:
-        logger.error(service_config)
+        logger.info("Starting service", config=service_config)
         app.run(**service_config)
     except KeyboardInterrupt:
         logger.info("Service shutdown requested by user")
