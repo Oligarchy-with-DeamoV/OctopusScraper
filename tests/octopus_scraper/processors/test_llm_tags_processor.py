@@ -211,7 +211,9 @@ class TestLLMTagsProcessor:
             content='{"tags": ["高信度标签", "低信度标签"], "confidence": {"高信度标签": 0.9, "低信度标签": 0.6}}',
             metadata={"model": "gpt-3.5-turbo"},
         )
-        mock_llm_client.extract_json_from_response.return_value = '{"tags": ["高信度标签", "低信度标签"], "confidence": {"高信度标签": 0.9, "低信度标签": 0.6}}'
+        mock_llm_client.extract_json_from_response.return_value = (
+            '{"tags": ["高信度标签", "低信度标签"], "confidence": {"高信度标签": 0.9, "低信度标签": 0.6}}'
+        )
         mock_client_class.return_value = mock_llm_client
 
         processor = LLMTagsProcessor(config_with_threshold)

@@ -306,7 +306,9 @@ class TestRichTextLengthLimit:
         blocks = converter.convert(links)
         # All generated blocks must be paragraphs (no other types expected)
         paragraph_blocks = [b for b in blocks if b["type"] == "paragraph"]
-        assert len(paragraph_blocks) >= 2, "Expected the content to be split into multiple paragraphs"
+        assert (
+            len(paragraph_blocks) >= 2
+        ), "Expected the content to be split into multiple paragraphs"
         # Every paragraph block must have ≤ 100 rich_text segments
         for block in paragraph_blocks:
             assert len(block["paragraph"]["rich_text"]) <= 100
@@ -336,7 +338,9 @@ class TestRichTextLengthLimit:
         md = f"1. {links}\n"
         blocks = converter.convert(md)
         list_blocks = [b for b in blocks if b["type"] == "numbered_list_item"]
-        assert len(list_blocks) >= 2, "Expected the list item to be split into multiple blocks"
+        assert (
+            len(list_blocks) >= 2
+        ), "Expected the list item to be split into multiple blocks"
         for block in list_blocks:
             assert len(block["numbered_list_item"]["rich_text"]) <= 100
 
@@ -346,7 +350,9 @@ class TestRichTextLengthLimit:
         md = f"- {links}\n"
         blocks = converter.convert(md)
         list_blocks = [b for b in blocks if b["type"] == "bulleted_list_item"]
-        assert len(list_blocks) >= 2, "Expected the list item to be split into multiple blocks"
+        assert (
+            len(list_blocks) >= 2
+        ), "Expected the list item to be split into multiple blocks"
         for block in list_blocks:
             assert len(block["bulleted_list_item"]["rich_text"]) <= 100
 

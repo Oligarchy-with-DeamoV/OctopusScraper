@@ -9,7 +9,6 @@ logger = structlog.getLogger(__name__)
 
 
 class BaseStorage(metaclass=ABCMeta):
-
     @abstractmethod
     def _store_content(self, content: Content) -> bool:
         """Store a single content item to the storage system."""

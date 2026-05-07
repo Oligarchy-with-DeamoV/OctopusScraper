@@ -204,7 +204,9 @@ class TestServiceIntegration:
         with patch(
             "octopus_scraper.config.config_manager.NotionConfigClient"
         ) as mock_client_class:
-            with patch("octopus_scraper.service.lifecycle.Octopus") as mock_octopus_class:
+            with patch(
+                "octopus_scraper.service.lifecycle.Octopus"
+            ) as mock_octopus_class:
                 with patch.dict(os.environ, env_vars, clear=False):
                     mock_client = mock_client_class.return_value
                     mock_client.validate_connection = AsyncMock(return_value=True)
@@ -217,9 +219,11 @@ class TestServiceIntegration:
                     from octopus_scraper.octopus_service import create_config_from_env
 
                     # Test config creation from environment
-                    notion_config, service_config, task_manager_config = (
-                        create_config_from_env()
-                    )
+                    (
+                        notion_config,
+                        service_config,
+                        task_manager_config,
+                    ) = create_config_from_env()
                     assert notion_config.api_key == "test_key"
                     assert notion_config.scrapers_database_id == "test_db"
 

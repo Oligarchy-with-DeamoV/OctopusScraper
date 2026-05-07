@@ -10,7 +10,11 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
-from jsonschema import ValidationError as JsonSchemaValidationError, Draft7Validator, validate
+from jsonschema import (
+    ValidationError as JsonSchemaValidationError,
+    Draft7Validator,
+    validate,
+)
 
 logger = structlog.getLogger(__name__)
 
@@ -47,7 +51,11 @@ class DataValidator:
                     return False, f"Invalid JSON: {str(e)}"
 
             # Validate against schema
-            validate(instance=data, schema=schema, format_checker=Draft7Validator.FORMAT_CHECKER)
+            validate(
+                instance=data,
+                schema=schema,
+                format_checker=Draft7Validator.FORMAT_CHECKER,
+            )
             return True, None
 
         except JsonSchemaValidationError as e:

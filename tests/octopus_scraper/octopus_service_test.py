@@ -37,9 +37,11 @@ class TestConfigCreation:
     def test_create_config_from_env_with_defaults(self):
         """Test config creation with default values."""
         with patch.dict("os.environ", {}, clear=True):
-            notion_config, service_config, task_manager_config = (
-                create_config_from_env()
-            )
+            (
+                notion_config,
+                service_config,
+                task_manager_config,
+            ) = create_config_from_env()
 
             assert notion_config.api_key == ""
             assert notion_config.scrapers_database_id == ""
@@ -73,9 +75,11 @@ class TestConfigCreation:
         }
 
         with patch.dict("os.environ", env_vars):
-            notion_config, service_config, task_manager_config = (
-                create_config_from_env()
-            )
+            (
+                notion_config,
+                service_config,
+                task_manager_config,
+            ) = create_config_from_env()
 
             assert notion_config.api_key == "test_key"
             assert notion_config.scrapers_database_id == "test_scrapers_db"
@@ -196,7 +200,6 @@ class TestServiceLifecycle:
 
 
 class TestHealthCheck:
-
     @pytest.mark.asyncio
     async def test_health_check_without_config_manager(self):
         """Test health check fallback without config manager."""

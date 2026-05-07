@@ -123,9 +123,7 @@ class TestStoreContentsErrorHandling:
         assert result[0] is False
 
     def test_partial_failure(self):
-        storage = ConcreteStorage(
-            store_side_effect=[True, RuntimeError("fail"), True]
-        )
+        storage = ConcreteStorage(store_side_effect=[True, RuntimeError("fail"), True])
         contents = [_make_content("a"), _make_content("b"), _make_content("c")]
         result = storage.store_contents(contents)
         assert result == [True, False, True]

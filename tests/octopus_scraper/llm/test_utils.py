@@ -75,7 +75,7 @@ class TestExtractJsonBlocks:
         assert {"key": "value"} in result
 
     def test_invalid_json_skipped(self):
-        text = '```json\n{invalid json}\n```'
+        text = "```json\n{invalid json}\n```"
         result = LLMUtils.extract_json_blocks(text)
         assert result == []
 
