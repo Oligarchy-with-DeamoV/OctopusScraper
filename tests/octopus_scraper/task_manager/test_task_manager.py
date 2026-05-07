@@ -252,7 +252,9 @@ class TestTaskExecution:
         mock_scraper.set_storage.assert_called_once_with(mock_storage)
 
     @patch("octopus_scraper.task_manager.task_manager.Scraper")
-    def test_execute_task_prepends_default_keywords(self, mock_scraper_class, task_manager):
+    def test_execute_task_prepends_default_keywords(
+        self, mock_scraper_class, task_manager
+    ):
         """Test that default_keywords from config are prepended to content keywords."""
         from octopus_scraper.protos import Content
 
@@ -289,7 +291,9 @@ class TestTaskExecution:
         assert content.keywords == ["AI", "ML", "existing"]
 
     @patch("octopus_scraper.task_manager.task_manager.Scraper")
-    def test_execute_task_default_keywords_deduplication(self, mock_scraper_class, task_manager):
+    def test_execute_task_default_keywords_deduplication(
+        self, mock_scraper_class, task_manager
+    ):
         """Test that duplicate keywords are removed when merging defaults."""
         from octopus_scraper.protos import Content
 

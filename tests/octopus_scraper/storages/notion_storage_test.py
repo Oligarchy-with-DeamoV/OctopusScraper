@@ -675,16 +675,16 @@ class TestNotionStorage:
 
     def test_get_all_content_ids_uses_cache(self, notion_storage):
         """Second call should return cached result without querying Notion."""
-        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+        with patch.object(
+            notion_storage.notion.databases, "query"
+        ) as mock_query, patch.object(
             notion_storage, "_get_property_id", return_value=None
         ):
             mock_query.return_value = {
                 "results": [
                     {
                         "properties": {
-                            "ContentId": {
-                                "rich_text": [{"text": {"content": "id_1"}}]
-                            }
+                            "ContentId": {"rich_text": [{"text": {"content": "id_1"}}]}
                         }
                     }
                 ],
@@ -704,16 +704,16 @@ class TestNotionStorage:
 
     def test_get_all_content_ids_force_refresh_bypasses_cache(self, notion_storage):
         """force_refresh=True should query Notion even when cache is valid."""
-        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+        with patch.object(
+            notion_storage.notion.databases, "query"
+        ) as mock_query, patch.object(
             notion_storage, "_get_property_id", return_value=None
         ):
             mock_query.return_value = {
                 "results": [
                     {
                         "properties": {
-                            "ContentId": {
-                                "rich_text": [{"text": {"content": "id_1"}}]
-                            }
+                            "ContentId": {"rich_text": [{"text": {"content": "id_1"}}]}
                         }
                     }
                 ],
@@ -731,7 +731,9 @@ class TestNotionStorage:
 
     def test_store_content_updates_cache(self, notion_storage):
         """After storing content, its ID should appear in the cache."""
-        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+        with patch.object(
+            notion_storage.notion.databases, "query"
+        ) as mock_query, patch.object(
             notion_storage.notion.pages, "create"
         ) as mock_create, patch.object(
             notion_storage, "_get_property_id", return_value=None
@@ -767,7 +769,9 @@ class TestNotionStorage:
 
     def test_invalidate_content_ids_cache(self, notion_storage):
         """invalidate_content_ids_cache should force next call to query Notion."""
-        with patch.object(notion_storage.notion.databases, "query") as mock_query, patch.object(
+        with patch.object(
+            notion_storage.notion.databases, "query"
+        ) as mock_query, patch.object(
             notion_storage, "_get_property_id", return_value=None
         ):
             mock_query.return_value = {
@@ -821,7 +825,9 @@ class TestNotionStorage:
         """Cache should be updated right after pages.create succeeds, before block appending."""
         notion_storage._content_ids_cache = set()
 
-        with patch.object(notion_storage.notion.pages, "create") as mock_create, patch.object(
+        with patch.object(
+            notion_storage.notion.pages, "create"
+        ) as mock_create, patch.object(
             notion_storage.notion.blocks.children, "append"
         ) as mock_append:
             mock_create.return_value = {"id": "page_id"}
@@ -855,7 +861,11 @@ class TestNotionStorage:
             call_count["value"] += 1
             props = kwargs.get("properties", {})
             content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
-            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            cid = (
+                content_id_text[0].get("text", {}).get("content", "")
+                if content_id_text
+                else ""
+            )
             # First attempt for id_c fails, second attempt succeeds
             if cid == "id_c" and call_count["value"] <= 2:
                 raise httpx.ReadTimeout("timeout")
@@ -874,18 +884,28 @@ class TestNotionStorage:
             notion_storage.notion.pages, "create", side_effect=create_side_effect
         ), patch.object(
             notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
-        ), patch("octopus_scraper.storages.notion_storage.time.sleep") as mock_sleep:
+        ), patch(
+            "octopus_scraper.storages.notion_storage.time.sleep"
+        ) as mock_sleep:
             notion_storage._upload_retry_delay = 0.1
 
             contents = [
                 Content(
-                    title="A", link="https://a.com", summary="a",
-                    content_id="id_a", content="a", published="2025-01-01",
+                    title="A",
+                    link="https://a.com",
+                    summary="a",
+                    content_id="id_a",
+                    content="a",
+                    published="2025-01-01",
                     scraper_name="t",
                 ),
                 Content(
-                    title="C", link="https://c.com", summary="c",
-                    content_id="id_c", content="c", published="2025-01-01",
+                    title="C",
+                    link="https://c.com",
+                    summary="c",
+                    content_id="id_c",
+                    content="c",
+                    published="2025-01-01",
                     scraper_name="t",
                 ),
             ]
@@ -906,7 +926,11 @@ class TestNotionStorage:
         def create_side_effect(**kwargs):
             props = kwargs.get("properties", {})
             content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
-            cid = content_id_text[0].get("text", {}).get("content", "") if content_id_text else ""
+            cid = (
+                content_id_text[0].get("text", {}).get("content", "")
+                if content_id_text
+                else ""
+            )
             if cid == "id_c":
                 raise httpx.ReadTimeout("timeout")
             return {"id": "page_ok"}
@@ -924,13 +948,19 @@ class TestNotionStorage:
             notion_storage.notion.pages, "create", side_effect=create_side_effect
         ), patch.object(
             notion_storage, "get_all_content_ids", side_effect=get_ids_side_effect
-        ), patch("octopus_scraper.storages.notion_storage.time.sleep"):
+        ), patch(
+            "octopus_scraper.storages.notion_storage.time.sleep"
+        ):
             notion_storage._upload_retry_delay = 0.1
 
             contents = [
                 Content(
-                    title="C", link="https://c.com", summary="c",
-                    content_id="id_c", content="c", published="2025-01-01",
+                    title="C",
+                    link="https://c.com",
+                    summary="c",
+                    content_id="id_c",
+                    content="c",
+                    published="2025-01-01",
                     scraper_name="t",
                 ),
             ]

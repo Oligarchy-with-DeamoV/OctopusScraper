@@ -76,7 +76,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "filter")
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,
@@ -138,7 +138,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "llm")
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,
@@ -195,7 +195,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "processor_c")
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {
                 "processor_a": create_processor_a,
                 "processor_b": create_processor_b,
@@ -246,7 +246,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "simple_processor")
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {
                 "simple_processor": create_simple_processor,
             },
@@ -289,7 +289,7 @@ class TestProcessorPriority:
             return MockProcessor(config, "llm")
 
         with patch(
-            "octopus_scraper.scraper.AVALIABLE_PROCESSOR",
+            "octopus_scraper.scraper.AVAILABLE_PROCESSOR",
             {
                 "html_content": create_html_processor,
                 "llm": create_llm_processor,

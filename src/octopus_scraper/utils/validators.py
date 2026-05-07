@@ -10,13 +10,17 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
-from jsonschema import ValidationError, draft7_format_checker, validate
+from jsonschema import (
+    ValidationError as JsonSchemaValidationError,
+    Draft7Validator,
+    validate,
+)
 
 logger = structlog.getLogger(__name__)
 
 
-class ValidationError(Exception):
-    """Custom validation error."""
+class DataValidationError(Exception):
+    """Custom validation error for OctopusScraper data validation."""
 
     pass
 
@@ -47,10 +51,14 @@ class DataValidator:
                     return False, f"Invalid JSON: {str(e)}"
 
             # Validate against schema
-            validate(instance=data, schema=schema, format_checker=draft7_format_checker)
+            validate(
+                instance=data,
+                schema=schema,
+                format_checker=Draft7Validator.FORMAT_CHECKER,
+            )
             return True, None
 
-        except ValidationError as e:
+        except JsonSchemaValidationError as e:
             return False, f"Schema validation error: {e.message}"
         except Exception as e:
             return False, f"Validation error: {str(e)}"

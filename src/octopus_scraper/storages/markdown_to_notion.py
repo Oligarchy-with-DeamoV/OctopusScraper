@@ -312,7 +312,9 @@ class MarkdownToNotionConverter:
                 if remaining_children:
                     rich_text = self._render_rich_text(remaining_children)
                     if rich_text:
-                        results.extend(self._split_rich_text_to_blocks(rich_text, "paragraph"))
+                        results.extend(
+                            self._split_rich_text_to_blocks(rich_text, "paragraph")
+                        )
                     remaining_children = []
 
                 url = child.get("attrs", {}).get("url", "")
@@ -340,7 +342,9 @@ class MarkdownToNotionConverter:
     # Helpers
     # ---------------------------------------------------------------
 
-    def _split_rich_text_to_blocks(self, rich_text: List[Dict], block_type: str) -> List[Dict]:
+    def _split_rich_text_to_blocks(
+        self, rich_text: List[Dict], block_type: str
+    ) -> List[Dict]:
         """Create Notion blocks from rich_text, splitting into multiple if over limit.
 
         Notion API limits rich_text arrays to _MAX_RICH_TEXT_PER_BLOCK elements per

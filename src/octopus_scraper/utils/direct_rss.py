@@ -72,7 +72,9 @@ class DirectRSS:
         Returns:
             - return: List[Content]
         """
-        rss_url = requests.get(urljoin(self.config.hub_root, self.config.route)).url
+        rss_url = requests.get(
+            urljoin(self.config.hub_root, self.config.route), timeout=30
+        ).url
         logger.debug("Fetching rss_url.", rss_url=rss_url)
         feed: FeedParserDict = feedparser.parse(rss_url)
         if feed.status == 200:

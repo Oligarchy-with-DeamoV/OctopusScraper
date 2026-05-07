@@ -7,11 +7,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-import httpx
 import structlog
 from dacite import Config, from_dict
 from notion_client import Client
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.protos import Content
 from octopus_scraper.storages.base_storage import BaseStorage
