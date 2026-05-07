@@ -65,7 +65,7 @@ class RssHub:
             self.config.fetch_params.update(params)
         _params = self.config.fetch_params
         rss_url = requests.get(
-            urljoin(self.config.hub_root, self.config.route), params=_params
+            urljoin(self.config.hub_root, self.config.route), params=_params, timeout=30
         ).url
         logger.debug("Fetching rss_url.", rss_url=rss_url)
         feed: FeedParserDict = feedparser.parse(rss_url)

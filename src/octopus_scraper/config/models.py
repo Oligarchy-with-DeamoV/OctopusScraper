@@ -138,7 +138,7 @@ class NotionDatabaseConfig:
 class ServiceConfig:
     """Overall service configuration."""
 
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # nosec B104
     port: int = 8000
     debug: bool = False
     log_level: str = "INFO"

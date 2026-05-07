@@ -20,7 +20,7 @@ logger = structlog.get_logger()
 
 # Default service configuration (can be overridden by CLI)
 DEFAULT_SERVICE_CONFIG = {
-    "host": os.getenv("OCTOPUS_HOST", "0.0.0.0"),
+    "host": os.getenv("OCTOPUS_HOST", "0.0.0.0"),  # nosec B104
     "port": int(os.getenv("OCTOPUS_PORT", "8000")),
     "debug": os.getenv("OCTOPUS_DEBUG", "False").lower() == "true",
 }
@@ -56,7 +56,7 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
 
     # Service configuration
     service_config = ServiceConfig(
-        host=os.getenv("SERVICE_HOST", "0.0.0.0"),
+        host=os.getenv("SERVICE_HOST", "0.0.0.0"),  # nosec B104
         port=int(os.getenv("SERVICE_PORT", "8000")),
         debug=os.getenv("DEBUG", "False").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "INFO"),

@@ -78,4 +78,4 @@ jobs:
       - name: Run Bandit security scan
         run: |
           poetry run pip install bandit
-          poetry run bandit -r src/ -c pyproject.toml || poetry run bandit -r src/ -ll
+          poetry run bandit -r src/ -ll

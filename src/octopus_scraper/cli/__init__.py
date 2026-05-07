@@ -26,7 +26,7 @@ Examples:
     parser.add_argument(
         "--host",
         type=str,
-        default=os.getenv("OCTOPUS_HOST", "0.0.0.0"),
+        default=os.getenv("OCTOPUS_HOST", "0.0.0.0"),  # nosec B104
         help="Host to bind the service (default: 0.0.0.0, env: OCTOPUS_HOST)",
     )
 
