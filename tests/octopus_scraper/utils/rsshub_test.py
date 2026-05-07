@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
-import tenacity
+import requests
 from feedparser.util import FeedParserDict
 
 from octopus_scraper.protos import Content
@@ -25,11 +25,18 @@ class TestRssHub:
         assert len(contents) == 1
 
     @patch("octopus_scraper.utils.rsshub.feedparser.parse")
-    def test_fetch_contents_success(self, mock_feedparser):
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_fetch_contents_success(self, mock_requests_get, mock_feedparser):
         """测试成功获取内容"""
+        # Mock requests.get response
+        mock_response = Mock()
+        mock_response.content = b"<rss>...</rss>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
+
         # Mock feedparser
         mock_feed = FeedParserDict()
-        mock_feed.status = 200
+        mock_feed.bozo = 0
         mock_feed.entries = [
             {
                 "title": "Test Entry",
@@ -64,12 +71,23 @@ class TestRssHub:
             assert len(contents) == 1
             assert contents[0].title == "Test Content"
 
+            # Verify requests.get was called once (no double request)
+            mock_requests_get.assert_called_once()
+            mock_feedparser.assert_called_once_with(mock_response.content)
+
     @patch("octopus_scraper.utils.rsshub.feedparser.parse")
-    def test_fetch_contents_with_params(self, mock_feedparser):
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_fetch_contents_with_params(self, mock_requests_get, mock_feedparser):
         """测试带参数的内容获取"""
+        # Mock requests.get response
+        mock_response = Mock()
+        mock_response.content = b"<rss>...</rss>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
+
         # Mock feedparser
         mock_feed = FeedParserDict()
-        mock_feed.status = 200
+        mock_feed.bozo = 0
         mock_feed.entries = []
         mock_feedparser.return_value = mock_feed
 
@@ -84,27 +102,90 @@ class TestRssHub:
         with patch("octopus_scraper.utils.rsshub.build_contents") as mock_build:
             mock_build.return_value = []
 
-            # 测试有额外参数的情况
             contents = rsshub.fetch_contents({"filter_title": "test"})
             assert len(contents) == 0
 
-            # 验证feedparser被正确调用
+            mock_requests_get.assert_called_once()
             mock_feedparser.assert_called_once()
 
     @patch("octopus_scraper.utils.rsshub.feedparser.parse")
-    def test_fetch_contents_failure(self, mock_feedparser):
-        """测试获取内容失败的情况"""
-        # Mock feedparser with error status
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_fetch_contents_parse_failure(self, mock_requests_get, mock_feedparser):
+        """测试解析RSS失败的情况"""
+        mock_response = Mock()
+        mock_response.content = b"<invalid>not rss</invalid>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
+
         mock_feed = FeedParserDict()
-        mock_feed.status = 404
+        mock_feed.bozo = 1
+        mock_feed.bozo_exception = Exception("not well-formed")
+        mock_feed.entries = []
         mock_feedparser.return_value = mock_feed
 
         rsshub = RssHub(
             {"hub_root": "http://example.com", "route": "/test", "fetch_params": None}
         )
 
-        with pytest.raises(tenacity.RetryError):
+        with pytest.raises(RuntimeError, match="Failed to parse RSS feed"):
             rsshub.fetch_contents()
+
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_fetch_contents_http_error(self, mock_requests_get):
+        """测试HTTP错误直接抛出"""
+        mock_response = Mock()
+        mock_response.raise_for_status.side_effect = requests.HTTPError("404 Not Found")
+        mock_requests_get.return_value = mock_response
+
+        rsshub = RssHub(
+            {"hub_root": "http://example.com", "route": "/test", "fetch_params": None}
+        )
+
+        with pytest.raises(requests.HTTPError):
+            rsshub.fetch_contents()
+
+        assert mock_requests_get.call_count == 1
+
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_fetch_contents_timeout(self, mock_requests_get):
+        """测试超时直接抛出，由系统级重试处理"""
+        mock_requests_get.side_effect = requests.Timeout("Connection timed out")
+
+        rsshub = RssHub(
+            {"hub_root": "http://example.com", "route": "/test", "fetch_params": None}
+        )
+
+        with pytest.raises(requests.Timeout):
+            rsshub.fetch_contents()
+
+        # No fetcher-level retry, only 1 call
+        assert mock_requests_get.call_count == 1
+
+    def test_fetch_contents_does_not_mutate_config_params(self):
+        """测试 fetch_contents 不会修改 config.fetch_params"""
+        config = {
+            "hub_root": "http://example.com",
+            "route": "/test",
+            "fetch_params": {"limit": 5},
+        }
+        rsshub = RssHub(config)
+
+        with patch("octopus_scraper.utils.rsshub.requests.get") as mock_get:
+            mock_response = Mock()
+            mock_response.content = b"<rss></rss>"
+            mock_response.raise_for_status = Mock()
+            mock_get.return_value = mock_response
+
+            with patch("octopus_scraper.utils.rsshub.feedparser.parse") as mock_parse:
+                mock_feed = FeedParserDict()
+                mock_feed.bozo = 0
+                mock_feed.entries = []
+                mock_parse.return_value = mock_feed
+
+                with patch("octopus_scraper.utils.rsshub.build_contents", return_value=[]):
+                    rsshub.fetch_contents({"filter_title": "test"})
+
+        assert rsshub.config.fetch_params == {"limit": 5}
 
     def test_config_initialization(self):
         """测试配置初始化"""
@@ -118,6 +199,7 @@ class TestRssHub:
         assert rsshub.config.hub_root == "http://example.com"
         assert rsshub.config.route == "/test"
         assert rsshub.config.fetch_params == {"limit": 10}
+        assert rsshub.config.request_timeout == (10, 300)
 
     def test_config_initialization_no_fetch_params(self):
         """测试没有fetch_params的配置初始化"""
@@ -131,3 +213,15 @@ class TestRssHub:
         assert rsshub.config.hub_root == "http://example.com"
         assert rsshub.config.route == "/test"
         assert rsshub.config.fetch_params is None
+
+    def test_config_custom_timeout(self):
+        """测试自定义超时配置"""
+        config = {
+            "hub_root": "http://example.com",
+            "route": "/test",
+            "fetch_params": None,
+            "request_timeout": 600,
+        }
+
+        rsshub = RssHub(config)
+        assert rsshub.config.request_timeout == 600

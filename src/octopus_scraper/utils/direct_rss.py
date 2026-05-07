@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 import feedparser
@@ -9,7 +9,6 @@ import structlog
 from dacite import from_dict
 from dateutil import parser
 from feedparser.util import FeedParserDict
-from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.protos import Content
 from octopus_scraper.utils.tools import build_contents
@@ -21,6 +20,7 @@ logger = structlog.getLogger(__name__)
 class DirectRSSConfig:
     hub_root: str
     route: str
+    request_timeout: Union[float, Tuple[float, float]] = field(default=(10, 60))
 
 
 class DirectRSS:
@@ -62,8 +62,7 @@ class DirectRSS:
                 continue
         return filtered_contents
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def fetch_contents(self, params: dict = {}) -> List[Content]:
+    def fetch_contents(self, params: Optional[dict] = None) -> List[Content]:
         """获取 contents
 
         Args：
@@ -72,14 +71,22 @@ class DirectRSS:
         Returns:
             - return: List[Content]
         """
-        rss_url = requests.get(
-            urljoin(self.config.hub_root, self.config.route), timeout=30
-        ).url
+        params = params or {}
+
+        # Build URL without making an HTTP request
+        rss_url = urljoin(self.config.hub_root, self.config.route)
         logger.debug("Fetching rss_url.", rss_url=rss_url)
-        feed: FeedParserDict = feedparser.parse(rss_url)
-        if feed.status == 200:
+
+        # Fetch content with configurable timeout, then parse locally
+        response = requests.get(rss_url, timeout=self.config.request_timeout)
+        response.raise_for_status()
+
+        feed: FeedParserDict = feedparser.parse(response.content)
+        if not feed.bozo or feed.entries:
             contents = build_contents(feed)
             if params.get("filter_time"):
                 contents = self.filter_by_timerange(contents, params["filter_time"])
             return contents
-        raise RuntimeError(f"Failed to get RSS feed. Status code: {feed.status}.")
+
+        bozo_exception = getattr(feed, "bozo_exception", None)
+        raise RuntimeError(f"Failed to parse RSS feed from {rss_url}: {bozo_exception}")

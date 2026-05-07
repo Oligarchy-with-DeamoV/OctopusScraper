@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import pytest
-import tenacity
 from feedparser.util import FeedParserDict
 
 from octopus_scraper.protos import Content
@@ -96,16 +95,17 @@ class TestRssHub:
     @patch("octopus_scraper.utils.direct_rss.build_contents")
     @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
     @patch("octopus_scraper.utils.direct_rss.requests.get")
-    def test_fetch_contents_success(self, mock_requests, mock_feedparser, mock_build):
+    def test_fetch_contents_success(self, mock_requests_get, mock_feedparser, mock_build):
         """测试成功获取内容"""
-        # Mock requests.get
+        # Mock requests.get response
         mock_response = Mock()
-        mock_response.url = "http://example.com/feed.xml"
-        mock_requests.return_value = mock_response
+        mock_response.content = b"<rss>...</rss>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
 
         # Mock feedparser
         mock_feed = FeedParserDict()
-        mock_feed.status = 200
+        mock_feed.bozo = 0
         mock_feed.entries = []
         mock_feedparser.return_value = mock_feed
 
@@ -132,21 +132,25 @@ class TestRssHub:
         assert len(contents) == 1
         assert contents[0].title == "Test Content"
 
+        # Verify feedparser receives content, not URL
+        mock_feedparser.assert_called_once_with(mock_response.content)
+
     @patch("octopus_scraper.utils.direct_rss.build_contents")
     @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
     @patch("octopus_scraper.utils.direct_rss.requests.get")
     def test_fetch_contents_with_filter_time(
-        self, mock_requests, mock_feedparser, mock_build
+        self, mock_requests_get, mock_feedparser, mock_build
     ):
         """测试带时间过滤的内容获取"""
-        # Mock requests.get
+        # Mock requests.get response
         mock_response = Mock()
-        mock_response.url = "http://example.com/feed.xml"
-        mock_requests.return_value = mock_response
+        mock_response.content = b"<rss>...</rss>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
 
         # Mock feedparser
         mock_feed = FeedParserDict()
-        mock_feed.status = 200
+        mock_feed.bozo = 0
         mock_feed.entries = []
         mock_feedparser.return_value = mock_feed
 
@@ -186,16 +190,19 @@ class TestRssHub:
 
     @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
     @patch("octopus_scraper.utils.direct_rss.requests.get")
-    def test_fetch_contents_failure(self, mock_requests, mock_feedparser):
-        """测试获取内容失败的情况"""
-        # Mock requests.get
+    def test_fetch_contents_failure(self, mock_requests_get, mock_feedparser):
+        """测试解析RSS失败的情况"""
+        # Mock requests.get response (HTTP succeeds)
         mock_response = Mock()
-        mock_response.url = "http://example.com/feed.xml"
-        mock_requests.return_value = mock_response
+        mock_response.content = b"<invalid>not rss</invalid>"
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
 
-        # Mock feedparser with error status
+        # Mock feedparser with bozo error and no entries
         mock_feed = FeedParserDict()
-        mock_feed.status = 404
+        mock_feed.bozo = 1
+        mock_feed.bozo_exception = Exception("not well-formed")
+        mock_feed.entries = []
         mock_feedparser.return_value = mock_feed
 
         direct_rss = DirectRSS(
@@ -205,5 +212,5 @@ class TestRssHub:
             }
         )
 
-        with pytest.raises(tenacity.RetryError):
+        with pytest.raises(RuntimeError, match="Failed to parse RSS feed"):
             direct_rss.fetch_contents()
