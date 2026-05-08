@@ -65,9 +65,15 @@ class RssHub:
         request_params = {**base_params, **params}
 
         # Build URL without making an HTTP request
-        rss_url = requests.Request(
-            "GET", urljoin(self.config.hub_root, self.config.route), params=request_params
-        ).prepare().url
+        rss_url = (
+            requests.Request(
+                "GET",
+                urljoin(self.config.hub_root, self.config.route),
+                params=request_params,
+            )
+            .prepare()
+            .url
+        )
 
         logger.debug("Fetching rss_url.", rss_url=rss_url)
 

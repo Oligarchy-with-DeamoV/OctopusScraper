@@ -182,7 +182,9 @@ class TestRssHub:
                 mock_feed.entries = []
                 mock_parse.return_value = mock_feed
 
-                with patch("octopus_scraper.utils.rsshub.build_contents", return_value=[]):
+                with patch(
+                    "octopus_scraper.utils.rsshub.build_contents", return_value=[]
+                ):
                     rsshub.fetch_contents({"filter_title": "test"})
 
         assert rsshub.config.fetch_params == {"limit": 5}

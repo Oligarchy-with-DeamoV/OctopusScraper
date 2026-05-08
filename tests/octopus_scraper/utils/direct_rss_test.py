@@ -95,7 +95,9 @@ class TestRssHub:
     @patch("octopus_scraper.utils.direct_rss.build_contents")
     @patch("octopus_scraper.utils.direct_rss.feedparser.parse")
     @patch("octopus_scraper.utils.direct_rss.requests.get")
-    def test_fetch_contents_success(self, mock_requests_get, mock_feedparser, mock_build):
+    def test_fetch_contents_success(
+        self, mock_requests_get, mock_feedparser, mock_build
+    ):
         """测试成功获取内容"""
         # Mock requests.get response
         mock_response = Mock()
