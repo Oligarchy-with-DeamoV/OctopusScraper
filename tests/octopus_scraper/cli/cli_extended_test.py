@@ -55,14 +55,14 @@ class TestCLI:
 
     @patch("octopus_scraper.cli.create_service_args")
     @patch("octopus_scraper.octopus_service.app")
+    @patch("octopus_scraper.cli.LoggingConfigurator.configure_service_logging")
     @patch("structlog.configure")
     @patch("structlog.getLogger")
-    @patch("logging.getLogger")
     def test_run_octopus_service_single_process(
         self,
-        mock_get_logger,
         mock_structlog_logger,
         mock_structlog,
+        mock_configure_logging,
         mock_app,
         mock_create_args,
     ):
@@ -81,7 +81,6 @@ class TestCLI:
         # Mock logger
         mock_logger = Mock()
         mock_logger.name = "test_logger"
-        mock_get_logger.return_value = mock_logger
         mock_structlog_logger.return_value = mock_logger
 
         # Run function
@@ -95,17 +94,18 @@ class TestCLI:
             "single_process": True,
         }
         mock_app.run.assert_called_once_with(**expected_config)
+        mock_configure_logging.assert_called_once_with("INFO")
 
     @patch("octopus_scraper.cli.create_service_args")
     @patch("octopus_scraper.octopus_service.app")
+    @patch("octopus_scraper.cli.LoggingConfigurator.configure_service_logging")
     @patch("structlog.configure")
     @patch("structlog.getLogger")
-    @patch("logging.getLogger")
     def test_run_octopus_service_keyboard_interrupt(
         self,
-        mock_get_logger,
         mock_structlog_logger,
         mock_structlog,
+        mock_configure_logging,
         mock_app,
         mock_create_args,
     ):
@@ -124,7 +124,6 @@ class TestCLI:
         # Mock logger
         mock_logger = Mock()
         mock_logger.name = "test_logger"
-        mock_get_logger.return_value = mock_logger
         mock_structlog_logger.return_value = mock_logger
 
         # Make app.run raise KeyboardInterrupt
@@ -135,14 +134,14 @@ class TestCLI:
 
     @patch("octopus_scraper.cli.create_service_args")
     @patch("octopus_scraper.octopus_service.app")
+    @patch("octopus_scraper.cli.LoggingConfigurator.configure_service_logging")
     @patch("structlog.configure")
     @patch("structlog.getLogger")
-    @patch("logging.getLogger")
     def test_run_octopus_service_exception(
         self,
-        mock_get_logger,
         mock_structlog_logger,
         mock_structlog,
+        mock_configure_logging,
         mock_app,
         mock_create_args,
     ):
@@ -161,7 +160,6 @@ class TestCLI:
         # Mock logger
         mock_logger = Mock()
         mock_logger.name = "test_logger"
-        mock_get_logger.return_value = mock_logger
         mock_structlog_logger.return_value = mock_logger
 
         # Make app.run raise Exception

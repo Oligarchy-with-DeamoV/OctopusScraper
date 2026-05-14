@@ -4,6 +4,7 @@ import os
 import structlog
 import yaml
 from doraemon.logger.slogger import configure_structlog
+from octopus_scraper.logging_config import LoggingConfigurator
 
 configure_structlog()
 logger = structlog.getLogger(__name__)
@@ -78,10 +79,7 @@ def run_octopus_service():
     else:
         structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
 
-    # Set log level
-    import logging
-
-    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    LoggingConfigurator.configure_service_logging(args.log_level)
 
     logger.info(
         "Starting OctopusScraper service",
