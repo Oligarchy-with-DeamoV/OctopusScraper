@@ -201,7 +201,7 @@ class TestRssHub:
         assert rsshub.config.hub_root == "http://example.com"
         assert rsshub.config.route == "/test"
         assert rsshub.config.fetch_params == {"limit": 10}
-        assert rsshub.config.request_timeout == (10, 600)
+        assert rsshub.config.request_timeout == (10, 1200)
 
     def test_config_initialization_no_fetch_params(self):
         """测试没有fetch_params的配置初始化"""

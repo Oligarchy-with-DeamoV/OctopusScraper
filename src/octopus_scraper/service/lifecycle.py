@@ -146,54 +146,44 @@ async def cleanup_octopus(app, _):
 
 
 async def reload_octopus_config(app):
-    """Reload Octopus configuration when ConfigManager detects changes."""
+    """Reload Octopus configuration when ConfigManager detects changes.
+
+    This is a *soft* reload: only the scraper list is hot-swapped on the
+    existing Octopus instance. The underlying TaskManager (and any running
+    long-lived scraping tasks) is intentionally left untouched.
+    Restarting TaskManager on every Notion edit would cancel pending tasks
+    and interrupt in-flight ones, which is unacceptable for the long-running
+    scraper workloads it manages.
+    """
     try:
         config_manager: ConfigManager = app.ctx.config_manager
         current_scrapers = config_manager.get_current_scrapers()
 
-        # Get TaskManager configuration from environment
-        _, _, task_manager_config = create_config_from_env()
-
-        # Create new Octopus configuration with TaskManager
-        octopus_config = {
-            "scrapers_config_with_fetch_params": [
-                {
-                    "scraper_config": {
-                        "fetcher_name": scraper.fetcher,
-                        "fetcher_config": {
-                            "hub_root": scraper.hub_root,
-                            "route": scraper.route,
-                            "fetch_params": scraper.fetch_params or {},
-                        },
-                        "content_processor_configs": scraper.content_processor_configs,
-                        "scraper_name": scraper.name,
-                        "default_keywords": scraper.default_keywords,
+        scrapers_config_with_fetch_params = [
+            {
+                "scraper_config": {
+                    "fetcher_name": scraper.fetcher,
+                    "fetcher_config": {
+                        "hub_root": scraper.hub_root,
+                        "route": scraper.route,
+                        "fetch_params": scraper.fetch_params or {},
                     },
-                    "fetch_params": scraper.fetch_params or {},
-                }
-                for scraper in current_scrapers
-            ],
-            "notion_api_config": app.ctx.octopus._config.notion_api_config,  # Keep existing notion config
-            "use_task_manager": True,  # Always enable TaskManager
-            "task_manager_config": task_manager_config,
-            "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
-        }
+                    "content_processor_configs": scraper.content_processor_configs,
+                    "scraper_name": scraper.name,
+                    "default_keywords": scraper.default_keywords,
+                },
+                "fetch_params": scraper.fetch_params or {},
+            }
+            for scraper in current_scrapers
+        ]
 
-        # Clean up old Octopus instance
-        old_octopus = app.ctx.octopus
-        if hasattr(old_octopus, "_task_manager") and old_octopus._task_manager:
-            old_octopus.cleanup_task_manager()
-
-        # Replace the Octopus instance with new configuration
-        new_octopus = Octopus(octopus_config)
-        app.ctx.octopus = new_octopus
+        octopus = app.ctx.octopus
+        updated_count = octopus.update_scrapers(scrapers_config_with_fetch_params)
 
         logger.info(
-            "Octopus configuration reloaded successfully with TaskManager",
-            scraper_count=len(current_scrapers),
+            "Octopus scrapers reloaded (soft reload, TaskManager preserved)",
+            scraper_count=updated_count,
             config_version=config_manager.get_current_version().version_id,
-            task_manager_enabled=True,
-            max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
         return True

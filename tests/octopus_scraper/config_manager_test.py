@@ -107,6 +107,8 @@ class TestConfigManagerIntegration:
         self, mock_notion_config, mock_service_config, sample_scrapers
     ):
         """Test configuration change detection."""
+        import copy
+
         with patch(
             "octopus_scraper.config.config_manager.NotionConfigClient"
         ) as mock_client_class:
@@ -117,8 +119,11 @@ class TestConfigManagerIntegration:
             config_manager = ConfigManager(mock_notion_config, mock_service_config)
             await config_manager.load_initial_config()
 
-            # Modify scrapers for change simulation
-            modified_scrapers = sample_scrapers.copy()
+            # Build a genuinely distinct scraper list. A shallow ``list.copy``
+            # would share ``ScraperConfig`` instances with the current state
+            # (because ConfigManager keeps the same reference), which would
+            # silently mutate the baseline and confuse the semantic-diff check.
+            modified_scrapers = copy.deepcopy(sample_scrapers)
             modified_scrapers[0].priority = 10  # Change priority
             mock_client.load_scrapers_config.return_value = modified_scrapers
 
