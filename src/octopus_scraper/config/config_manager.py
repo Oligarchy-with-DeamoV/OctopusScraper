@@ -41,6 +41,10 @@ class ConfigManager:
         self._last_check: Optional[datetime] = None
         self._is_healthy: bool = True
         self._error_message: Optional[str] = None
+        # Most recent structural diff produced by reload_config_if_changed.
+        # Exposed via get_last_diff() so callers (e.g. on_config_changed
+        # callbacks) can react based on what actually changed.
+        self._last_diff: Optional[Dict[str, Any]] = None
 
         # Callback invoked when configuration changes are applied.
         # Registered via set_on_config_changed(); used by the background
@@ -184,6 +188,20 @@ class ConfigManager:
                 logger.debug("Configuration hash unchanged, skipping update")
                 return False
 
+            # Compute structural diff to validate the hash change reflects a real
+            # semantic difference. This guards against pathological cases where
+            # the hash changes but no observable field did (e.g. future hash
+            # tweaks); in such a case we treat it as no-op.
+            diff = self.compute_scrapers_diff(self._current_scrapers, new_scrapers)
+            if not (diff["added"] or diff["removed"] or diff["modified"]):
+                logger.info(
+                    "Configuration hash changed but no semantic diff detected, "
+                    "skipping reload"
+                )
+                # Refresh the stored hash so we don't keep flagging this state.
+                self._current_version = self._create_config_version(new_scrapers)
+                return False
+
             # Apply new configuration
             old_version = self._current_version
             self._current_scrapers = new_scrapers
@@ -192,9 +210,10 @@ class ConfigManager:
             self._error_message = None
 
             change_summary = self._create_change_summary(
-                old_version, self._current_version
+                old_version, self._current_version, diff
             )
             self._current_version.change_summary = change_summary
+            self._last_diff = diff
 
             logger.info(
                 "Configuration updated successfully",
@@ -202,6 +221,9 @@ class ConfigManager:
                 new_version=self._current_version.version_id,
                 scrapers_count=len(new_scrapers),
                 change_summary=change_summary,
+                added=diff["added"],
+                removed=diff["removed"],
+                modified=[m["name"] for m in diff["modified"]],
             )
 
             return True
@@ -342,34 +364,98 @@ class ConfigManager:
             scrapers_count=len(scrapers),
         )
 
+    def _normalize_scraper_for_hash(self, scraper: ScraperConfig) -> Dict[str, Any]:
+        """Return a canonical, order-independent representation of a scraper.
+
+        Used both for hashing (change detection) and for structural diffing.
+        Notion may return order-insensitive collections (e.g. multi-select
+        keywords) in arbitrary order; normalising prevents spurious diffs.
+        """
+        return {
+            "name": scraper.name,
+            "status": scraper.status,
+            "fetcher": scraper.fetcher,
+            "hub_root": scraper.hub_root,
+            "route": scraper.route,
+            "fetch_params": scraper.fetch_params or {},
+            "priority": scraper.priority,
+            "content_processor_configs": scraper.content_processor_configs or {},
+            # Multi-select order from Notion is not stable, sort to dedupe diffs.
+            "default_keywords": sorted(scraper.default_keywords or []),
+        }
+
+    def compute_scrapers_diff(
+        self,
+        old_scrapers: List[ScraperConfig],
+        new_scrapers: List[ScraperConfig],
+    ) -> Dict[str, Any]:
+        """Compute a structural diff between two scraper lists.
+
+        Returns:
+            Dict with keys:
+                - added: list of scraper names added in ``new_scrapers``
+                - removed: list of scraper names removed from ``old_scrapers``
+                - modified: list of ``{"name": str, "fields": [str, ...]}``
+                  for scrapers whose canonical representation changed.
+        """
+        old_map = {s.name: self._normalize_scraper_for_hash(s) for s in old_scrapers}
+        new_map = {s.name: self._normalize_scraper_for_hash(s) for s in new_scrapers}
+
+        added = sorted(set(new_map) - set(old_map))
+        removed = sorted(set(old_map) - set(new_map))
+
+        modified: List[Dict[str, Any]] = []
+        for name in sorted(set(old_map) & set(new_map)):
+            old_n = old_map[name]
+            new_n = new_map[name]
+            changed_fields = sorted(
+                field for field in old_n if old_n[field] != new_n[field]
+            )
+            if changed_fields:
+                modified.append({"name": name, "fields": changed_fields})
+
+        return {"added": added, "removed": removed, "modified": modified}
+
     def _calculate_config_hash(self, scrapers: List[ScraperConfig]) -> str:
         """Calculate hash of configuration for change detection."""
-        # Create a normalized representation of the configuration
-        config_data = []
-        for scraper in sorted(scrapers, key=lambda s: s.name):
-            config_data.append(
-                {
-                    "name": scraper.name,
-                    "status": scraper.status,
-                    "fetcher": scraper.fetcher,
-                    "hub_root": scraper.hub_root,
-                    "route": scraper.route,
-                    "fetch_params": scraper.fetch_params,
-                    "priority": scraper.priority,
-                    "content_processor_configs": scraper.content_processor_configs,
-                    "default_keywords": scraper.default_keywords,
-                }
-            )
-
+        config_data = [
+            self._normalize_scraper_for_hash(scraper)
+            for scraper in sorted(scrapers, key=lambda s: s.name)
+        ]
         config_json = json.dumps(config_data, sort_keys=True)
         return hashlib.sha256(config_json.encode()).hexdigest()
 
     def _create_change_summary(
-        self, old_version: Optional[ConfigVersion], new_version: ConfigVersion
+        self,
+        old_version: Optional[ConfigVersion],
+        new_version: ConfigVersion,
+        diff: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Create a summary of configuration changes."""
+        """Create a human-readable summary of configuration changes.
+
+        When a structural ``diff`` is provided (the typical case), the summary
+        enumerates added/removed/modified scraper names so logs are actionable
+        instead of just reporting that "something" changed.
+        """
         if not old_version:
-            return f"Initial configuration loaded with {new_version.scrapers_count} scrapers"
+            return (
+                f"Initial configuration loaded with "
+                f"{new_version.scrapers_count} scrapers"
+            )
+
+        if diff is not None:
+            parts: List[str] = []
+            if diff["added"]:
+                parts.append(f"added={diff['added']}")
+            if diff["removed"]:
+                parts.append(f"removed={diff['removed']}")
+            if diff["modified"]:
+                modified_desc = [
+                    f"{m['name']}({','.join(m['fields'])})" for m in diff["modified"]
+                ]
+                parts.append(f"modified={modified_desc}")
+            if parts:
+                return "; ".join(parts)
 
         old_count = old_version.scrapers_count
         new_count = new_version.scrapers_count
@@ -382,6 +468,10 @@ class ConfigManager:
             return (
                 f"Removed {old_count - new_count} scrapers ({old_count} → {new_count})"
             )
+
+    def get_last_diff(self) -> Optional[Dict[str, Any]]:
+        """Return the diff produced by the most recent successful reload."""
+        return self._last_diff
 
     def get_status(self):
         """Get current configuration status for health/admin endpoints."""

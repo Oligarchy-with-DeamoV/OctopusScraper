@@ -19,7 +19,7 @@ class RssHubConifg:
     hub_root: str
     route: str
     fetch_params: Optional[Dict]
-    request_timeout: Union[float, Tuple[float, float]] = field(default=(10, 600))
+    request_timeout: Union[float, Tuple[float, float]] = field(default=(10, 1200))
 
 
 class RssHub:

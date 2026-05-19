@@ -50,6 +50,9 @@ class Octopus:
         )
         self._task_manager.set_storage(self._notion_api)
         self._upload_lock = threading.Lock()
+        # Guards mutations of the scrapers list so concurrent
+        # update_scrapers() calls cannot interleave.
+        self._scrapers_lock = threading.Lock()
 
         try:
             self._setup()
@@ -75,6 +78,44 @@ class Octopus:
         # set storage for the scraper for content id check
         for scraper, _ in self._scrapers:
             scraper.set_storage(self._notion_api)
+
+    def update_scrapers(
+        self, scrapers_config_with_fetch_params: List[Dict[str, Any]]
+    ) -> int:
+        """热更新 scraper 列表，保留正在运行的 TaskManager。
+
+        当 Notion 中的 scraper 配置发生变化时调用本方法，以原子方式替换
+        ``self._scrapers``，避免重建 ``TaskManager``/``NotionStorage``。
+        已经在执行的任务会继续运行直至结束；后续 ``trigger_scraper`` 调用
+        将使用新的 scraper 列表。
+
+        Args:
+            scrapers_config_with_fetch_params: 与 ``OctopusConfig.scrapers_config_with_fetch_params``
+                同构的列表，每个元素至少包含 ``scraper_config`` 和 ``fetch_params``。
+
+        Returns:
+            更新后 scraper 的数量。
+        """
+        # 先在锁外构建新对象，最大程度缩短临界区。
+        new_runtime_configs = [
+            from_dict(ScraperRuntimeConfig, item)
+            for item in scrapers_config_with_fetch_params
+        ]
+        new_scrapers: List[Tuple[Scraper, Dict]] = []
+        for runtime_cfg in new_runtime_configs:
+            scraper = Scraper(asdict(runtime_cfg.scraper_config))
+            scraper.set_storage(self._notion_api)
+            new_scrapers.append((scraper, runtime_cfg.fetch_params))
+
+        with self._scrapers_lock:
+            self._config.scrapers_config_with_fetch_params = new_runtime_configs
+            self._scrapers = new_scrapers
+
+        logger.info(
+            "Octopus scrapers hot-swapped without restarting TaskManager",
+            scraper_count=len(new_scrapers),
+        )
+        return len(new_scrapers)
 
     def set_max_concurrent_scrapers(self, max_workers: int):
         """动态设置最大并发scraper数量"""
