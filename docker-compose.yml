@@ -122,7 +122,10 @@ services:
     networks:
       - octopus-network
 
-  # Vector 日志监控服务：监控 rsshub 的 error 日志并发送到飞书
+  # Vector 日志监控服务：
+  #   - 监控 rsshub 的 error 级别日志
+  #   - 监控 octopus-service 的 "Task failed" 事件（task_manager 任务失败时发出）
+  #   命中即通过飞书 Webhook 推送告警卡片。
   vector-alert:
     image: timberio/vector:latest-alpine
     container_name: vector-alert
@@ -139,6 +142,7 @@ services:
     restart: unless-stopped
     depends_on:
       - rsshub
+      - octopus-service
 
 networks:
   octopus-network:
