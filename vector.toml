@@ -1,39 +1,79 @@
 # ==================== 数据源 ====================
-# 采集 rsshub 容器日志（通过 Docker Compose 服务名标签匹配）
-[sources.rsshub_logs]
+# 通过挂载的 docker.sock 采集容器日志。
+# include_labels 是 OR 关系，因此一个 source 可以同时订阅多个 Compose 服务，
+# 避免对 docker socket 建立多条独立连接。
+[sources.compose_logs]
 type = "docker_logs"
 docker_host = "unix:///var/run/docker.sock"
-# 使用标签匹配 Docker Compose 服务
-include_labels = ["com.docker.compose.service=rsshub"]
+include_labels = [
+  "com.docker.compose.service=rsshub",
+  "com.docker.compose.service=octopus-service",
+]
 
-# ==================== 转换1：过滤 error 日志 ====================
-[transforms.filter_errors]
+# ==================== 转换1：按服务分流 ====================
+# 利用 docker_logs 自动注入的 label 字段把日志拆到两条独立流水线。
+# 这里读取的是 Vector 在 docker_logs 事件上挂载的 `.label."com.docker.compose.service"`，
+# 与 include_labels 选择条件保持一致。
+[transforms.split_by_service]
+type = "route"
+inputs = ["compose_logs"]
+  [transforms.split_by_service.route]
+  rsshub = '.label."com.docker.compose.service" == "rsshub"'
+  octopus = '.label."com.docker.compose.service" == "octopus-service"'
+
+# ==================== 转换2：过滤需要告警的事件 ====================
+# 2.1 rsshub：匹配以 error 级别开头的日志（兼容 ANSI 颜色与大小写）
+[transforms.filter_rsshub_errors]
 type = "filter"
-inputs = ["rsshub_logs"]
-# 匹配以 error 级别开头的日志（忽略 ANSI 转义码和大小写）
+inputs = ["split_by_service.rsshub"]
 condition = "match(string!(.message), r'(?i)(^|\\x1b\\[\\d+m)error\\x1b\\[\\d+m?:')"
 
-# ==================== 转换2：立即告警每条 error 日志 ====================
-[transforms.format_error]
+# 2.2 octopus-service：匹配 task_manager 发出的 `Task failed` 事件
+# - LOG_FORMAT=plain (ConsoleRenderer): `... [error    ] Task failed   task_id=...`
+#   structlog 只用 ANSI 包裹整段 event 文本，"Task failed" 不会被拆字符，能稳定命中。
+# - LOG_FORMAT=json (JSONRenderer):     `{"event":"Task failed","level":"error",...}`
+#   字面量也存在于 JSON 字符串中，同一正则即可命中。
+[transforms.filter_octopus_task_failed]
+type = "filter"
+inputs = ["split_by_service.octopus"]
+condition = "match(string!(.message), r'(?i)task failed')"
+
+# ==================== 转换3：附加告警元数据 ====================
+[transforms.format_rsshub_alert]
 type = "remap"
-inputs = ["filter_errors"]
+inputs = ["filter_rsshub_errors"]
 source = '''
   .alert_time = now()
   .hostname = "RSSHub 服务"
   .error_message = string!(.message)
 '''
 
-# ==================== 转换3：格式化为飞书 Webhook 消息（卡片格式）====================
+[transforms.format_octopus_alert]
+type = "remap"
+inputs = ["filter_octopus_task_failed"]
+source = '''
+  .alert_time = now()
+  .hostname = "Octopus 服务"
+  .error_message = string!(.message)
+'''
+
+# ==================== 转换4：渲染为飞书卡片 ====================
 [transforms.format_feishu]
 type = "remap"
-inputs = ["format_error"]
+inputs = ["format_rsshub_alert", "format_octopus_alert"]
 source = '''
   host = string!(.hostname)
   ts = to_string(format_timestamp!(.alert_time, format: "%Y-%m-%d %H:%M:%S", timezone: "Asia/Shanghai"))
   # 清理 ANSI 转义码（颜色控制字符）
   error_msg = replace(string!(.error_message), r'\x1b\[\d+(;\d+)*m', "")
 
-  # 构建飞书卡片消息
+  # 按来源选择卡片标题
+  title = if host == "Octopus 服务" {
+    "🚨 Octopus 任务失败告警"
+  } else {
+    "🚨 RSSHub 错误告警"
+  }
+
   card = {
     "msg_type": "interactive",
     "card": {
@@ -43,7 +83,7 @@ source = '''
       "header": {
         "title": {
           "tag": "plain_text",
-          "content": "🚨 RSSHub 错误告警"
+          "content": title
         },
         "template": "red"
       },
@@ -67,9 +107,7 @@ source = '''
             }
           ]
         },
-        {
-          "tag": "hr"
-        },
+        { "tag": "hr" },
         {
           "tag": "div",
           "text": {
@@ -96,19 +134,19 @@ source = '''
   del(.error_message)
 '''
 
-# ==================== 输出1：打印到控制台（包括所有 rsshub 日志用于调试） ====================
+# ==================== 输出1：调试 — 原始日志打印到控制台 ====================
 [sinks.console]
 type = "console"
-inputs = ["rsshub_logs"]
+inputs = ["compose_logs"]
 encoding.codec = "json"
 
-# ==================== 输出2：打印过滤后的 error ====================
-[sinks.console_errors]
+# ==================== 输出2：调试 — 过滤后的告警事件打印到控制台 ====================
+[sinks.console_alerts]
 type = "console"
-inputs = ["format_error"]
+inputs = ["format_rsshub_alert", "format_octopus_alert"]
 encoding.codec = "json"
 
-# ==================== 输出2：发送飞书 Webhook ====================
+# ==================== 输出3：发送飞书 Webhook ====================
 [sinks.feishu_webhook]
 type = "http"
 inputs = ["format_feishu"]
@@ -121,3 +159,11 @@ encoding.codec = "raw_message"
   [sinks.feishu_webhook.buffer]
     type = "memory"
     max_events = 50
+
+# ==================== 输出4：丢弃 route 未匹配的事件 ====================
+# include_labels 已经把容器范围限定为 rsshub 与 octopus-service，
+# 但 route transform 仍然会暴露一个 `_unmatched` 出口，
+# 用 blackhole 显式消费，避免 Vector 启动时的告警提示。
+[sinks.drop_unmatched]
+type = "blackhole"
+inputs = ["split_by_service._unmatched"]
