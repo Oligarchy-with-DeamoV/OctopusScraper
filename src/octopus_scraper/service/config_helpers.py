@@ -11,10 +11,23 @@ load_dotenv()
 
 # Initialize logging configuration
 log_format = os.getenv("LOG_FORMAT", "plain")
+# `add_log_level` 将 level 名称注入事件字典，是下游日志消费方
+# （Vector → 飞书告警、ELK 等）按级别过滤的前提；没有它两种渲染器
+# 都不会把 level 写进输出。务必保持在渲染器之前。
 if log_format == "json":
-    structlog.configure(processors=[structlog.processors.JSONRenderer()])
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.JSONRenderer(),
+        ]
+    )
 else:
-    structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.dev.ConsoleRenderer(),
+        ]
+    )
 
 logger = structlog.get_logger()
 
