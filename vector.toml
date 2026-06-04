@@ -1,50 +1,44 @@
 # ==================== 数据源 ====================
 # 通过挂载的 docker.sock 采集容器日志。
-# include_labels 是 OR 关系，因此一个 source 可以同时订阅多个 Compose 服务，
-# 避免对 docker socket 建立多条独立连接。
-[sources.compose_logs]
+# 注意：Vector v0.54 的 docker_logs source 在 `include_labels` 出现"同一 key、
+# 多个 value"时会把多条 entry 当成 AND 合并，导致一个容器都匹配不上。因此
+# 必须按服务拆成独立 source，每个 source 只用一条 `include_labels`。
+# 多开一个 docker.sock 连接的开销可忽略。
+[sources.rsshub_logs]
 type = "docker_logs"
 docker_host = "unix:///var/run/docker.sock"
-include_labels = [
-  "com.docker.compose.service=rsshub",
-  "com.docker.compose.service=octopus-service",
-]
+include_labels = ["com.docker.compose.service=rsshub"]
 
-# ==================== 转换1：按服务分流 ====================
-# 利用 docker_logs 自动注入的 label 字段把日志拆到两条独立流水线。
-# 这里读取的是 Vector 在 docker_logs 事件上挂载的 `.label."com.docker.compose.service"`，
-# 与 include_labels 选择条件保持一致。
-[transforms.split_by_service]
-type = "route"
-inputs = ["compose_logs"]
-  [transforms.split_by_service.route]
-  rsshub = '.label."com.docker.compose.service" == "rsshub"'
-  octopus = '.label."com.docker.compose.service" == "octopus-service"'
+[sources.octopus_logs]
+type = "docker_logs"
+docker_host = "unix:///var/run/docker.sock"
+include_labels = ["com.docker.compose.service=octopus-service"]
 
-# ==================== 转换2：过滤需要告警的事件 ====================
-# 2.1 rsshub：匹配以 error / fatal 级别开头的日志（兼容 ANSI 颜色与大小写）
+# ==================== 转换1：过滤需要告警的事件 ====================
+# 1.1 rsshub：匹配以 error / fatal 级别开头的日志（兼容 ANSI 颜色与大小写）
 # rsshub 在 NODE_ENV=production 下输出的是纯文本 `error: ...`，不带 ANSI；
 # 在开发模式下则可能输出 `\x1b[31merror\x1b[39m: ...`。两种形式都需要命中，
 # 因此把 ANSI 转义部分整体放进可选组，而不是强制要求。
 [transforms.filter_rsshub_errors]
 type = "filter"
-inputs = ["split_by_service.rsshub"]
+inputs = ["rsshub_logs"]
 condition = "match(string!(.message), r'(?i)^(?:\\x1b\\[[\\d;]*m)*(error|fatal)(?:\\x1b\\[[\\d;]*m)*\\s*:')"
 
-# 2.2 octopus-service：匹配所有 error / critical 级别的结构化日志
+# 1.2 octopus-service：匹配所有 error / critical 级别的结构化日志
 # 覆盖 task_manager 的 `Task failed`、config 重载失败、scraper / processor /
 # Notion / LLM 等任意模块的 logger.error(...)。仅过滤"级别"而非"事件名"，
-# 避免遗漏新增的错误事件。两种 structlog 渲染器都能稳定命中：
+# 避免遗漏新增的错误事件。前提：structlog 配置里加了 `add_log_level` processor
+# （详见 src/octopus_scraper/service/config_helpers.py 与 cli/__init__.py），
+# 否则两种渲染器都不会把 level 写进输出，本 filter 永远不会命中。
 # - LOG_FORMAT=plain (ConsoleRenderer): `... [error    ] Task failed   key=value`
-#   结构化级别始终以 `[error    ]` / `[critical ]` 形式出现（可能被 ANSI
-#   颜色码包裹），允许方括号内出现 ANSI 转义。
+#   级别以 `[error    ]` / `[critical ]` 形式出现（可能被 ANSI 颜色码包裹）。
 # - LOG_FORMAT=json (JSONRenderer):     `{"event":"...","level":"error",...}`
 #   通过 `"level":"error"` 字面量匹配。
 # Python traceback 的 `File "..."` / `raise ...` 续行不含上述级别标记，
 # 因此不会与告警重复（这是 docker_logs 按行切分日志的预期表现）。
 [transforms.filter_octopus_errors]
 type = "filter"
-inputs = ["split_by_service.octopus"]
+inputs = ["octopus_logs"]
 condition = '''
   match(string!(.message), r'\[[^\]]{0,32}(?i:error|critical)[^\]]{0,32}\]') ||
   match(string!(.message), r'"level"\s*:\s*"(?i:error|critical)"')
@@ -149,7 +143,7 @@ source = '''
 # ==================== 输出1：调试 — 原始日志打印到控制台 ====================
 [sinks.console]
 type = "console"
-inputs = ["compose_logs"]
+inputs = ["rsshub_logs", "octopus_logs"]
 encoding.codec = "json"
 
 # ==================== 输出2：调试 — 过滤后的告警事件打印到控制台 ====================
@@ -171,11 +165,3 @@ encoding.codec = "raw_message"
   [sinks.feishu_webhook.buffer]
     type = "memory"
     max_events = 50
-
-# ==================== 输出4：丢弃 route 未匹配的事件 ====================
-# include_labels 已经把容器范围限定为 rsshub 与 octopus-service，
-# 但 route transform 仍然会暴露一个 `_unmatched` 出口，
-# 用 blackhole 显式消费，避免 Vector 启动时的告警提示。
-[sinks.drop_unmatched]
-type = "blackhole"
-inputs = ["split_by_service._unmatched"]
