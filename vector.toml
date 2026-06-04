@@ -28,15 +28,24 @@ type = "filter"
 inputs = ["split_by_service.rsshub"]
 condition = "match(string!(.message), r'(?i)(^|\\x1b\\[\\d+m)error\\x1b\\[\\d+m?:')"
 
-# 2.2 octopus-service：匹配 task_manager 发出的 `Task failed` 事件
-# - LOG_FORMAT=plain (ConsoleRenderer): `... [error    ] Task failed   task_id=...`
-#   structlog 只用 ANSI 包裹整段 event 文本，"Task failed" 不会被拆字符，能稳定命中。
-# - LOG_FORMAT=json (JSONRenderer):     `{"event":"Task failed","level":"error",...}`
-#   字面量也存在于 JSON 字符串中，同一正则即可命中。
-[transforms.filter_octopus_task_failed]
+# 2.2 octopus-service：匹配所有 error / critical 级别的结构化日志
+# 覆盖 task_manager 的 `Task failed`、config 重载失败、scraper / processor /
+# Notion / LLM 等任意模块的 logger.error(...)。仅过滤"级别"而非"事件名"，
+# 避免遗漏新增的错误事件。两种 structlog 渲染器都能稳定命中：
+# - LOG_FORMAT=plain (ConsoleRenderer): `... [error    ] Task failed   key=value`
+#   结构化级别始终以 `[error    ]` / `[critical ]` 形式出现（可能被 ANSI
+#   颜色码包裹），允许方括号内出现 ANSI 转义。
+# - LOG_FORMAT=json (JSONRenderer):     `{"event":"...","level":"error",...}`
+#   通过 `"level":"error"` 字面量匹配。
+# Python traceback 的 `File "..."` / `raise ...` 续行不含上述级别标记，
+# 因此不会与告警重复（这是 docker_logs 按行切分日志的预期表现）。
+[transforms.filter_octopus_errors]
 type = "filter"
 inputs = ["split_by_service.octopus"]
-condition = "match(string!(.message), r'(?i)task failed')"
+condition = '''
+  match(string!(.message), r'\[[^\]]{0,32}(?i:error|critical)[^\]]{0,32}\]') ||
+  match(string!(.message), r'"level"\s*:\s*"(?i:error|critical)"')
+'''
 
 # ==================== 转换3：附加告警元数据 ====================
 [transforms.format_rsshub_alert]
@@ -50,7 +59,7 @@ source = '''
 
 [transforms.format_octopus_alert]
 type = "remap"
-inputs = ["filter_octopus_task_failed"]
+inputs = ["filter_octopus_errors"]
 source = '''
   .alert_time = now()
   .hostname = "Octopus 服务"
@@ -69,7 +78,7 @@ source = '''
 
   # 按来源选择卡片标题
   title = if host == "Octopus 服务" {
-    "🚨 Octopus 任务失败告警"
+    "🚨 Octopus 服务错误告警"
   } else {
     "🚨 RSSHub 错误告警"
   }
