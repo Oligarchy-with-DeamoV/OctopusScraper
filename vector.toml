@@ -22,11 +22,14 @@ inputs = ["compose_logs"]
   octopus = '.label."com.docker.compose.service" == "octopus-service"'
 
 # ==================== 转换2：过滤需要告警的事件 ====================
-# 2.1 rsshub：匹配以 error 级别开头的日志（兼容 ANSI 颜色与大小写）
+# 2.1 rsshub：匹配以 error / fatal 级别开头的日志（兼容 ANSI 颜色与大小写）
+# rsshub 在 NODE_ENV=production 下输出的是纯文本 `error: ...`，不带 ANSI；
+# 在开发模式下则可能输出 `\x1b[31merror\x1b[39m: ...`。两种形式都需要命中，
+# 因此把 ANSI 转义部分整体放进可选组，而不是强制要求。
 [transforms.filter_rsshub_errors]
 type = "filter"
 inputs = ["split_by_service.rsshub"]
-condition = "match(string!(.message), r'(?i)(^|\\x1b\\[\\d+m)error\\x1b\\[\\d+m?:')"
+condition = "match(string!(.message), r'(?i)^(?:\\x1b\\[[\\d;]*m)*(error|fatal)(?:\\x1b\\[[\\d;]*m)*\\s*:')"
 
 # 2.2 octopus-service：匹配所有 error / critical 级别的结构化日志
 # 覆盖 task_manager 的 `Task failed`、config 重载失败、scraper / processor /
