@@ -1,6 +1,7 @@
 """Configuration helpers and utility functions for OctopusService."""
 
 import os
+from typing import Any, Dict, Tuple
 
 import structlog
 from dotenv import load_dotenv
@@ -14,10 +15,17 @@ log_format = os.getenv("LOG_FORMAT", "plain")
 # `add_log_level` 将 level 名称注入事件字典，是下游日志消费方
 # （Vector → 飞书告警、ELK 等）按级别过滤的前提；没有它两种渲染器
 # 都不会把 level 写进输出。务必保持在渲染器之前。
+#
+# JSONRenderer 本身不会处理 `exc_info=True`；如果不在它之前加
+# `format_exc_info`，traceback 会被丢掉，下游只能看到 `error=...`
+# 而看不到栈，定位问题非常困难。ConsoleRenderer 自带异常渲染，
+# 无需该 processor。
 if log_format == "json":
     structlog.configure(
         processors=[
             structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ]
     )
@@ -90,3 +98,58 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
     }
 
     return notion_config, service_config, task_manager_config
+
+
+# Defaults match the historical hard-coded values in RssHubConifg / DirectRSSConfig
+# so existing deployments behave identically when these env vars are unset.
+DEFAULT_RSSHUB_CONNECT_TIMEOUT = 10.0
+DEFAULT_RSSHUB_READ_TIMEOUT = 1200.0
+
+
+def get_rsshub_request_timeout() -> Tuple[float, float]:
+    """Resolve the (connect, read) timeout tuple for the RSSHub fetcher.
+
+    Reads ``RSSHUB_CONNECT_TIMEOUT`` and ``RSSHUB_READ_TIMEOUT`` from the
+    environment. Both default to the values previously hard-coded in
+    ``RssHubConifg`` (10s connect, 1200s read) so behaviour is unchanged
+    when no env vars are set.
+
+    Returns:
+        Tuple of ``(connect_timeout, read_timeout)`` in seconds, suitable
+        to pass through as ``request_timeout`` on the rsshub fetcher_config.
+    """
+    connect = float(
+        os.getenv("RSSHUB_CONNECT_TIMEOUT", str(DEFAULT_RSSHUB_CONNECT_TIMEOUT))
+    )
+    read = float(os.getenv("RSSHUB_READ_TIMEOUT", str(DEFAULT_RSSHUB_READ_TIMEOUT)))
+    return (connect, read)
+
+
+def build_fetcher_config(
+    scraper, *, include_fetch_params: bool = True
+) -> Dict[str, Any]:
+    """Build a ``fetcher_config`` dict for a ``ScraperConfig``.
+
+    Centralises the construction of fetcher configuration so that
+    fetcher-specific tuning (e.g. RSSHub request timeouts driven by env
+    vars) is applied consistently across the initial load, soft reload
+    and admin-triggered code paths.
+
+    Args:
+        scraper: A ``ScraperConfig`` describing one scraper source.
+        include_fetch_params: If True, include ``fetch_params`` in the
+            returned dict. The admin test endpoints intentionally omit
+            it because they pass test-time params separately.
+
+    Returns:
+        A dict ready to be assigned to ``scraper_config["fetcher_config"]``.
+    """
+    fetcher_config: Dict[str, Any] = {
+        "hub_root": scraper.hub_root,
+        "route": scraper.route,
+    }
+    if include_fetch_params:
+        fetcher_config["fetch_params"] = scraper.fetch_params or {}
+    if scraper.fetcher == "rsshub":
+        fetcher_config["request_timeout"] = get_rsshub_request_timeout()
+    return fetcher_config

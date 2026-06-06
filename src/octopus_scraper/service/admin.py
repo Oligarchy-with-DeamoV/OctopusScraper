@@ -10,7 +10,10 @@ from sanic.response import json
 from octopus_scraper.config import ConfigManager
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service.app import _health_cache, app
-from octopus_scraper.service.config_helpers import _get_memory_usage
+from octopus_scraper.service.config_helpers import (
+    _get_memory_usage,
+    build_fetcher_config,
+)
 from octopus_scraper.service.lifecycle import reload_octopus_config
 
 logger = structlog.get_logger()
@@ -362,10 +365,9 @@ async def run_scraper_test(request, scraper_name):
 
         test_scraper_config = {
             "fetcher_name": target_scraper_config.fetcher,
-            "fetcher_config": {
-                "hub_root": target_scraper_config.hub_root,
-                "route": target_scraper_config.route,
-            },
+            "fetcher_config": build_fetcher_config(
+                target_scraper_config, include_fetch_params=False
+            ),
             "content_processor_configs": target_scraper_config.content_processor_configs,
             "scraper_name": target_scraper_config.name,
             "default_keywords": target_scraper_config.default_keywords,
@@ -633,10 +635,9 @@ async def submit_individual_task(request):
         # Prepare task configuration
         scraper_config = {
             "fetcher_name": target_scraper.fetcher,
-            "fetcher_config": {
-                "hub_root": target_scraper.hub_root,
-                "route": target_scraper.route,
-            },
+            "fetcher_config": build_fetcher_config(
+                target_scraper, include_fetch_params=False
+            ),
             "content_processor_configs": target_scraper.content_processor_configs,
             "scraper_name": target_scraper.name,
             "default_keywords": target_scraper.default_keywords,
