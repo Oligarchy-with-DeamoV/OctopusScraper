@@ -6,7 +6,10 @@ from sanic.exceptions import SanicException
 from octopus_scraper.config import ConfigManager
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service.app import app
-from octopus_scraper.service.config_helpers import create_config_from_env
+from octopus_scraper.service.config_helpers import (
+    build_fetcher_config,
+    create_config_from_env,
+)
 
 logger = structlog.get_logger()
 
@@ -42,11 +45,7 @@ async def setup_octopus(app, _):
                 {
                     "scraper_config": {
                         "fetcher_name": scraper.fetcher,
-                        "fetcher_config": {
-                            "hub_root": scraper.hub_root,
-                            "route": scraper.route,
-                            "fetch_params": scraper.fetch_params or {},
-                        },
+                        "fetcher_config": build_fetcher_config(scraper),
                         "content_processor_configs": scraper.content_processor_configs,
                         "scraper_name": scraper.name,
                         "default_keywords": scraper.default_keywords,
@@ -163,11 +162,7 @@ async def reload_octopus_config(app):
             {
                 "scraper_config": {
                     "fetcher_name": scraper.fetcher,
-                    "fetcher_config": {
-                        "hub_root": scraper.hub_root,
-                        "route": scraper.route,
-                        "fetch_params": scraper.fetch_params or {},
-                    },
+                    "fetcher_config": build_fetcher_config(scraper),
                     "content_processor_configs": scraper.content_processor_configs,
                     "scraper_name": scraper.name,
                     "default_keywords": scraper.default_keywords,

@@ -39,8 +39,8 @@ poetry run pytest -k "test_function_name"
 # Run with coverage
 poetry run pytest --cov=src tests/
 
-# Format code
-poetry run black src/ tests/ --line-length 120
+# Format code (Black uses its default line length of 88; CI checks the same)
+poetry run black src/ tests/
 
 # Run the full Docker Compose stack (octopus-service + rsshub + redis + scheduler + vector-alert)
 docker compose up -d
@@ -166,8 +166,9 @@ Sanic app from `service/app.py`.
 
 ## Code Style
 
-- **Formatter**: Black, 120 char line length (pinned to 24.10.0 in
-  `pyproject.toml` and `.pre-commit-config.yaml`)
+- **Formatter**: Black, default 88 char line length (pinned to 24.10.0 in
+  `.pre-commit-config.yaml`; `pyproject.toml` has no `[tool.black]`
+  override, and CI runs `poetry run black --check src/ tests/`)
 - Always use classes instead of standalone functions
 - Google Python Style Guide for docstrings
 - 4-space indentation, PEP 8 compliance
@@ -224,7 +225,7 @@ no exceptions. The loop ensures CI is the single source of truth for
 2. **Implement and verify locally** before pushing:
 
    ```bash
-   poetry run black --check src/ tests/ --line-length 120
+   poetry run black --check src/ tests/
    poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
    ```
 

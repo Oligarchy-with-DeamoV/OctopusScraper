@@ -256,6 +256,44 @@ class TestNotionConfigClient:
             assert len(scrapers) == 1
             assert scrapers[0].fetch_params is None  # Should be None for invalid JSON
 
+    @pytest.mark.asyncio
+    async def test_load_scrapers_config_error_log_includes_error_type(
+        self, notion_client
+    ):
+        """Failed loads must log structured error_type / status_code so that
+        operators can diagnose the root cause from logs alone (e.g. distinguish
+        a Notion 429 rate-limit from a network timeout)."""
+
+        class _FakeNotionError(Exception):
+            def __init__(self) -> None:
+                super().__init__("rate limited")
+                self.status = 429
+                self.code = "rate_limited"
+
+        with patch.object(
+            notion_client.client.databases, "query", new_callable=AsyncMock
+        ) as mock_query, patch(
+            "octopus_scraper.config.notion_config.logger"
+        ) as mock_logger:
+            mock_query.side_effect = _FakeNotionError()
+
+            with pytest.raises(_FakeNotionError):
+                await notion_client.load_scrapers_config()
+
+            # Find the "Failed to load scrapers configuration" call
+            failure_calls = [
+                call
+                for call in mock_logger.error.call_args_list
+                if call.args and call.args[0] == "Failed to load scrapers configuration"
+            ]
+            assert len(failure_calls) == 1
+            kwargs = failure_calls[0].kwargs
+            assert kwargs["error"] == "rate limited"
+            assert kwargs["error_type"] == "_FakeNotionError"
+            assert kwargs["status_code"] == 429
+            assert kwargs["api_code"] == "rate_limited"
+            assert kwargs["exc_info"] is True
+
 
 class TestScraperConfigFromNotionRecord:
     def test_from_notion_record_complete(self):

@@ -65,7 +65,12 @@ class NotionConfigClient:
 
         except Exception as e:
             logger.error(
-                "Failed to load scrapers configuration", error=str(e), exc_info=True
+                "Failed to load scrapers configuration",
+                error=str(e),
+                error_type=type(e).__name__,
+                status_code=getattr(e, "status", None),
+                api_code=getattr(e, "code", None),
+                exc_info=True,
             )
             raise
 

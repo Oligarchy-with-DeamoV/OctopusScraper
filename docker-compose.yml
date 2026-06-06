@@ -23,6 +23,10 @@ services:
       - SERVICE_PORT=${SERVICE_PORT:-8000}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - OCTOPUS_LOG_LEVEL=INFO
+      # RSSHub fetcher HTTP timeouts in seconds. Defaults match the
+      # historical hard-coded values; override via .env to tune.
+      - RSSHUB_CONNECT_TIMEOUT=${RSSHUB_CONNECT_TIMEOUT:-10}
+      - RSSHUB_READ_TIMEOUT=${RSSHUB_READ_TIMEOUT:-1200}
 
     # 健康检查配置（slim 镜像无 curl，使用 Python 内置检查）
     healthcheck:
