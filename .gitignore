@@ -2,6 +2,7 @@
 .python-version
 .log
 .vscode
+.octopus/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

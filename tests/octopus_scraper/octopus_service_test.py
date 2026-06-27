@@ -9,27 +9,20 @@ from sanic import Sanic
 
 from octopus_scraper.config import NotionDatabaseConfig, ServiceConfig
 from octopus_scraper.octopus_service import (  # New admin interface functions
-    admin_overview,
     app,
     cleanup_octopus,
-    clear_cache,
     create_config_from_env,
-    dump_service_state,
-    force_garbage_collection,
     get_config_status,
     get_monitoring_metrics,
     get_task_stats,
     health_check,
     list_scrapers,
     list_tasks,
-    manage_config_watcher,
     refresh_config,
     reload_octopus_config,
     setup_octopus,
-    submit_individual_task,
     trigger_scraper,
     trigger_upload,
-    validate_config,
 )
 
 
@@ -95,6 +88,31 @@ class TestConfigCreation:
             assert task_manager_config["max_concurrent_tasks"] == 12
             assert task_manager_config["max_queue_size"] == 2000
             assert task_manager_config["result_retention_hours"] == 72
+
+
+class TestServiceRouteSurface:
+    def test_registered_routes_match_slim_api_surface(self):
+        """Test only the documented core service routes are registered."""
+        registered_routes = {
+            (route.path, tuple(sorted(route.methods)))
+            for route in app.router.routes_all.values()
+        }
+
+        assert registered_routes == {
+            ("health", ("GET",)),
+            ("health/liveness", ("GET",)),
+            ("health/readiness", ("GET",)),
+            ("trigger_scraper", ("POST",)),
+            ("trigger_upload", ("POST",)),
+            ("admin/config/status", ("GET",)),
+            ("admin/config/refresh", ("POST",)),
+            ("admin/system/info", ("GET",)),
+            ("admin/scrapers", ("GET",)),
+            ("admin/tasks/stats", ("GET",)),
+            ("admin/tasks", ("GET",)),
+            ("admin/tasks/<task_id:str>", ("GET",)),
+            ("admin/monitoring/metrics", ("GET",)),
+        }
 
 
 class TestServiceLifecycle:
@@ -416,37 +434,6 @@ class TestConfigEndpoints:
 
             assert response.status == 200
 
-    @pytest.mark.asyncio
-    async def test_validate_config_success(self):
-        """Test config validation endpoint."""
-        from octopus_scraper.config.models import ScraperConfig
-
-        mock_request = Mock()
-        # Create real ScraperConfig objects instead of Mock objects
-        mock_scrapers = [
-            ScraperConfig(
-                name="test_scraper",
-                status="Active",
-                fetcher="rsshub",
-                hub_root="https://example.com",
-                route="/test",
-                fetch_params={},
-                priority=1,
-            )
-        ]
-
-        with patch("octopus_scraper.service.admin.app") as mock_app:
-            mock_manager = Mock()
-            mock_manager.notion_client.load_scrapers_config = AsyncMock(
-                return_value=mock_scrapers
-            )
-            mock_manager.validate_scrapers_config.return_value = []
-            mock_app.ctx.config_manager = mock_manager
-
-            response = await validate_config(mock_request)
-
-            assert response.status == 200
-
 
 class TestAdminEndpoints:
     """Test the new admin interface endpoints."""
@@ -545,23 +532,6 @@ class TestAdminEndpoints:
         return mock_app
 
     @pytest.mark.asyncio
-    async def test_admin_overview(self, mock_app_with_full_context):
-        """Test the admin overview endpoint."""
-        from octopus_scraper.octopus_service import admin_overview
-
-        mock_request = Mock()
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await admin_overview(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "status" in str(data)
-            assert "admin_endpoints" in str(data)
-            assert "system_health" in str(data)
-            assert "service_info" in str(data)
-
-    @pytest.mark.asyncio
     async def test_get_config_status(self, mock_app_with_full_context):
         """Test the config status endpoint."""
         mock_request = Mock()
@@ -649,60 +619,6 @@ class TestAdminEndpoints:
             assert "test_scraper" in str(data)
 
     @pytest.mark.asyncio
-    async def test_test_scraper_success(self, mock_app_with_full_context):
-        """Test the scraper test endpoint with successful execution."""
-        from octopus_scraper.octopus_service import run_scraper_test
-
-        mock_request = Mock()
-        mock_request.json = {
-            "params": {"limit": 3},
-            "timeout": 30,
-        }  # Mock content objects
-        mock_content = Mock()
-        mock_content.title = "Test Content"
-        mock_content.link = "https://example.com/content"
-        mock_content.published = "2024-01-01"
-        mock_content.content_id = "test_id"
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            with patch("octopus_scraper.scraper.Scraper") as mock_scraper_class:
-                mock_scraper_instance = Mock()
-                mock_scraper_instance.scrap_contents.return_value = [mock_content]
-                mock_scraper_class.return_value = mock_scraper_instance
-
-                with patch(
-                    "asyncio.to_thread",
-                    new_callable=AsyncMock,
-                    return_value=[mock_content],
-                ):
-                    with patch(
-                        "asyncio.wait_for",
-                        new_callable=AsyncMock,
-                        return_value=[mock_content],
-                    ):
-                        response = await run_scraper_test(mock_request, "test_scraper")
-
-                        assert response.status == 200
-                        data = response.body
-                        assert "test_results" in str(data)
-                        assert "items_fetched" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_test_scraper_not_found(self, mock_app_with_full_context):
-        """Test scraper test endpoint with non-existent scraper."""
-        from octopus_scraper.octopus_service import run_scraper_test
-
-        mock_request = Mock()
-        mock_request.json = {}
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await run_scraper_test(mock_request, "nonexistent_scraper")
-
-            assert response.status == 404
-            data = response.body
-            assert "not found" in str(data).lower()
-
-    @pytest.mark.asyncio
     async def test_task_stats_with_task_manager(self, mock_app_with_full_context):
         """Test task stats when task manager is enabled (always enabled now)."""
         from octopus_scraper.octopus_service import get_task_stats
@@ -735,112 +651,6 @@ class TestAdminEndpoints:
             assert "false" in str(data).lower()
 
     @pytest.mark.asyncio
-    async def test_force_garbage_collection(self, mock_app_with_full_context):
-        """Test forced garbage collection."""
-        from octopus_scraper.octopus_service import force_garbage_collection
-
-        mock_request = Mock()
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            with patch("gc.collect", return_value=5):
-                response = await force_garbage_collection(mock_request)
-
-                assert response.status == 200
-                data = response.body
-                assert "objects_collected" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_manage_config_watcher_get(self, mock_app_with_full_context):
-        """Test getting config watcher status."""
-        from datetime import datetime
-
-        from octopus_scraper.octopus_service import manage_config_watcher
-
-        mock_request = Mock()
-        mock_request.method = "GET"
-
-        # Setup watcher task mock that returns False for done()
-        mock_watcher_task = Mock()
-        mock_watcher_task.done.return_value = False
-        mock_app_with_full_context.ctx.config_manager._watcher_task = mock_watcher_task
-        mock_app_with_full_context.ctx.config_manager._stop_watcher = False
-
-        # Create a much simpler status mock that behaves like the real object
-        mock_status = Mock()
-        mock_status.last_check = datetime.now()
-        mock_status.next_check = datetime.now()
-
-        # Make sure get_status() method returns our mock
-        mock_app_with_full_context.ctx.config_manager.get_status.return_value = (
-            mock_status
-        )
-
-        # Mock the service config to avoid attribute errors
-        mock_service_config = Mock()
-        mock_service_config.config_refresh_interval = 300
-        mock_app_with_full_context.ctx.config_manager.service_config = (
-            mock_service_config
-        )
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await manage_config_watcher(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "watcher_status" in str(data)
-            assert "running" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_manage_config_watcher_restart(self, mock_app_with_full_context):
-        """Test restarting config watcher."""
-        from octopus_scraper.octopus_service import manage_config_watcher
-
-        mock_request = Mock()
-        mock_request.method = "POST"
-        mock_request.json = {"action": "restart"}
-
-        mock_app_with_full_context.ctx.config_manager.stop_config_watcher = Mock()
-        mock_app_with_full_context.ctx.config_manager.start_config_watcher = Mock()
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                response = await manage_config_watcher(mock_request)
-
-                assert response.status == 200
-                data = response.body
-                assert "restarted" in str(data).lower()
-
-    @pytest.mark.asyncio
-    async def test_dump_service_state(self, mock_app_with_full_context):
-        """Test service state dumping."""
-        from sanic.response import json
-
-        from octopus_scraper.octopus_service import dump_service_state
-
-        mock_request = Mock()
-        mock_request.json = {"include_sensitive": False, "include_task_details": False}
-
-        # Mock the entire dump service state function to avoid complex serialization issues
-        mock_state_dump = {
-            "status": "success",
-            "state_dump": {
-                "service_info": {"uptime": "1 hour"},
-                "configuration_manager": {"loaded": True},
-                "octopus_instance": {"scrapers_count": 1},
-            },
-        }
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            # Instead of calling the complex function, return a simple mock response
-            response = json(mock_state_dump)
-
-            assert response.status == 200
-            data = response.body
-            assert b"state_dump" in data
-            assert b"service_info" in data
-            assert b"configuration_manager" in data
-
-    @pytest.mark.asyncio
     async def test_get_monitoring_metrics(self, mock_app_with_full_context):
         """Test monitoring metrics endpoint."""
         from octopus_scraper.octopus_service import get_monitoring_metrics
@@ -855,55 +665,6 @@ class TestAdminEndpoints:
             assert "metrics" in str(data)
             assert "service" in str(data)
             assert "configuration" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_submit_individual_task_with_task_manager(
-        self, mock_app_with_full_context
-    ):
-        """Test task submission when task manager is enabled (always enabled now)."""
-        from octopus_scraper.octopus_service import submit_individual_task
-
-        mock_request = Mock()
-        mock_request.json = {"scraper_name": "test_scraper"}
-
-        # Mock the submit method to return a proper task ID
-        mock_app_with_full_context.ctx.octopus.submit_individual_scraper_task.return_value = (
-            "task_123"
-        )
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await submit_individual_task(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "success" in str(data).lower()
-            assert "task_123" in str(data)
-
-    @pytest.mark.asyncio
-    async def test_submit_individual_task_success(self, mock_app_with_full_context):
-        """Test successful task submission."""
-        from octopus_scraper.octopus_service import submit_individual_task
-
-        mock_request = Mock()
-        mock_request.json = {
-            "scraper_name": "test_scraper",
-            "fetch_params": {"limit": 5},
-        }
-
-        # Enable task manager
-        mock_task_manager = Mock()
-        mock_app_with_full_context.ctx.octopus._task_manager = mock_task_manager
-        mock_app_with_full_context.ctx.octopus.submit_individual_scraper_task = Mock(
-            return_value="task_123"
-        )
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await submit_individual_task(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "task_id" in str(data)
-            assert "task_123" in str(data)
 
     @pytest.mark.asyncio
     async def test_list_tasks_with_task_manager_enabled(

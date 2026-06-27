@@ -44,11 +44,6 @@ from octopus_scraper.service.routes import (  # noqa: F401
 
 # Import admin routes — these register @app.route decorators on import
 from octopus_scraper.service.admin import (  # noqa: F401
-    admin_overview,
-    cancel_task,
-    clear_cache,
-    dump_service_state,
-    force_garbage_collection,
     get_config_status,
     get_monitoring_metrics,
     get_system_info,
@@ -56,11 +51,7 @@ from octopus_scraper.service.admin import (  # noqa: F401
     get_task_stats,
     list_scrapers,
     list_tasks,
-    manage_config_watcher,
     refresh_config,
-    run_scraper_test,
-    submit_individual_task,
-    validate_config,
 )
 
 __all__ = [
@@ -79,11 +70,6 @@ __all__ = [
     "readiness_check",
     "trigger_scraper",
     "trigger_upload",
-    "admin_overview",
-    "cancel_task",
-    "clear_cache",
-    "dump_service_state",
-    "force_garbage_collection",
     "get_config_status",
     "get_monitoring_metrics",
     "get_system_info",
@@ -91,9 +77,5 @@ __all__ = [
     "get_task_stats",
     "list_scrapers",
     "list_tasks",
-    "manage_config_watcher",
     "refresh_config",
-    "run_scraper_test",
-    "submit_individual_task",
-    "validate_config",
 ]
