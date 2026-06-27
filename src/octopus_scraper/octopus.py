@@ -1,6 +1,7 @@
 import threading
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
@@ -39,6 +40,9 @@ class Octopus:
 
         # Initialize task manager - always enabled
         task_manager_config = self._config.task_manager_config or {}
+        persistence_path = task_manager_config.get(
+            "persistence_path", str(Path(".octopus") / "task_results.sqlite3")
+        )
         self._task_manager = TaskManager(
             max_concurrent_tasks=task_manager_config.get(
                 "max_concurrent_tasks", self._config.max_concurrent_scrapers
@@ -47,6 +51,7 @@ class Octopus:
             result_retention_hours=task_manager_config.get(
                 "result_retention_hours", 24
             ),
+            persistence_path=persistence_path,
         )
         self._task_manager.set_storage(self._notion_api)
         self._upload_lock = threading.Lock()
