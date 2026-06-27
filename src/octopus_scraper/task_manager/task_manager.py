@@ -74,6 +74,7 @@ class TaskManager:
             "cancelled_tasks": 0,
             "current_queue_size": 0,
             "running_tasks_count": 0,
+            "persisted_task_results_count": 0,
         }
 
         # Task lifecycle hooks
@@ -551,15 +552,7 @@ class TaskManager:
             self._task_results[result.task_id] = result
             self._task_history.append(result)
 
-        self._stats["completed_tasks"] = sum(
-            1 for result in persisted_results if result.status == TaskStatus.COMPLETED
-        )
-        self._stats["failed_tasks"] = sum(
-            1 for result in persisted_results if result.status == TaskStatus.FAILED
-        )
-        self._stats["cancelled_tasks"] = sum(
-            1 for result in persisted_results if result.status == TaskStatus.CANCELLED
-        )
+        self._stats["persisted_task_results_count"] = len(persisted_results)
 
         logger.info(
             "Loaded persisted task results",

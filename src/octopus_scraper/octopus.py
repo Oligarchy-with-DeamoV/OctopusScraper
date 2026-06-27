@@ -336,6 +336,7 @@ class Octopus:
                 task_status = TaskStatus(status)
             except ValueError:
                 logger.warning(f"Invalid task status: {status}")
+                return []
 
         results = self._task_manager.list_tasks(status=task_status, limit=limit)
 

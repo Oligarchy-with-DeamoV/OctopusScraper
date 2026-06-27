@@ -141,6 +141,10 @@ class TestTaskManagerInitialization:
             assert reloaded_result.metadata["fetch_params"] == {"limit": 10}
             assert reloaded_result.metadata["contents_count"] == 2
             assert "contents" not in reloaded_result.metadata
+            assert reloaded_manager.get_statistics()["completed_tasks"] == 0
+            assert (
+                reloaded_manager.get_statistics()["persisted_task_results_count"] == 1
+            )
         finally:
             reloaded_manager.stop()
 
