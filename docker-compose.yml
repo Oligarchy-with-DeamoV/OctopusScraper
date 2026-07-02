@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   octopus-service:
     build:
@@ -8,16 +6,17 @@ services:
     image: octopus-scraper:latest
     container_name: octopus-service
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - NOTION_API_KEY=${NOTION_API_KEY}
       - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
       - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
+      # Cache config, will affect content refresh
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-plain}
       - CONFIG_REFRESH_INTERVAL=${CONFIG_REFRESH_INTERVAL:-300}
       - USE_TASK_MANAGER=${USE_TASK_MANAGER:-true}
-      - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-8}
+      - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-3}
       - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
       - SERVICE_HOST=${SERVICE_HOST:-0.0.0.0}
       - SERVICE_PORT=${SERVICE_PORT:-8000}
@@ -26,7 +25,7 @@ services:
       # RSSHub fetcher HTTP timeouts in seconds. Defaults match the
       # historical hard-coded values; override via .env to tune.
       - RSSHUB_CONNECT_TIMEOUT=${RSSHUB_CONNECT_TIMEOUT:-10}
-      - RSSHUB_READ_TIMEOUT=${RSSHUB_READ_TIMEOUT:-1200}
+      - RSSHUB_READ_TIMEOUT=${RSSHUB_READ_TIMEOUT:-2000}
 
     # 健康检查配置（slim 镜像无 curl，使用 Python 内置检查）
     healthcheck:
@@ -96,10 +95,12 @@ services:
       REDIS_URL: "redis://redis:6379/"
       XUEQIU_TOKEN: ${XUEQIU_TOKEN}
       XUEQIU_RATE_WINDOW_SECONDS: ${XUEQIU_RATE_WINDOW_SECONDS:-60}
-      XUEQIU_RATE_LIMIT: ${XUEQIU_RATE_LIMIT:-15}
+      XUEQIU_RATE_LIMIT: ${XUEQIU_RATE_LIMIT:-25}
       XUEQIU_DELAY_MIN_MS: ${XUEQIU_DELAY_MIN_MS:-500}
       XUEQIU_DELAY_MAX_MS: ${XUEQIU_DELAY_MAX_MS:-1500}
-      XUEQIU_SCAN_POST_REPLIES: ${XUEQIU_SCAN_POST_REPLIES:-false}
+      XUEQIU_SCAN_POST_REPLIES: ${XUEQIU_SCAN_POST_REPLIES:-true}
+      CACHE_CONTENT_EXPIRE: ${CACHE_CONTENT_EXPIRE:-43200}
+      CACHE_EXPIRE: ${CACHE_EXPIRE:-300}
       LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
 
     healthcheck:
