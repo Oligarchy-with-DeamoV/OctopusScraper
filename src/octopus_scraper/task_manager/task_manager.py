@@ -25,6 +25,7 @@ from octopus_scraper.task_manager.models import (
     TaskResult,
     TaskStatus,
 )
+from octopus_scraper.task_manager.task_result_store import TaskResultStore
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +38,7 @@ class TaskManager:
         max_concurrent_tasks: int = 5,
         max_queue_size: int = 1000,
         result_retention_hours: int = 24,
+        persistence_path: Optional[str] = None,
     ):
         """
         Initialize TaskManager.
@@ -45,10 +47,12 @@ class TaskManager:
             max_concurrent_tasks: Maximum number of concurrent tasks
             max_queue_size: Maximum queue size for pending tasks
             result_retention_hours: How long to keep task results in memory
+            persistence_path: Optional SQLite database path for task results
         """
         self.max_concurrent_tasks = max_concurrent_tasks
         self.max_queue_size = max_queue_size
         self.result_retention_hours = result_retention_hours
+        self.persistence_path = persistence_path
 
         # Task queues and tracking
         self._task_queue = PriorityQueue(maxsize=max_queue_size)
@@ -70,6 +74,7 @@ class TaskManager:
             "cancelled_tasks": 0,
             "current_queue_size": 0,
             "running_tasks_count": 0,
+            "persisted_task_results_count": 0,
         }
 
         # Task lifecycle hooks
@@ -78,6 +83,12 @@ class TaskManager:
 
         # Storage reference for content deduplication
         self._storage = None
+
+        self._result_store = (
+            TaskResultStore(persistence_path) if persistence_path else None
+        )
+        if self._result_store:
+            self._load_persisted_results()
 
         # Start worker thread
         self.start()
@@ -286,6 +297,11 @@ class TaskManager:
         if to_remove:
             logger.debug(f"Cleaned up {len(to_remove)} old task results")
 
+        if self._result_store:
+            deleted_count = self._result_store.delete_results_older_than(cutoff_time)
+            if deleted_count:
+                logger.debug("Cleaned up persisted task results", count=deleted_count)
+
     def add_pre_execution_hook(self, hook: Callable[[ScraperTask], None]):
         """Add a pre-execution hook."""
         self._pre_execution_hooks.append(hook)
@@ -323,6 +339,7 @@ class TaskManager:
                     start_time=datetime.now(),
                 )
                 self._task_results[task.task_id] = result
+                self._persist_result(result)
 
                 # Submit task to executor
                 future = self._executor.submit(self._execute_task, task, result)
@@ -354,6 +371,7 @@ class TaskManager:
 
             # Mark task as running
             result.status = TaskStatus.RUNNING
+            self._persist_result(result)
 
             # Create scraper instance
             scraper = Scraper(task.scraper_config)
@@ -415,6 +433,7 @@ class TaskManager:
             )
 
             self._stats["completed_tasks"] += 1
+            self._persist_result(result)
 
             logger.info(
                 "Task completed successfully",
@@ -429,6 +448,7 @@ class TaskManager:
             error_msg = f"Task execution failed: {str(e)}"
             result.mark_failed(error_msg)
             self._stats["failed_tasks"] += 1
+            self._persist_result(result)
 
             logger.error(
                 "Task failed",
@@ -496,4 +516,46 @@ class TaskManager:
                 ).total_seconds()
 
         self._stats["cancelled_tasks"] += 1
+        if task_id in self._task_results:
+            self._persist_result(self._task_results[task_id])
         logger.info("Task cancelled", task_id=task_id)
+
+    def _persist_result(self, result: TaskResult) -> None:
+        """Persist a task result if result persistence is configured."""
+        if not self._result_store:
+            return
+
+        try:
+            self._result_store.save_result(result)
+        except Exception as e:
+            logger.error(
+                "Failed to persist task result",
+                task_id=result.task_id,
+                error=str(e),
+                exc_info=True,
+            )
+
+    def _load_persisted_results(self) -> None:
+        """Load recent task results from persistent storage."""
+        if not self._result_store:
+            return
+
+        try:
+            persisted_results = self._result_store.load_recent_results(
+                self.result_retention_hours
+            )
+        except Exception as e:
+            logger.error("Failed to load persisted task results", error=str(e))
+            return
+
+        for result in persisted_results:
+            self._task_results[result.task_id] = result
+            self._task_history.append(result)
+
+        self._stats["persisted_task_results_count"] = len(persisted_results)
+
+        logger.info(
+            "Loaded persisted task results",
+            result_count=len(persisted_results),
+            persistence_path=self.persistence_path,
+        )

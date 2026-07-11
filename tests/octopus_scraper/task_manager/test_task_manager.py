@@ -75,6 +75,7 @@ class TestTaskManagerInitialization:
         assert manager.max_concurrent_tasks == 5
         assert manager.max_queue_size == 1000
         assert manager.result_retention_hours == 24
+        assert manager.persistence_path is None
         assert manager._storage is None
         assert manager._worker_thread is not None
         assert manager._worker_thread.is_alive()
@@ -99,6 +100,53 @@ class TestTaskManagerInitialization:
         task_manager.set_storage(mock_storage)
 
         assert task_manager._storage == mock_storage
+
+    def test_loads_persisted_task_results(self, tmp_path):
+        """Test TaskManager reloads persisted task results on startup."""
+        persistence_path = tmp_path / "task_results.sqlite3"
+        manager = TaskManager(
+            max_concurrent_tasks=1,
+            max_queue_size=10,
+            result_retention_hours=1,
+            persistence_path=str(persistence_path),
+        )
+        result = TaskResult(
+            task_id="persisted_task_123",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            metadata={
+                "fetch_params": {"limit": 10},
+                "contents": [
+                    Mock(content_id="content_1"),
+                    Mock(content_id="content_2"),
+                ],
+            },
+        )
+        result.mark_completed(items_fetched=2, items_processed=2)
+        manager._persist_result(result)
+        manager.stop()
+
+        reloaded_manager = TaskManager(
+            max_concurrent_tasks=1,
+            max_queue_size=10,
+            result_retention_hours=1,
+            persistence_path=str(persistence_path),
+        )
+        try:
+            reloaded_result = reloaded_manager.get_task_result("persisted_task_123")
+
+            assert reloaded_result is not None
+            assert reloaded_result.status == TaskStatus.COMPLETED
+            assert reloaded_result.items_fetched == 2
+            assert reloaded_result.metadata["fetch_params"] == {"limit": 10}
+            assert reloaded_result.metadata["contents_count"] == 2
+            assert "contents" not in reloaded_result.metadata
+            assert reloaded_manager.get_statistics()["completed_tasks"] == 0
+            assert (
+                reloaded_manager.get_statistics()["persisted_task_results_count"] == 1
+            )
+        finally:
+            reloaded_manager.stop()
 
 
 class TestTaskSubmission:

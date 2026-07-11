@@ -170,6 +170,57 @@ class TestScraper:
         )
         assert result == mock_contents
 
+    def test_scrap_contents_filters_invalid_and_duplicate_contents(
+        self, sspai_rss_hub_config
+    ):
+        """Test invalid contents and duplicate IDs are filtered before processing."""
+        scraper = Scraper(sspai_rss_hub_config)
+
+        valid_content = Content(
+            content_id="valid_id",
+            title="Valid Title",
+            link="http://valid.com",
+            summary="Valid summary",
+            content="",
+            published="2025-01-01T00:00:00Z",
+        )
+        duplicate_content = Content(
+            content_id="valid_id",
+            title="Duplicate Title",
+            link="http://duplicate.com",
+            summary="Duplicate summary",
+            content="Duplicate content",
+            published="2025-01-01T00:00:00Z",
+        )
+        missing_title_content = Content(
+            content_id="missing_title",
+            title=" ",
+            link="http://missing-title.com",
+            summary="Missing title summary",
+            content="Missing title content",
+            published="2025-01-01T00:00:00Z",
+        )
+        empty_body_content = Content(
+            content_id="empty_body",
+            title="Empty Body",
+            link="http://empty-body.com",
+            summary=" ",
+            content="",
+            published="2025-01-01T00:00:00Z",
+        )
+
+        scraper.activate_fetcher = Mock()
+        scraper.activate_fetcher.fetch_contents.return_value = [
+            valid_content,
+            duplicate_content,
+            missing_title_content,
+            empty_body_content,
+        ]
+
+        result = scraper.scrap_contents({"test": "params"})
+
+        assert result == [valid_content]
+
     def test_content_process_multiple_processors(self, sspai_rss_hub_config):
         """测试多个处理器的内容处理"""
         scraper = Scraper(sspai_rss_hub_config)

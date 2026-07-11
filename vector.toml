@@ -44,6 +44,24 @@ condition = '''
   match(string!(.message), r'"level"\s*:\s*"(?i:error|critical)"')
 '''
 
+# 1.3 octopus-service：配置加载的临时网络错误降噪
+# ConfigManager 每次刷新配置时，NotionConfigClient 先记录
+# `Failed to load scrapers configuration`，外层随后可能再记录
+# `Failed to reload configuration`。只用前者参与计数，避免一次网络抖动
+# 被重复算作两次；后者若属于同类网络错误则不即时告警。
+[transforms.filter_octopus_config_load_network_errors]
+type = "filter"
+inputs = ["filter_octopus_errors"]
+condition = '''
+  match(string!(.message), r'Failed to load scrapers configuration') &&
+  match(string!(.message), r'(?i)(timeout|timed out|readtimeout|connecttimeout|connect|connection|network|temporary|remoteprotocolerror|rate[_ -]?limit|too_many_requests|429|500|502|503|504|badgateway|serviceunavailable|gatewaytimeout)')
+'''
+
+[transforms.filter_octopus_immediate_errors]
+type = "filter"
+inputs = ["filter_octopus_errors"]
+condition = "!(match(string!(.message), r'(Failed to load scrapers configuration|Failed to reload configuration)') && match(string!(.message), r'(?i)(timeout|timed out|readtimeout|connecttimeout|connect|connection|network|temporary|remoteprotocolerror|rate[_ -]?limit|too_many_requests|429|500|502|503|504|badgateway|serviceunavailable|gatewaytimeout)'))"
+
 # ==================== 转换3：附加告警元数据 ====================
 [transforms.format_rsshub_alert]
 type = "remap"
@@ -56,17 +74,60 @@ source = '''
 
 [transforms.format_octopus_alert]
 type = "remap"
-inputs = ["filter_octopus_errors"]
+inputs = ["filter_octopus_immediate_errors"]
 source = '''
   .alert_time = now()
   .hostname = "Octopus 服务"
   .error_message = string!(.message)
 '''
 
+[transforms.mark_octopus_config_load_network_errors]
+type = "remap"
+inputs = ["filter_octopus_config_load_network_errors"]
+source = '''
+  .config_noise_key = "octopus_config_load_network_error"
+  .config_noise_count = 1
+  .error_message = string!(.message)
+'''
+
+# 30 秒窗口内至少 3 次才发送；如果错误稳定地每 10 秒左右出现，
+# 每个窗口都会再次达到阈值并持续告警，不会被长时间静默。
+[transforms.aggregate_octopus_config_load_network_errors]
+type = "reduce"
+inputs = ["mark_octopus_config_load_network_errors"]
+group_by = ["config_noise_key"]
+end_every_period_ms = 30000
+expire_after_ms = 35000
+  [transforms.aggregate_octopus_config_load_network_errors.merge_strategies]
+    config_noise_count = "sum"
+    error_message = "retain"
+
+[transforms.filter_octopus_config_load_network_alerts]
+type = "filter"
+inputs = ["aggregate_octopus_config_load_network_errors"]
+condition = "int!(.config_noise_count) >= 3"
+
+[transforms.format_octopus_config_load_network_alert]
+type = "remap"
+inputs = ["filter_octopus_config_load_network_alerts"]
+source = '''
+  .alert_time = now()
+  .hostname = "Octopus 服务"
+  count = int!(.config_noise_count)
+  sample = string!(.error_message)
+  .error_message = "配置加载网络异常在过去 30 秒内发生 " + to_string(count) + " 次；如果仍以约 10 秒一次的频率持续出现，Vector 会在后续窗口继续推送。示例：" + sample
+  del(.config_noise_key)
+  del(.config_noise_count)
+'''
+
 # ==================== 转换4：渲染为飞书卡片 ====================
 [transforms.format_feishu]
 type = "remap"
-inputs = ["format_rsshub_alert", "format_octopus_alert"]
+inputs = [
+  "format_rsshub_alert",
+  "format_octopus_alert",
+  "format_octopus_config_load_network_alert",
+]
 source = '''
   host = string!(.hostname)
   ts = to_string(format_timestamp!(.alert_time, format: "%Y-%m-%d %H:%M:%S", timezone: "Asia/Shanghai"))
@@ -149,7 +210,11 @@ encoding.codec = "json"
 # ==================== 输出2：调试 — 过滤后的告警事件打印到控制台 ====================
 [sinks.console_alerts]
 type = "console"
-inputs = ["format_rsshub_alert", "format_octopus_alert"]
+inputs = [
+  "format_rsshub_alert",
+  "format_octopus_alert",
+  "format_octopus_config_load_network_alert",
+]
 encoding.codec = "json"
 
 # ==================== 输出3：发送飞书 Webhook ====================

@@ -92,3 +92,21 @@ curl -X POST http://localhost:8000/trigger_scraper
 # 触发根据结果上传服务
 curl -X POST http://localhost:8000/trigger_upload
 ```
+
+保留的 HTTP API 面向个人部署的日常运行与排障，避免暴露低频调试/运行时控制接口：
+
+| Method | Path | 用途 |
+| ------ | ---- | ---- |
+| GET | `/health` | 综合健康检查 |
+| GET | `/health/liveness` | 轻量存活检查 |
+| GET | `/health/readiness` | 就绪检查 |
+| POST | `/trigger_scraper` | 按当前配置提交抓取任务 |
+| POST | `/trigger_upload` | 上传已完成任务产生的内容 |
+| GET | `/admin/config/status` | 查看当前配置状态 |
+| POST | `/admin/config/refresh` | 从 Notion 刷新配置并重载 Octopus |
+| GET | `/admin/system/info` | 查看系统与 TaskManager 摘要 |
+| GET | `/admin/scrapers` | 查看已配置的 scraper |
+| GET | `/admin/tasks/stats` | 查看任务统计 |
+| GET | `/admin/tasks` | 查看任务列表，支持 `status` 与 `limit` 查询参数 |
+| GET | `/admin/tasks/<task_id>` | 查看单个任务详情 |
+| GET | `/admin/monitoring/metrics` | 查看 JSON 格式运行指标 |

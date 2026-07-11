@@ -80,6 +80,52 @@ class Scraper:
             contents = _processor(contents)
         return contents
 
+    def _filter_quality_contents(self, contents: List[Content]) -> List[Content]:
+        """Remove invalid and duplicate contents from one fetched batch."""
+        filtered_contents: List[Content] = []
+        seen_content_ids = set()
+        invalid_count = 0
+        duplicate_count = 0
+
+        for content in contents:
+            if not self._is_valid_content(content):
+                invalid_count += 1
+                continue
+
+            content_id = self._normalize_quality_value(content.content_id)
+            if content_id in seen_content_ids:
+                duplicate_count += 1
+                continue
+
+            seen_content_ids.add(content_id)
+            filtered_contents.append(content)
+
+        if invalid_count or duplicate_count:
+            logger.info(
+                "Filtered fetched contents by quality checks",
+                total_count=len(contents),
+                valid_count=len(filtered_contents),
+                invalid_count=invalid_count,
+                duplicate_count=duplicate_count,
+            )
+
+        return filtered_contents
+
+    def _is_valid_content(self, content: Content) -> bool:
+        """Return whether content has enough data to process and upload safely."""
+        required_values = [content.content_id, content.title, content.link]
+        if any(not self._normalize_quality_value(value) for value in required_values):
+            return False
+
+        return bool(
+            self._normalize_quality_value(content.summary)
+            or self._normalize_quality_value(content.content)
+        )
+
+    def _normalize_quality_value(self, value: Optional[str]) -> str:
+        """Normalize optional string content fields for quality checks."""
+        return value.strip() if value else ""
+
     def set_storage(self, storage: "BaseStorage") -> None:
         """设置存储器"""
         self.storage = storage
@@ -91,6 +137,7 @@ class Scraper:
         """
 
         contents = self.activate_fetcher.fetch_contents(params)
+        contents = self._filter_quality_contents(contents)
         if self.storage:
             # 直接使用存储器的批量去重功能
             existing_content_ids = self.storage.get_all_content_ids()
