@@ -4,6 +4,7 @@ import structlog
 from sanic.exceptions import SanicException
 
 from octopus_scraper.config import ConfigManager
+from octopus_scraper.metrics import metrics
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service.app import app
 from octopus_scraper.service.config_helpers import (
@@ -17,6 +18,7 @@ logger = structlog.get_logger()
 @app.listener("before_server_start")
 async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
+    metrics.set_service_start_time()
     try:
         # Create configuration from environment variables
         notion_config, service_config, task_manager_config = create_config_from_env()

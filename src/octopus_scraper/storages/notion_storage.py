@@ -13,6 +13,7 @@ from notion_client import Client
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from octopus_scraper.protos import Content
+from octopus_scraper.metrics import metrics
 from octopus_scraper.storages.base_storage import BaseStorage
 from octopus_scraper.storages.markdown_to_notion import MarkdownToNotionConverter
 
@@ -604,6 +605,26 @@ class NotionStorage(BaseStorage):
         return True
 
     def store_contents(self, contents: List[Content], deduplicate=True) -> List[bool]:
+        """Store contents and record the high-level Notion operation."""
+        operation_start = time.monotonic()
+        try:
+            results = self._store_contents(contents, deduplicate)
+        except Exception:
+            metrics.record_external_request(
+                "notion",
+                time.monotonic() - operation_start,
+                success=False,
+            )
+            raise
+
+        metrics.record_external_request(
+            "notion",
+            time.monotonic() - operation_start,
+            success=all(results),
+        )
+        return results
+
+    def _store_contents(self, contents: List[Content], deduplicate=True) -> List[bool]:
         """批量存储内容到 Notion 数据库（并发版本）。
 
         Overrides BaseStorage.store_contents to upload pages concurrently

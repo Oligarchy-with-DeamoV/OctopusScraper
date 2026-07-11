@@ -476,6 +476,29 @@ class TestTaskRetrieval:
 class TestTaskCancellation:
     """Test task cancellation functionality."""
 
+    def test_cancelled_future_is_removed_from_running_tasks(
+        self, task_manager, sample_task
+    ):
+        """Test successful future cancellation releases worker usage."""
+        future = Mock()
+        future.cancel.return_value = True
+        task_manager._running_tasks[sample_task.task_id] = future
+        task_manager._task_results[sample_task.task_id] = TaskResult(
+            task_id=sample_task.task_id,
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+
+        with patch(
+            "octopus_scraper.task_manager.task_manager.metrics.set_task_state"
+        ) as set_task_state:
+            cancelled = task_manager.cancel_task(sample_task.task_id)
+
+        assert cancelled is True
+        assert sample_task.task_id not in task_manager._running_tasks
+        assert task_manager._stats["running_tasks_count"] == 0
+        set_task_state.assert_called_once_with(queued=0, running=0)
+
     def test_cancel_pending_task(self, task_manager, sample_task):
         """Test cancelling a pending task."""
         task_manager.submit_task(sample_task)

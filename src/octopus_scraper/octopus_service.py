@@ -23,6 +23,7 @@ from octopus_scraper.service import (  # noqa: F401
     list_tasks,
     liveness_check,
     log_registered_routes,
+    prometheus_metrics,
     logger,
     readiness_check,
     refresh_config,

@@ -127,6 +127,22 @@ services:
     networks:
       - octopus-network
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: octopus-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - octopus-network
+    restart: unless-stopped
+    depends_on:
+      octopus-service:
+        condition: service_healthy
+
   # Vector 日志监控服务：
   #   - 监控 rsshub 的 error 级别日志
   #   - 监控 octopus-service 的 "Task failed" 事件（task_manager 任务失败时发出）
@@ -156,3 +172,4 @@ networks:
 volumes:
   logs:
   redis-data:
+  prometheus-data:

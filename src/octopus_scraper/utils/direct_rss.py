@@ -6,11 +6,13 @@ from urllib.parse import urljoin
 import feedparser
 import requests
 import structlog
+import time
 from dacite import from_dict
 from dateutil import parser
 from feedparser.util import FeedParserDict
 
 from octopus_scraper.protos import Content
+from octopus_scraper.metrics import metrics
 from octopus_scraper.utils.tools import build_contents
 
 logger = structlog.getLogger(__name__)
@@ -78,15 +80,27 @@ class DirectRSS:
         logger.debug("Fetching rss_url.", rss_url=rss_url)
 
         # Fetch content with configurable timeout, then parse locally
-        response = requests.get(rss_url, timeout=self.config.request_timeout)
-        response.raise_for_status()
+        request_start = time.monotonic()
+        try:
+            response = requests.get(rss_url, timeout=self.config.request_timeout)
+            response.raise_for_status()
 
-        feed: FeedParserDict = feedparser.parse(response.content)
-        if not feed.bozo or feed.entries:
-            contents = build_contents(feed)
-            if params.get("filter_time"):
-                contents = self.filter_by_timerange(contents, params["filter_time"])
-            return contents
+            feed: FeedParserDict = feedparser.parse(response.content)
+            if not feed.bozo or feed.entries:
+                contents = build_contents(feed)
+                if params.get("filter_time"):
+                    contents = self.filter_by_timerange(contents, params["filter_time"])
+                metrics.record_external_request(
+                    "rss", time.monotonic() - request_start, success=True
+                )
+                return contents
 
-        bozo_exception = getattr(feed, "bozo_exception", None)
-        raise RuntimeError(f"Failed to parse RSS feed from {rss_url}: {bozo_exception}")
+            bozo_exception = getattr(feed, "bozo_exception", None)
+            raise RuntimeError(
+                f"Failed to parse RSS feed from {rss_url}: {bozo_exception}"
+            )
+        except Exception:
+            metrics.record_external_request(
+                "rss", time.monotonic() - request_start, success=False
+            )
+            raise

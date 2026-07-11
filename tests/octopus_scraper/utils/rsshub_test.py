@@ -146,6 +146,38 @@ class TestRssHub:
 
         assert mock_requests_get.call_count == 1
 
+    @patch("octopus_scraper.utils.rsshub.metrics.record_external_request")
+    @patch("octopus_scraper.utils.rsshub.build_contents")
+    @patch("octopus_scraper.utils.rsshub.feedparser.parse")
+    @patch("octopus_scraper.utils.rsshub.requests.get")
+    def test_build_failure_records_one_failed_operation(
+        self,
+        mock_requests_get,
+        mock_feedparser,
+        mock_build_contents,
+        mock_record_request,
+    ):
+        """Test content conversion failures do not double-count RSS operations."""
+        mock_response = Mock(content=b"<rss>...</rss>")
+        mock_response.raise_for_status = Mock()
+        mock_requests_get.return_value = mock_response
+
+        mock_feed = FeedParserDict()
+        mock_feed.bozo = 0
+        mock_feed.entries = [{"title": "Test"}]
+        mock_feedparser.return_value = mock_feed
+        mock_build_contents.side_effect = ValueError("invalid entry")
+
+        rsshub = RssHub(
+            {"hub_root": "http://example.com", "route": "/test", "fetch_params": None}
+        )
+
+        with pytest.raises(ValueError, match="invalid entry"):
+            rsshub.fetch_contents()
+
+        mock_record_request.assert_called_once()
+        assert mock_record_request.call_args.kwargs["success"] is False
+
     @patch("octopus_scraper.utils.rsshub.requests.get")
     def test_fetch_contents_timeout(self, mock_requests_get):
         """测试超时直接抛出，由系统级重试处理"""

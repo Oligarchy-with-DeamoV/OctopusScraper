@@ -104,6 +104,7 @@ class TestServiceRouteSurface:
             ("health/readiness", ("GET",)),
             ("trigger_scraper", ("POST",)),
             ("trigger_upload", ("POST",)),
+            ("metrics", ("GET",)),
             ("admin/config/status", ("GET",)),
             ("admin/config/refresh", ("POST",)),
             ("admin/system/info", ("GET",)),

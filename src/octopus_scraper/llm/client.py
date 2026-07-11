@@ -206,11 +206,17 @@ class LLMClient:
 
             # Make request based on provider
             if self.config.provider == LLMProvider.OPENAI:
-                return self._generate_openai(messages, **params)
+                response = self._generate_openai(messages, **params)
             elif self.config.provider == LLMProvider.ANTHROPIC:
-                return self._generate_anthropic(messages, **params)
+                response = self._generate_anthropic(messages, **params)
             else:
                 raise LLMError(f"Provider not supported: {self.config.provider.value}")
+            from octopus_scraper.metrics import metrics
+
+            metrics.record_external_request(
+                "llm", time.time() - start_time, success=response.success
+            )
+            return response
 
         except Exception as e:
             duration = time.time() - start_time
@@ -220,6 +226,9 @@ class LLMClient:
                 provider=self.config.provider.value,
                 duration=duration,
             )
+            from octopus_scraper.metrics import metrics
+
+            metrics.record_external_request("llm", duration, success=False)
             return LLMResponse(
                 success=False, error=str(e), metadata={"duration": duration}
             )
