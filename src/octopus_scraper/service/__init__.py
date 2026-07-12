@@ -48,7 +48,6 @@ from octopus_scraper.service.metrics import prometheus_metrics  # noqa: F401
 # Import admin routes — these register @app.route decorators on import
 from octopus_scraper.service.admin import (  # noqa: F401
     get_config_status,
-    get_monitoring_metrics,
     get_system_info,
     get_task_details,
     get_task_stats,
@@ -75,7 +74,6 @@ __all__ = [
     "trigger_upload",
     "prometheus_metrics",
     "get_config_status",
-    "get_monitoring_metrics",
     "get_system_info",
     "get_task_details",
     "get_task_stats",

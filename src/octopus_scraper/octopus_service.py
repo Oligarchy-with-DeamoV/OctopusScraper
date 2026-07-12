@@ -14,7 +14,6 @@ from octopus_scraper.service import (  # noqa: F401
     cleanup_octopus,
     create_config_from_env,
     get_config_status,
-    get_monitoring_metrics,
     get_system_info,
     get_task_details,
     get_task_stats,

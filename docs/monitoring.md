@@ -1,8 +1,9 @@
 # Prometheus monitoring
 
-OctopusScraper exposes Prometheus metrics at `GET /metrics`. The existing
-`GET /admin/monitoring/metrics` JSON response remains available for manual
-diagnostics.
+OctopusScraper exposes Prometheus metrics at `GET /metrics`. This endpoint
+replaces the removed `GET /admin/monitoring/metrics` JSON snapshot. Use the
+remaining `/admin/config/status`, `/admin/system/info`, and `/admin/tasks/stats`
+endpoints for human diagnostics.
 
 The Docker Compose stack includes Prometheus with the scrape configuration in
 `prometheus/prometheus.yml` and alert rules in `prometheus/alerts.yml`.

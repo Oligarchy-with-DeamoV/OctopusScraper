@@ -109,8 +109,8 @@ curl -X POST http://localhost:8000/trigger_upload
 | GET | `/admin/tasks/stats` | 查看任务统计 |
 | GET | `/admin/tasks` | 查看任务列表，支持 `status` 与 `limit` 查询参数 |
 | GET | `/admin/tasks/<task_id>` | 查看单个任务详情 |
-| GET | `/admin/monitoring/metrics` | 查看 JSON 格式运行指标 |
 | GET | `/metrics` | Prometheus 指标抓取接口 |
 
 Prometheus 抓取配置、告警规则和 Grafana 查询示例见
-[`docs/monitoring.md`](docs/monitoring.md)。迁移观察期内 Vector 告警服务仍会保留。
+[`docs/monitoring.md`](docs/monitoring.md)。`/metrics` 已替代原有的
+`/admin/monitoring/metrics` JSON 接口；迁移观察期内 Vector 告警服务仍会保留。
