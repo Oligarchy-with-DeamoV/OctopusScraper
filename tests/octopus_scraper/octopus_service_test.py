@@ -13,7 +13,6 @@ from octopus_scraper.octopus_service import (  # New admin interface functions
     cleanup_octopus,
     create_config_from_env,
     get_config_status,
-    get_monitoring_metrics,
     get_task_stats,
     health_check,
     list_scrapers,
@@ -104,6 +103,7 @@ class TestServiceRouteSurface:
             ("health/readiness", ("GET",)),
             ("trigger_scraper", ("POST",)),
             ("trigger_upload", ("POST",)),
+            ("metrics", ("GET",)),
             ("admin/config/status", ("GET",)),
             ("admin/config/refresh", ("POST",)),
             ("admin/system/info", ("GET",)),
@@ -111,7 +111,6 @@ class TestServiceRouteSurface:
             ("admin/tasks/stats", ("GET",)),
             ("admin/tasks", ("GET",)),
             ("admin/tasks/<task_id:str>", ("GET",)),
-            ("admin/monitoring/metrics", ("GET",)),
         }
 
 
@@ -649,22 +648,6 @@ class TestAdminEndpoints:
             assert "true" in str(data).lower()
             assert "legacy_mode" in str(data)
             assert "false" in str(data).lower()
-
-    @pytest.mark.asyncio
-    async def test_get_monitoring_metrics(self, mock_app_with_full_context):
-        """Test monitoring metrics endpoint."""
-        from octopus_scraper.octopus_service import get_monitoring_metrics
-
-        mock_request = Mock()
-
-        with patch("octopus_scraper.service.admin.app", mock_app_with_full_context):
-            response = await get_monitoring_metrics(mock_request)
-
-            assert response.status == 200
-            data = response.body
-            assert "metrics" in str(data)
-            assert "service" in str(data)
-            assert "configuration" in str(data)
 
     @pytest.mark.asyncio
     async def test_list_tasks_with_task_manager_enabled(

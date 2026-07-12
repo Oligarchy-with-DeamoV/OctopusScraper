@@ -8,11 +8,13 @@ loading, validation, change detection, and hot updates.
 import asyncio
 import hashlib
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import structlog
 
+from octopus_scraper.metrics import metrics
 from octopus_scraper.config.models import (
     ConfigStatus,
     ConfigVersion,
@@ -58,6 +60,7 @@ class ConfigManager:
 
     async def load_initial_config(self) -> List[ScraperConfig]:
         """Load initial configuration from Notion on service startup."""
+        request_start = time.monotonic()
         try:
             logger.info("Loading initial configuration from Notion")
 
@@ -89,6 +92,10 @@ class ConfigManager:
                 scrapers_count=len(scrapers),
                 version_id=self._current_version.version_id,
             )
+            metrics.record_external_request(
+                "notion", time.monotonic() - request_start, success=True
+            )
+            metrics.record_config_refresh(success=True)
 
             return scrapers
 
@@ -98,6 +105,10 @@ class ConfigManager:
             logger.error(
                 "Failed to load initial configuration", error=str(e), exc_info=True
             )
+            metrics.record_external_request(
+                "notion", time.monotonic() - request_start, success=False
+            )
+            metrics.record_config_refresh(success=False)
             raise
 
     def set_on_config_changed(self, callback) -> None:
@@ -166,6 +177,7 @@ class ConfigManager:
 
     async def reload_config_if_changed(self) -> bool:
         """Reload configuration if changes are detected."""
+        request_start = time.monotonic()
         try:
             # Load new configuration
             new_scrapers = await self.notion_client.load_scrapers_config()
@@ -176,6 +188,11 @@ class ConfigManager:
                 error_msg = f"New configuration validation failed: {'; '.join(validation_errors)}"
                 logger.error(error_msg)
                 self._error_message = error_msg
+                self._is_healthy = False
+                metrics.record_external_request(
+                    "notion", time.monotonic() - request_start, success=True
+                )
+                metrics.record_config_refresh(success=False)
                 return False
 
             # Check if configuration actually changed
@@ -186,6 +203,13 @@ class ConfigManager:
 
             if new_config_hash == current_config_hash:
                 logger.debug("Configuration hash unchanged, skipping update")
+                self._is_healthy = True
+                self._error_message = None
+                self._last_check = datetime.now()
+                metrics.record_external_request(
+                    "notion", time.monotonic() - request_start, success=True
+                )
+                metrics.record_config_refresh(success=True)
                 return False
 
             # Compute structural diff to validate the hash change reflects a real
@@ -200,6 +224,13 @@ class ConfigManager:
                 )
                 # Refresh the stored hash so we don't keep flagging this state.
                 self._current_version = self._create_config_version(new_scrapers)
+                self._is_healthy = True
+                self._error_message = None
+                self._last_check = datetime.now()
+                metrics.record_external_request(
+                    "notion", time.monotonic() - request_start, success=True
+                )
+                metrics.record_config_refresh(success=True)
                 return False
 
             # Apply new configuration
@@ -208,6 +239,7 @@ class ConfigManager:
             self._current_version = self._create_config_version(new_scrapers)
             self._is_healthy = True
             self._error_message = None
+            self._last_check = datetime.now()
 
             change_summary = self._create_change_summary(
                 old_version, self._current_version, diff
@@ -225,6 +257,10 @@ class ConfigManager:
                 removed=diff["removed"],
                 modified=[m["name"] for m in diff["modified"]],
             )
+            metrics.record_external_request(
+                "notion", time.monotonic() - request_start, success=True
+            )
+            metrics.record_config_refresh(success=True)
 
             return True
 
@@ -232,6 +268,10 @@ class ConfigManager:
             logger.error("Failed to reload configuration", error=str(e))
             self._is_healthy = False
             self._error_message = str(e)
+            metrics.record_external_request(
+                "notion", time.monotonic() - request_start, success=False
+            )
+            metrics.record_config_refresh(success=False)
             return False
 
     async def manual_refresh_config(self) -> Dict[str, Any]:

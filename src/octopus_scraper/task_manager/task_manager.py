@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import structlog
 
+from octopus_scraper.metrics import metrics
 from octopus_scraper.scraper import Content, Scraper
 from octopus_scraper.task_manager.models import (
     ScraperTask,
@@ -76,6 +77,8 @@ class TaskManager:
             "running_tasks_count": 0,
             "persisted_task_results_count": 0,
         }
+        metrics.configure_task_manager(max_queue_size, max_concurrent_tasks)
+        metrics.set_task_state(queued=0, running=0)
 
         # Task lifecycle hooks
         self._pre_execution_hooks: List[Callable] = []
@@ -163,6 +166,11 @@ class TaskManager:
             )
             self._stats["total_tasks"] += 1
             self._stats["current_queue_size"] = self._task_queue.qsize()
+            metrics.tasks_submitted.inc()
+            metrics.set_task_state(
+                queued=self._stats["current_queue_size"],
+                running=len(self._running_tasks),
+            )
 
             logger.info(
                 "Task submitted",
@@ -209,7 +217,13 @@ class TaskManager:
             future = self._running_tasks[task_id]
             cancelled = future.cancel()
             if cancelled:
+                del self._running_tasks[task_id]
+                self._stats["running_tasks_count"] = len(self._running_tasks)
                 self._mark_task_cancelled(task_id)
+                metrics.set_task_state(
+                    queued=self._task_queue.qsize(),
+                    running=self._stats["running_tasks_count"],
+                )
             return cancelled
 
         # Task might be in queue - harder to cancel from PriorityQueue
@@ -220,6 +234,7 @@ class TaskManager:
                 result.status = TaskStatus.CANCELLED
                 result.end_time = datetime.now()
                 self._stats["cancelled_tasks"] += 1
+                metrics.tasks_cancelled.inc()
                 return True
 
         return False
@@ -320,6 +335,10 @@ class TaskManager:
                 try:
                     priority, counter, task = self._task_queue.get(timeout=1.0)
                     self._stats["current_queue_size"] = self._task_queue.qsize()
+                    metrics.set_task_state(
+                        queued=self._stats["current_queue_size"],
+                        running=len(self._running_tasks),
+                    )
                 except Empty:
                     # Cleanup old results periodically
                     self.cleanup_old_results()
@@ -329,6 +348,10 @@ class TaskManager:
                 if len(self._running_tasks) >= self.max_concurrent_tasks:
                     # Put task back and wait
                     self._task_queue.put((priority, counter, task))
+                    metrics.set_task_state(
+                        queued=self._task_queue.qsize(),
+                        running=len(self._running_tasks),
+                    )
                     time.sleep(0.1)
                     continue
 
@@ -345,6 +368,10 @@ class TaskManager:
                 future = self._executor.submit(self._execute_task, task, result)
                 self._running_tasks[task.task_id] = future
                 self._stats["running_tasks_count"] = len(self._running_tasks)
+                metrics.set_task_state(
+                    queued=self._task_queue.qsize(),
+                    running=self._stats["running_tasks_count"],
+                )
 
                 logger.info(
                     "Task started",
@@ -433,6 +460,10 @@ class TaskManager:
             )
 
             self._stats["completed_tasks"] += 1
+            metrics.record_task_completed(
+                duration=result.duration_seconds or 0,
+                items_fetched=result.items_fetched,
+            )
             self._persist_result(result)
 
             logger.info(
@@ -448,6 +479,7 @@ class TaskManager:
             error_msg = f"Task execution failed: {str(e)}"
             result.mark_failed(error_msg)
             self._stats["failed_tasks"] += 1
+            metrics.record_task_failed(result.duration_seconds or 0)
             self._persist_result(result)
 
             logger.error(
@@ -477,7 +509,9 @@ class TaskManager:
 
                 # Schedule retry (this is simplified - in production you'd want a proper scheduler)
                 threading.Timer(
-                    task.retry_delay_seconds, lambda: self.submit_task(retry_task)
+                    task.retry_delay_seconds,
+                    self._submit_retry_task,
+                    args=(retry_task,),
                 ).start()
 
                 logger.info(
@@ -500,6 +534,10 @@ class TaskManager:
             if task.task_id in self._running_tasks:
                 del self._running_tasks[task.task_id]
             self._stats["running_tasks_count"] = len(self._running_tasks)
+            metrics.set_task_state(
+                queued=self._task_queue.qsize(),
+                running=self._stats["running_tasks_count"],
+            )
 
             # Add to history
             self._task_history.append(result)
@@ -516,9 +554,22 @@ class TaskManager:
                 ).total_seconds()
 
         self._stats["cancelled_tasks"] += 1
+        metrics.tasks_cancelled.inc()
         if task_id in self._task_results:
             self._persist_result(self._task_results[task_id])
         logger.info("Task cancelled", task_id=task_id)
+
+    def _submit_retry_task(self, task: ScraperTask) -> None:
+        """Submit a scheduled retry and count only accepted retries."""
+        try:
+            self.submit_task(task)
+            metrics.task_retries.inc()
+        except Exception as e:
+            logger.error(
+                "Failed to submit scheduled retry",
+                task_id=task.task_id,
+                error=str(e),
+            )
 
     def _persist_result(self, result: TaskResult) -> None:
         """Persist a task result if result persistence is configured."""

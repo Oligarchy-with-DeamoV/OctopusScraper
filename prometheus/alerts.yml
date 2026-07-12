@@ -1,0 +1,38 @@
+groups:
+  - name: octopus-scraper
+    rules:
+      - alert: OctopusTaskFailures
+        expr: increase(octopus_tasks_failed_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Octopus scraper tasks are failing
+          description: At least one task attempt failed during the last 10 minutes.
+
+      - alert: OctopusQueueNearCapacity
+        expr: octopus_tasks_queued / clamp_min(octopus_task_queue_capacity, 1) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Octopus task queue is near capacity
+          description: The task queue has remained above 80% capacity for 10 minutes.
+
+      - alert: OctopusConfigurationUnhealthy
+        expr: octopus_config_healthy == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Octopus scraper configuration is unhealthy
+          description: Configuration loading or validation has been unhealthy for 5 minutes.
+
+      - alert: OctopusExternalDependencyFailures
+        expr: increase(octopus_external_request_failures_total{dependency=~"rss|notion|llm"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Octopus external dependency operations are failing
+          description: RSS, Notion, or LLM operations failed during the last 10 minutes.

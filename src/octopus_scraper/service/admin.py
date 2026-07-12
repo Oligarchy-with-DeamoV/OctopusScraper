@@ -8,7 +8,7 @@ from sanic.response import json
 
 from octopus_scraper.config import ConfigManager
 from octopus_scraper.octopus import Octopus
-from octopus_scraper.service.app import _health_cache, app
+from octopus_scraper.service.app import app
 from octopus_scraper.service.config_helpers import _get_memory_usage
 from octopus_scraper.service.lifecycle import reload_octopus_config
 
@@ -378,112 +378,5 @@ async def get_task_details(request, task_id):
         logger.error("Failed to get task details", task_id=task_id, error=str(e))
         return json(
             {"status": "error", "message": f"Failed to get task details: {e}"},
-            status=500,
-        )
-
-
-@app.route("/admin/monitoring/metrics", methods=["GET"])
-async def get_monitoring_metrics(request):
-    """Get comprehensive monitoring metrics for the service."""
-    try:
-        config_manager: ConfigManager = app.ctx.config_manager
-        octopus: Octopus = app.ctx.octopus
-
-        metrics = {
-            "timestamp": datetime.now().isoformat(),
-            "service": {
-                "name": "OctopusService",
-                "version": "0.1.2",
-                "environment": os.getenv("ENVIRONMENT", "development"),
-            },
-            "performance": {
-                "memory_usage": _get_memory_usage(),
-                "response_times": {
-                    "health_check_cache_duration": _health_cache["cache_duration"],
-                    "last_health_check": (
-                        _health_cache["last_check"].isoformat()
-                        if _health_cache["last_check"]
-                        else None
-                    ),
-                },
-            },
-            "configuration": {
-                "status": (
-                    "healthy" if config_manager.get_status().is_healthy else "unhealthy"
-                ),
-                "version": (
-                    config_manager.get_current_version().version_id
-                    if config_manager.get_current_version()
-                    else None
-                ),
-                "scrapers_count": len(config_manager.get_current_scrapers()),
-                "active_scrapers_count": len(
-                    [
-                        s
-                        for s in config_manager.get_current_scrapers()
-                        if s.status == "Active"
-                    ]
-                ),
-                "last_refresh": (
-                    config_manager.get_status().last_check.isoformat()
-                    if config_manager.get_status().last_check
-                    else None
-                ),
-                "refresh_interval_seconds": config_manager.service_config.config_refresh_interval,
-            },
-            "octopus": {
-                "scrapers_initialized": (
-                    len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
-                ),
-                "max_concurrent_scrapers": getattr(
-                    octopus._config, "max_concurrent_scrapers", 5
-                ),
-            },
-        }
-
-        # Add task manager metrics if available
-        if hasattr(octopus, "_task_manager") and octopus._task_manager:
-            task_stats = octopus._task_manager.get_statistics()
-            metrics["task_manager"] = {
-                "enabled": True,
-                "statistics": task_stats,
-                "performance": {
-                    "success_rate": task_stats["success_rate_percent"],
-                    "average_duration": task_stats["average_task_duration_seconds"],
-                    "queue_utilization": f"{task_stats['current_queue_size']}/{task_stats['queue_capacity']}",
-                    "worker_utilization": f"{task_stats['running_tasks_count']}/{task_stats['max_concurrent_tasks']}",
-                },
-            }
-        else:
-            metrics["task_manager"] = {"enabled": False}
-
-        # Add Notion connectivity metrics
-        try:
-            notion_healthy = await config_manager.notion_client.validate_connection()
-            metrics["notion"] = {
-                "connectivity": "healthy" if notion_healthy else "unhealthy",
-                "api_key_configured": bool(config_manager.notion_config.api_key),
-                "databases": {
-                    "scrapers_db": config_manager.notion_config.scrapers_database_id,
-                    "content_db": config_manager.notion_config.content_database_id,
-                },
-            }
-        except Exception as e:
-            metrics["notion"] = {
-                "connectivity": "error",
-                "error": str(e),
-            }
-
-        return json(
-            {
-                "status": "success",
-                "metrics": metrics,
-            }
-        )
-
-    except Exception as e:
-        logger.error("Failed to get monitoring metrics", error=str(e))
-        return json(
-            {"status": "error", "message": f"Failed to get monitoring metrics: {e}"},
             status=500,
         )

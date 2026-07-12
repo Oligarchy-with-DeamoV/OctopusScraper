@@ -8,6 +8,7 @@ import structlog
 from dacite import from_dict
 
 from octopus_scraper.scraper import BaseScraperConfig, Content, Scraper
+from octopus_scraper.metrics import metrics
 from octopus_scraper.storages.notion_storage import NotionAPIConfig, NotionStorage
 from octopus_scraper.task_manager import ScraperTask, TaskBatch, TaskManager
 
@@ -234,6 +235,12 @@ class Octopus:
             # Upload collected contents to Notion
             upload_results = self._notion_api.store_contents(
                 all_contents, deduplicate=True
+            )
+            failed_uploads = sum(1 for result in upload_results if not result)
+            metrics.record_upload(
+                requested=len(all_contents),
+                processed=len(upload_results) - failed_uploads,
+                failed=failed_uploads,
             )
 
             # Map results back to tasks: determine which contents succeeded per task
