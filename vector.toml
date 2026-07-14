@@ -90,14 +90,14 @@ source = '''
   .error_message = string!(.message)
 '''
 
-# 30 秒窗口内至少 3 次才发送；如果错误稳定地每 10 秒左右出现，
-# 每个窗口都会再次达到阈值并持续告警，不会被长时间静默。
+# 30 分钟窗口内至少 3 次才发送。默认每 5 分钟刷新一次配置，因此持续
+# 网络异常会触发告警，单次或短暂抖动则不会即时推送。
 [transforms.aggregate_octopus_config_load_network_errors]
 type = "reduce"
 inputs = ["mark_octopus_config_load_network_errors"]
 group_by = ["config_noise_key"]
-end_every_period_ms = 30000
-expire_after_ms = 35000
+end_every_period_ms = 1800000
+expire_after_ms = 1860000
   [transforms.aggregate_octopus_config_load_network_errors.merge_strategies]
     config_noise_count = "sum"
     error_message = "retain"
@@ -115,7 +115,7 @@ source = '''
   .hostname = "Octopus 服务"
   count = int!(.config_noise_count)
   sample = string!(.error_message)
-  .error_message = "配置加载网络异常在过去 30 秒内发生 " + to_string(count) + " 次；如果仍以约 10 秒一次的频率持续出现，Vector 会在后续窗口继续推送。示例：" + sample
+  .error_message = "配置加载网络异常在过去 30 分钟内发生 " + to_string(count) + " 次；持续异常会在后续窗口继续推送。示例：" + sample
   del(.config_noise_key)
   del(.config_noise_count)
 '''

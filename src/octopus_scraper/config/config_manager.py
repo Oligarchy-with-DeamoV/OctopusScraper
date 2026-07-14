@@ -229,7 +229,11 @@ class ConfigManager:
             return True
 
         except Exception as e:
-            logger.error("Failed to reload configuration", error=str(e))
+            logger.error(
+                "Failed to reload configuration",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             self._is_healthy = False
             self._error_message = str(e)
             return False
