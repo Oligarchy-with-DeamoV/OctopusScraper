@@ -134,6 +134,32 @@ class TestConfigManagerIntegration:
             current_scrapers = config_manager.get_current_scrapers()
             assert current_scrapers[0].priority == 10
 
+    async def test_reload_error_log_includes_error_type(
+        self, mock_notion_config, mock_service_config
+    ):
+        """Reload failures retain the exception type when the message is empty."""
+
+        class ConnectError(Exception):
+            pass
+
+        with patch(
+            "octopus_scraper.config.config_manager.NotionConfigClient"
+        ) as mock_client_class, patch(
+            "octopus_scraper.config.config_manager.logger"
+        ) as mock_logger:
+            mock_client = mock_client_class.return_value
+            mock_client.load_scrapers_config = AsyncMock(side_effect=ConnectError())
+            config_manager = ConfigManager(mock_notion_config, mock_service_config)
+
+            config_changed = await config_manager.reload_config_if_changed()
+
+            assert config_changed is False
+            mock_logger.error.assert_called_once_with(
+                "Failed to reload configuration",
+                error="",
+                error_type="ConnectError",
+            )
+
     async def test_config_validation(self, mock_notion_config, mock_service_config):
         """Test configuration validation."""
         config_manager = ConfigManager(mock_notion_config, mock_service_config)
