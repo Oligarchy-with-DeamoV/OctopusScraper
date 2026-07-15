@@ -27,8 +27,9 @@ Examples:
         "--host",
         type=str,
         default=os.getenv(
-            "SERVICE_HOST", os.getenv("OCTOPUS_HOST", "0.0.0.0")
-        ),  # nosec B104
+            "SERVICE_HOST",
+            os.getenv("OCTOPUS_HOST", "0.0.0.0"),  # nosec B104
+        ),
         help="Host to bind the service (default: 0.0.0.0, env: SERVICE_HOST)",
     )
 
