@@ -1,12 +1,19 @@
 """Configuration helpers and utility functions for OctopusService."""
 
 import os
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import structlog
 from dotenv import load_dotenv
+from sqlalchemy.engine import URL
 
-from octopus_scraper.config import NotionDatabaseConfig, ServiceConfig
+from octopus_scraper.config import (
+    DatabaseConfig,
+    FileConfigSettings,
+    NotionSyncConfig,
+    ServiceConfig,
+)
 
 load_dotenv()
 
@@ -65,14 +72,64 @@ def _get_memory_usage():
         return {"rss_mb": "unavailable"}
 
 
-def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]:
+def _positive_int(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+def _positive_float(name: str, default: float) -> float:
+    value = float(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+def create_config_from_env() -> tuple[
+    FileConfigSettings,
+    DatabaseConfig,
+    NotionSyncConfig,
+    ServiceConfig,
+    dict,
+]:
     """Create configuration objects from environment variables."""
-    # Notion database configuration
-    notion_config = NotionDatabaseConfig(
+    file_config = FileConfigSettings(
+        directory=Path(
+            os.getenv("SCRAPER_CONFIG_DIR", "resources/scrapers.d")
+        ).expanduser(),
+        poll_interval_seconds=_positive_float("SCRAPER_CONFIG_POLL_INTERVAL", 1.0),
+        debounce_seconds=_positive_float("SCRAPER_CONFIG_DEBOUNCE_SECONDS", 0.75),
+    )
+
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        database_url = URL.create(
+            "postgresql+psycopg",
+            username=os.getenv("POSTGRES_USER", "octopus"),
+            password=os.getenv("POSTGRES_PASSWORD", "octopus"),
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "5432")),
+            database=os.getenv("POSTGRES_DB", "octopus"),
+        ).render_as_string(hide_password=False)
+
+    database_config = DatabaseConfig(
+        url=database_url,
+        pool_size=_positive_int("DB_POOL_SIZE", 5),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
+        connect_timeout_seconds=_positive_int("DB_CONNECT_TIMEOUT_SECONDS", 10),
+    )
+    if database_config.max_overflow < 0:
+        raise ValueError("DB_MAX_OVERFLOW must be zero or greater")
+
+    notion_sync_config = NotionSyncConfig(
+        enabled=os.getenv("NOTION_SYNC_ENABLED", "false").lower() == "true",
         api_key=os.getenv("NOTION_API_KEY", ""),
-        scrapers_database_id=os.getenv("NOTION_SCRAPERS_DATABASE_ID")
-        or os.getenv("NOTION_DATABASE_ID", ""),
-        content_database_id=os.getenv("NOTION_CONTENT_DATABASE_ID", ""),
+        database_id=os.getenv("NOTION_CONTENT_DATABASE_ID", ""),
+        interval_seconds=_positive_int("NOTION_SYNC_INTERVAL_SECONDS", 60),
+        batch_size=_positive_int("NOTION_SYNC_BATCH_SIZE", 100),
+        max_attempts=_positive_int("NOTION_SYNC_MAX_ATTEMPTS", 10),
+        lease_seconds=_positive_int("NOTION_SYNC_LEASE_SECONDS", 300),
     )
 
     # Service configuration
@@ -82,9 +139,7 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
         debug=os.getenv("DEBUG", "False").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_format=os.getenv("LOG_FORMAT", "plain"),
-        config_refresh_interval=int(
-            os.getenv("CONFIG_REFRESH_INTERVAL", "300")
-        ),  # 5 minutes
+        config_refresh_interval=file_config.poll_interval_seconds,
         scraper_timeout=int(os.getenv("SCRAPER_TIMEOUT", "10")),
         upload_timeout=int(os.getenv("UPLOAD_TIMEOUT", "15")),
         upload_max_retries=int(os.getenv("UPLOAD_MAX_RETRIES", "3")),
@@ -92,12 +147,24 @@ def create_config_from_env() -> tuple[NotionDatabaseConfig, ServiceConfig, dict]
 
     # TaskManager configuration - always enabled
     task_manager_config = {
-        "max_concurrent_tasks": int(os.getenv("MAX_CONCURRENT_TASKS", "8")),
-        "max_queue_size": int(os.getenv("MAX_QUEUE_SIZE", "1000")),
-        "result_retention_hours": int(os.getenv("RESULT_RETENTION_HOURS", "48")),
+        "max_concurrent_tasks": _positive_int(
+            "TASK_MANAGER_MAX_CONCURRENT",
+            int(os.getenv("MAX_CONCURRENT_TASKS", "8")),
+        ),
+        "max_queue_size": _positive_int(
+            "TASK_MANAGER_MAX_QUEUE_SIZE",
+            int(os.getenv("MAX_QUEUE_SIZE", "1000")),
+        ),
+        "result_retention_hours": _positive_int("RESULT_RETENTION_HOURS", 48),
     }
 
-    return notion_config, service_config, task_manager_config
+    return (
+        file_config,
+        database_config,
+        notion_sync_config,
+        service_config,
+        task_manager_config,
+    )
 
 
 # Defaults match the historical hard-coded values in RssHubConifg / DirectRSSConfig

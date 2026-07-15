@@ -9,12 +9,27 @@ services:
       - "8001:8000"
     environment:
       - NOTION_API_KEY=${NOTION_API_KEY}
-      - NOTION_SCRAPERS_DATABASE_ID=${NOTION_SCRAPERS_DATABASE_ID}
       - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
+      - NOTION_SYNC_ENABLED=${NOTION_SYNC_ENABLED:-false}
+      - NOTION_SYNC_INTERVAL_SECONDS=${NOTION_SYNC_INTERVAL_SECONDS:-60}
+      - NOTION_SYNC_BATCH_SIZE=${NOTION_SYNC_BATCH_SIZE:-100}
+      - NOTION_SYNC_MAX_ATTEMPTS=${NOTION_SYNC_MAX_ATTEMPTS:-10}
+      - NOTION_SYNC_LEASE_SECONDS=${NOTION_SYNC_LEASE_SECONDS:-300}
+      - POSTGRES_DB=${POSTGRES_DB:-octopus}
+      - POSTGRES_USER=${POSTGRES_USER:-octopus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-octopus}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-5}
+      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-10}
+      - SCRAPER_CONFIG_DIR=/etc/octopus-scraper/scrapers.d
+      - SCRAPER_CONFIG_POLL_INTERVAL=${SCRAPER_CONFIG_POLL_INTERVAL:-1}
+      - SCRAPER_CONFIG_DEBOUNCE_SECONDS=${SCRAPER_CONFIG_DEBOUNCE_SECONDS:-0.75}
       # Cache config, will affect content refresh
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-plain}
-      - CONFIG_REFRESH_INTERVAL=${CONFIG_REFRESH_INTERVAL:-300}
       - USE_TASK_MANAGER=${USE_TASK_MANAGER:-true}
       - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-3}
       - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
@@ -54,7 +69,34 @@ services:
 
     volumes:
       - logs:/app/logs
+      - ./resources/scrapers.d:/etc/octopus-scraper/scrapers.d:ro
 
+    networks:
+      - octopus-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: octopus-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-octopus}
+      - POSTGRES_USER=${POSTGRES_USER:-octopus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-octopus}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-octopus} -d ${POSTGRES_DB:-octopus}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     networks:
       - octopus-network
 
@@ -157,3 +199,4 @@ volumes:
   logs:
   redis-data:
   prometheus-data:
+  postgres-data:

@@ -441,22 +441,50 @@ class TaskManager:
                     total_count=len(contents),
                 )
 
-            # Store contents in metadata BEFORE marking completed
+            if self._storage:
+                if not contents:
+                    storage_stats = {
+                        "requested": 0,
+                        "inserted": 0,
+                        "duplicates": 0,
+                    }
+                else:
+                    stats_method = getattr(
+                        type(self._storage), "store_contents_with_stats", None
+                    )
+                    if stats_method is not None:
+                        storage_stats = self._storage.store_contents_with_stats(
+                            contents
+                        )
+                    else:
+                        results = self._storage.store_contents(
+                            contents, deduplicate=True
+                        )
+                        if not all(results):
+                            raise RuntimeError(
+                                "Canonical storage rejected one or more contents"
+                            )
+                        storage_stats = {
+                            "requested": len(contents),
+                            "inserted": len(contents),
+                            "duplicates": 0,
+                        }
+            else:
+                raise RuntimeError("Canonical storage is not configured")
+
             result.metadata.update(
                 {
                     "execution_time_seconds": execution_time,
                     "scraper_config": task.scraper_name,
                     "fetch_params": task.fetch_params,
-                    "contents": contents,
+                    "storage": storage_stats,
                 }
             )
 
-            # Mark completed AFTER contents are stamped and stored,
-            # so trigger_upload never sees a COMPLETED task without contents.
             result.mark_completed(
                 items_fetched=len(contents),
                 items_processed=len(contents),
-                items_uploaded=0,  # Upload happens separately
+                items_uploaded=0,
             )
 
             self._stats["completed_tasks"] += 1
@@ -471,6 +499,7 @@ class TaskManager:
                 task_id=task.task_id,
                 scraper_name=task.scraper_name,
                 items_fetched=len(contents),
+                items_stored=storage_stats["inserted"],
                 duration_seconds=result.duration_seconds,
             )
 

@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import List
+from typing import Iterable, List, Set
 
 import structlog
 
@@ -18,6 +18,11 @@ class BaseStorage(metaclass=ABCMeta):
     def get_all_content_ids(self) -> set:
         """Get all existing content IDs from the storage system."""
         ...
+
+    def get_existing_content_ids(self, content_ids: Iterable[str]) -> Set[str]:
+        """Return existing IDs from a bounded candidate set."""
+        candidates = set(content_ids)
+        return self.get_all_content_ids().intersection(candidates)
 
     def store_contents(self, contents: List[Content], deduplicate=True) -> List[bool]:
         """批量存储内容到 Notion 数据库

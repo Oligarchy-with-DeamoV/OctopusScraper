@@ -78,15 +78,16 @@ Sanic app from `service/app.py`.
 
 3. **`storages/`** — Persistence layer
    - `base_storage.py` — Abstract storage interface with retry/skip accounting
-   - `notion_storage.py` — `NotionStorage`: Notion API writes with
-     tenacity-based retries
+   - `postgres_storage.py` — canonical PostgreSQL content persistence,
+     deduplication, sync state, retry metadata, and worker leases
+   - `notion_storage.py` — optional downstream Notion API writes
    - `markdown_to_notion.py` — Markdown → Notion block converter
 
 4. **`config/`** — Scraper configuration
-   - `config_manager.py` — `ConfigManager`: loads scraper configs from a
-     Notion database, supports hot-reload with change detection via
-     `set_on_config_changed()`
-   - `notion_config.py`, `models.py` — Notion-backed config schemas
+   - `config_manager.py` — `ConfigManager`: loads one scraper per YAML file,
+     polls with content fingerprints, and preserves the last valid file on
+     parse or validation failures
+   - `yaml_config.py`, `models.py` — strict YAML parsing and config schemas
 
 5. **`service/`** — Sanic web service
    - `app.py` — App factory, route registration
@@ -118,20 +119,23 @@ Sanic app from `service/app.py`.
 
 ### Key patterns
 
-- **Configuration**: All secrets and runtime settings via `.env` (loaded with
-  `python-dotenv`). Required: `NOTION_API_KEY`,
-  `NOTION_SCRAPERS_DATABASE_ID`, `NOTION_CONTENT_DATABASE_ID`. Service tuning:
+- **Configuration**: Scrapers come from `SCRAPER_CONFIG_DIR`; one `.yml` or
+  `.yaml` file defines one scraper. Runtime settings come from `.env` (loaded
+  with `python-dotenv`). PostgreSQL uses `DATABASE_URL`; optional Notion sync
+  uses `NOTION_SYNC_ENABLED`, `NOTION_API_KEY`, and
+  `NOTION_CONTENT_DATABASE_ID`. Service tuning:
   `SERVICE_HOST`, `SERVICE_PORT`, `OCTOPUS_LOG_LEVEL`, `OCTOPUS_LOG_FORMAT`,
   `LOG_LEVEL`, `LOG_FORMAT`, `USE_TASK_MANAGER`,
-  `TASK_MANAGER_MAX_CONCURRENT`, `TASK_MANAGER_MAX_QUEUE_SIZE`,
-  `CONFIG_REFRESH_INTERVAL`. Alerting: `FEISHU_WEBHOOK_URL`.
-- **Data storage**: Notion is the canonical store (both for scraper configs
-  and for scraped content). No relational DB. Redis is used only by the
+  `TASK_MANAGER_MAX_CONCURRENT`,   `TASK_MANAGER_MAX_QUEUE_SIZE`, `SCRAPER_CONFIG_POLL_INTERVAL`,
+  `SCRAPER_CONFIG_DEBOUNCE_SECONDS`, `NOTION_SYNC_INTERVAL_SECONDS`, and
+  `NOTION_SYNC_BATCH_SIZE`. Alerting: `FEISHU_WEBHOOK_URL`.
+- **Data storage**: PostgreSQL is canonical for scraped content. Notion is an
+  optional downstream synchronization target. Redis is used only by the
   bundled RSSHub instance for caching.
 - **Service architecture**: HTTP routes → `Octopus` orchestrator →
   `TaskManager` (ThreadPoolExecutor) → `Scraper` → fetchers + processor
-  pipeline → `NotionStorage`. Uploads to Notion are serialized via a
-  non-blocking `threading.Lock` in `Octopus.trigger_upload()`.
+  pipeline → `PostgresStorage`. `NotionSyncService` claims due rows with
+  database leases for periodic or manual incremental synchronization.
 - **Background / async work**: `TaskManager` (thread pool + priority queue).
   Periodic triggering is performed by the `scheduler` container (BusyBox
   `crond`) reading `scheduler/crontab` and calling the HTTP trigger

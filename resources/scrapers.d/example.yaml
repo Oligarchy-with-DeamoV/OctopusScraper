@@ -1,0 +1,11 @@
+id: example-feed
+name: Example Feed
+enabled: false
+fetcher: direct_rss
+hub_root: https://example.com
+route: /feed.xml
+fetch_params: {}
+priority: 5
+content_processor_configs: {}
+default_keywords:
+  - example

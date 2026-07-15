@@ -1,6 +1,5 @@
 """Health check endpoints for OctopusService."""
 
-import os
 from datetime import datetime
 
 import structlog
@@ -69,37 +68,14 @@ async def health_check(request):
                 ),
                 "scrapers_count": len(config_status.scrapers),
                 "active_scrapers": len(
-                    [s for s in config_status.scrapers if s.status == "Active"]
+                    [s for s in config_status.scrapers if s.enabled]
                 ),
                 "error": config_status.error_message if not config_healthy else None,
+                "directory": str(config_manager.file_settings.directory),
+                "file_errors": config_manager.get_file_errors(),
             }
 
             if not config_healthy:
-                overall_healthy = False
-
-            # Check Notion API connectivity (cached to avoid too frequent calls)
-            try:
-                notion_healthy = (
-                    await config_manager.notion_client.validate_connection()
-                )
-                health_data["dependencies"]["notion_api"] = {
-                    "status": "healthy" if notion_healthy else "unhealthy",
-                    "scrapers_database": {
-                        "id": config_manager.notion_config.scrapers_database_id,
-                        "accessible": notion_healthy,
-                    },
-                    "content_database": {
-                        "id": config_manager.notion_config.content_database_id,
-                        "accessible": notion_healthy,
-                    },
-                }
-                if not notion_healthy:
-                    overall_healthy = False
-            except Exception as e:
-                health_data["dependencies"]["notion_api"] = {
-                    "status": "unhealthy",
-                    "error": str(e),
-                }
                 overall_healthy = False
 
         else:
@@ -109,35 +85,25 @@ async def health_check(request):
                 "note": "Running without ConfigManager (legacy mode)",
                 "scrapers_count": 0,
             }
-            health_data["dependencies"]["notion_api"] = {
-                "status": "unknown",
-                "note": "ConfigManager not available",
-            }
-            # In legacy mode, we don't consider this as unhealthy
-            # overall_healthy remains True
 
         # Check Octopus instance
         if hasattr(app.ctx, "octopus"):
             octopus = app.ctx.octopus
-            # Get pending upload count from TaskManager completed tasks
-            pending_upload_count = 0
-            if hasattr(octopus, "_task_manager") and octopus._task_manager:
-                from octopus_scraper.task_manager.models import TaskStatus
-
-                completed = octopus._task_manager.list_tasks(
-                    status=TaskStatus.COMPLETED, limit=1000
-                )
-                pending_upload_count = sum(
-                    1 for t in completed if t.items_uploaded == 0
-                )
+            storage_healthy = octopus.get_storage().ping()
+            sync_status = octopus.get_sync_status()
 
             health_data["dependencies"]["octopus_instance"] = {
                 "status": "healthy",
                 "scrapers_configured": (
                     len(octopus._scrapers) if hasattr(octopus, "_scrapers") else 0
                 ),
-                "pending_upload_tasks": pending_upload_count,
+                "notion_sync": sync_status,
             }
+            health_data["dependencies"]["postgresql"] = {
+                "status": "healthy" if storage_healthy else "unhealthy"
+            }
+            if not storage_healthy:
+                overall_healthy = False
         else:
             health_data["dependencies"]["octopus_instance"] = {
                 "status": "unhealthy",
@@ -199,7 +165,7 @@ async def readiness_check(request):
         checks = {
             "config_manager": False,
             "octopus_instance": False,
-            "notion_connectivity": False,
+            "postgresql": False,
         }
 
         # Check ConfigManager
@@ -207,31 +173,19 @@ async def readiness_check(request):
             config_manager = app.ctx.config_manager
             config_status = config_manager.get_status()
             checks["config_manager"] = config_status.is_healthy
+            if not checks["config_manager"]:
+                ready = False
         else:
             ready = False
 
         # Check Octopus instance
         if hasattr(app.ctx, "octopus"):
             checks["octopus_instance"] = True
+            checks["postgresql"] = app.ctx.octopus.get_storage().ping()
+            if not checks["postgresql"]:
+                ready = False
         else:
             ready = False
-
-        # Quick Notion connectivity check (optional, can be disabled via env var)
-        if os.getenv("HEALTHCHECK_SKIP_NOTION", "false").lower() != "true":
-            if hasattr(app.ctx, "config_manager"):
-                try:
-                    # Quick database info check (lightweight)
-                    db_info = (
-                        await app.ctx.config_manager.notion_client.get_database_info()
-                    )
-                    checks["notion_connectivity"] = bool(db_info)
-                    if not checks["notion_connectivity"]:
-                        ready = False
-                except Exception:
-                    checks["notion_connectivity"] = False
-                    ready = False
-        else:
-            checks["notion_connectivity"] = "skipped"
 
         status_code = 200 if ready else 503
         return json(
