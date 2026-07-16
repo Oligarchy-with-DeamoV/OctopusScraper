@@ -148,6 +148,19 @@ class TestTaskManagerInitialization:
         finally:
             reloaded_manager.stop()
 
+    def test_load_persisted_results_handles_store_errors(self):
+        """Test persisted result load failures are logged without startup failure."""
+        manager = TaskManager(max_concurrent_tasks=1, max_queue_size=10)
+        manager._result_store = Mock()
+        manager._result_store.load_recent_results.side_effect = Exception("load failed")
+
+        try:
+            manager._load_persisted_results()
+
+            assert manager.get_statistics()["persisted_task_results_count"] == 0
+        finally:
+            manager.stop()
+
 
 class TestTaskSubmission:
     """Test task submission functionality."""
@@ -513,10 +526,56 @@ class TestTaskCancellation:
         # Result depends on timing, but method should not raise error
         assert isinstance(cancelled, bool)
 
+    def test_cancel_queued_task_updates_pending_result(self, sample_task):
+        """Test cancellation can mark a queued task before worker execution."""
+        manager = TaskManager(max_queue_size=10, max_concurrent_tasks=1)
+        manager.stop()
+
+        try:
+            manager.submit_task(sample_task)
+            cancelled = manager.cancel_task(sample_task.task_id)
+            result = manager.get_task_result(sample_task.task_id)
+
+            assert cancelled is True
+            assert result is not None
+            assert result.status == TaskStatus.CANCELLED
+            assert manager.get_statistics()["cancelled_tasks"] == 1
+        finally:
+            manager.stop()
+
     def test_cancel_nonexistent_task(self, task_manager):
         """Test cancelling a nonexistent task."""
         cancelled = task_manager.cancel_task("nonexistent_task")
         assert cancelled is False
+
+    def test_cancel_does_not_overwrite_terminal_result(self, task_manager):
+        """Test cancellation keeps completed task state and stats unchanged."""
+        result = TaskResult(
+            task_id="completed_task",
+            status=TaskStatus.COMPLETED,
+            start_time=datetime.now(),
+            end_time=datetime.now(),
+        )
+        task_manager._task_results[result.task_id] = result
+
+        task_manager._mark_task_cancelled(result.task_id)
+
+        assert result.status == TaskStatus.COMPLETED
+        assert task_manager.get_statistics()["cancelled_tasks"] == 0
+
+    def test_persist_result_handles_store_errors(self, task_manager):
+        """Test persistence failures do not break task state updates."""
+        result = TaskResult(
+            task_id="persist_error",
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+        task_manager._result_store = Mock()
+        task_manager._result_store.save_result.side_effect = Exception("save failed")
+
+        task_manager._persist_result(result)
+
+        task_manager._result_store.save_result.assert_called_once_with(result)
 
 
 class TestTaskManagerStatistics:
@@ -544,6 +603,83 @@ class TestTaskManagerStatistics:
         stats = task_manager.get_statistics()
         assert stats["total_tasks"] == 2
         assert stats["current_queue_size"] >= 0
+
+    @patch("octopus_scraper.task_manager.task_manager.Scraper")
+    def test_state_updates_thread_safe_under_concurrent_access(
+        self, mock_scraper_class
+    ):
+        """Exercise submit, cancel, completion, listing, and stats concurrently."""
+        mock_scraper = Mock()
+
+        def slow_scrape(_fetch_params):
+            time.sleep(0.01)
+            return []
+
+        mock_scraper.scrap_contents.side_effect = slow_scrape
+        mock_scraper_class.return_value = mock_scraper
+        manager = TaskManager(max_concurrent_tasks=2, max_queue_size=100)
+        errors = []
+
+        def capture_errors(func):
+            try:
+                func()
+            except Exception as exc:
+                errors.append(exc)
+
+        def submit_tasks():
+            for index in range(20):
+                manager.submit_task(
+                    ScraperTask(
+                        task_id=f"concurrent_{index}",
+                        scraper_name="concurrent",
+                        scraper_config={},
+                        fetch_params={},
+                    )
+                )
+
+        def cancel_some_tasks():
+            for index in range(0, 20, 3):
+                manager.cancel_task(f"concurrent_{index}")
+                time.sleep(0.002)
+
+        def read_state():
+            for _ in range(50):
+                manager.list_tasks(limit=25)
+                manager.get_statistics()
+                time.sleep(0.001)
+
+        threads = [
+            threading.Thread(target=capture_errors, args=(submit_tasks,)),
+            threading.Thread(target=capture_errors, args=(cancel_some_tasks,)),
+            threading.Thread(target=capture_errors, args=(read_state,)),
+            threading.Thread(target=capture_errors, args=(read_state,)),
+        ]
+
+        try:
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                stats = manager.get_statistics()
+                if stats["running_tasks_count"] == 0 and manager._task_queue.empty():
+                    break
+                time.sleep(0.02)
+
+            stats = manager.get_statistics()
+            with manager._state_lock:
+                running_count = len(manager._running_tasks)
+
+            assert errors == []
+            assert stats["running_tasks_count"] == running_count
+            assert (
+                stats["completed_tasks"] + stats["cancelled_tasks"]
+                <= stats["total_tasks"]
+            )
+        finally:
+            manager.stop()
 
 
 class TestTaskManagerHooks:

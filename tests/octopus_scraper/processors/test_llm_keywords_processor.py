@@ -16,6 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "sr
 
 from octopus_scraper.llm.client import LLMResponse
 from octopus_scraper.processors.llm_keywords_processor import LLMKeywordsProcessor
+from octopus_scraper.processors.llm_structured_helper import (
+    StructuredLLMProcessorHelper,
+)
 from octopus_scraper.processors.processor_base import ProcessingError
 from octopus_scraper.protos import Content
 
@@ -373,6 +376,76 @@ class TestLLMKeywordsProcessor:
 
         # LLM should only be called once (cached second time)
         assert mock_llm_client.generate.call_count == 1
+
+    @patch("octopus_scraper.processors.llm_keywords_processor.LLMClient")
+    def test_cache_key_uses_full_content_not_content_length(
+        self, mock_client_class, sample_config, sample_content
+    ):
+        """Test same-title, same-length content produces distinct stable cache keys."""
+        mock_llm_client = Mock()
+        mock_llm_client.health_check.return_value = True
+        mock_client_class.return_value = mock_llm_client
+
+        processor = LLMKeywordsProcessor(sample_config)
+        other_content = Content(
+            content_id="same_length",
+            title=sample_content.title,
+            link=sample_content.link,
+            summary=sample_content.summary,
+            content="B" * len(sample_content.content),
+            published=sample_content.published,
+            author=sample_content.author,
+            keywords=None,
+            tags=None,
+        )
+
+        first_key = processor._generate_cache_key(sample_content)
+        second_key = processor._generate_cache_key(other_content)
+
+        assert first_key != second_key
+        assert first_key == processor._generate_cache_key(sample_content)
+        assert len(first_key) == 64
+
+    def test_structured_helper_raises_on_failed_llm_response(self):
+        """Test shared structured helper surfaces LLM failures."""
+        llm_client = Mock()
+        llm_client.generate.return_value = LLMResponse(
+            success=False,
+            error="rate limit",
+        )
+        validator = Mock()
+
+        with pytest.raises(ProcessingError, match="rate limit"):
+            StructuredLLMProcessorHelper.generate_structured_data(
+                llm_client=llm_client,
+                validator=validator,
+                messages=[],
+                schema={},
+                fix_response=lambda data: data,
+                invalid_schema_event="invalid",
+            )
+
+    def test_structured_helper_repairs_invalid_schema_response(self):
+        """Test shared structured helper repairs JSON that fails schema validation."""
+        llm_client = Mock()
+        llm_client.generate.return_value = LLMResponse(
+            success=True,
+            content='{"keyword": "AI"}',
+        )
+        llm_client.extract_json_from_response.return_value = '{"keyword": "AI"}'
+        validator = Mock()
+        validator.validate_json.return_value = False
+
+        result = StructuredLLMProcessorHelper.generate_structured_data(
+            llm_client=llm_client,
+            validator=validator,
+            messages=[],
+            schema={"type": "object"},
+            fix_response=lambda data: {"keywords": [data["keyword"]]},
+            invalid_schema_event="invalid keywords",
+        )
+
+        assert result == {"keywords": ["AI"]}
 
     @patch("octopus_scraper.processors.llm_keywords_processor.LLMClient")
     def test_health_check(self, mock_client_class, sample_config):
