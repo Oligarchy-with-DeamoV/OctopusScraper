@@ -7,6 +7,8 @@ services:
     container_name: octopus-service
     ports:
       - "8001:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NOTION_API_KEY=${NOTION_API_KEY}
       - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
@@ -19,7 +21,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-octopus}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-octopus}
       - DATABASE_URL=${DATABASE_URL:-}
-      - DB_HOST=postgres
+      - DB_HOST=host.docker.internal
       - DB_PORT=5432
       - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
       - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-5}
@@ -71,32 +73,6 @@ services:
       - logs:/app/logs
       - ./resources/scrapers.d:/etc/octopus-scraper/scrapers.d:ro
 
-    networks:
-      - octopus-network
-
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: octopus-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-octopus}
-      - POSTGRES_USER=${POSTGRES_USER:-octopus}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-octopus}
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-octopus} -d ${POSTGRES_DB:-octopus}",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
     networks:
       - octopus-network
 
