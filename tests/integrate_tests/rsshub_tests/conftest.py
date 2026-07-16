@@ -1,11 +1,11 @@
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
 
 from octopus_scraper.scraper import BaseScraperConfig
-from octopus_scraper.storages.notion_storage import NotionAPIConfig
 
 # 加载环境变量，包括LLM配置
 load_dotenv()
@@ -56,27 +56,44 @@ def qbitai_scraper_config():
 
 
 @pytest.fixture
-def notion_config():
-    return NotionAPIConfig(
-        api_key=os.getenv("NOTION_API_KEY", ""),
-        database_id=os.getenv("NOTION_CONTENT_DATABASE_ID", ""),
-    )
-
-
-@pytest.fixture
 def octopus_config(
     owen_scraper_config,
     machine_heart_scraper_config,
     qbitai_scraper_config,
-    notion_config,
+    tmp_path,
 ):
     return {
         "scrapers_config_with_fetch_params": [
-            {"scraper_config": owen_scraper_config, "fetch_params": {}},
-            {"scraper_config": machine_heart_scraper_config, "fetch_params": {}},
-            {"scraper_config": qbitai_scraper_config, "fetch_params": {"limit": 1}},
+            {
+                "scraper_config": asdict(owen_scraper_config),
+                "fetch_params": {},
+                "scraper_id": "owen",
+            },
+            {
+                "scraper_config": asdict(machine_heart_scraper_config),
+                "fetch_params": {},
+                "scraper_id": "machine-heart",
+            },
+            {
+                "scraper_config": asdict(qbitai_scraper_config),
+                "fetch_params": {"limit": 1},
+                "scraper_id": "qbitai",
+            },
         ],
-        "notion_api_config": notion_config,
+        "database_config": {
+            "url": os.getenv(
+                "DATABASE_URL",
+                f"sqlite:///{tmp_path / 'integration-contents.sqlite3'}",
+            )
+        },
+        "notion_sync_config": {
+            "enabled": bool(os.getenv("NOTION_API_KEY")),
+            "api_key": os.getenv("NOTION_API_KEY", ""),
+            "database_id": os.getenv("NOTION_CONTENT_DATABASE_ID", ""),
+        },
+        "task_manager_config": {
+            "persistence_path": str(tmp_path / "integration-tasks.sqlite3")
+        },
     }
 
 

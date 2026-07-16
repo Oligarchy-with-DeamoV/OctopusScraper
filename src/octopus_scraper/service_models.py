@@ -13,9 +13,7 @@ class TriggerScraperResponse:
 class TriggerUploadResponse:
     status: str
     message: str
-    data: Optional[Dict[str, Any]] = (
-        None  # {"uploaded_count": int, "tasks_processed": int, "errors": list}
-    )
+    data: Optional[Dict[str, Any]] = None
 
 
 @dataclass

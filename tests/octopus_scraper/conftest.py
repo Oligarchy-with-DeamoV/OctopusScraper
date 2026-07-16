@@ -1,11 +1,9 @@
 import os
 from dataclasses import asdict
-from unittest.mock import MagicMock
 
 import pytest
 
 from octopus_scraper.scraper import BaseScraperConfig, Content, Scraper
-from octopus_scraper.storages.notion_storage import NotionAPIConfig
 
 
 @pytest.fixture
@@ -22,14 +20,6 @@ def dummy_scraper_config():
 
 
 @pytest.fixture
-def notion_config():
-    return NotionAPIConfig(
-        api_key=os.environ.get("NOTION_API_KEY", ""),
-        database_id=os.environ.get("NOTION_CONTENT_DATABASE_ID", ""),
-    )
-
-
-@pytest.fixture
 def dummy_content():
     return Content(
         title="Test Title",
@@ -42,15 +32,23 @@ def dummy_content():
 
 
 @pytest.fixture
-def octopus_config(dummy_scraper_config, notion_config):
+def octopus_config(dummy_scraper_config, tmp_path):
     return {
         "scrapers_config_with_fetch_params": [
             {
                 "scraper_config": asdict(dummy_scraper_config),
                 "fetch_params": {"param1": "value1"},
+                "scraper_id": "test-feed",
+                "priority": 5,
             }
         ],
-        "notion_api_config": asdict(notion_config),
+        "database_config": {
+            "url": f"sqlite:///{tmp_path / 'contents.sqlite3'}",
+        },
+        "notion_sync_config": {"enabled": False},
+        "task_manager_config": {
+            "persistence_path": str(tmp_path / "tasks.sqlite3"),
+        },
     }
 
 
@@ -62,13 +60,5 @@ def patch_scraper_scrap(monkeypatch, dummy_content):
 
 
 @pytest.fixture(autouse=False)
-def patch_notion(monkeypatch):
-    class DummyNotionStorage:
-        def __init__(self, config):
-            self.config = config
-            self.stored = []
-
-        def store_contents(self, contents, deduplicate=False):
-            return [True] * len(contents)
-
-    monkeypatch.setattr("octopus_scraper.octopus.NotionStorage", DummyNotionStorage)
+def patch_notion():
+    """Compatibility fixture for tests that now run with sync disabled."""

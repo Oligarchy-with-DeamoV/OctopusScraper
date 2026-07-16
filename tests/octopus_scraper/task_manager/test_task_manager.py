@@ -228,6 +228,10 @@ class TestTaskExecution:
     @patch("octopus_scraper.task_manager.task_manager.Scraper")
     def test_execute_task_success(self, mock_scraper_class, task_manager, sample_task):
         """Test successful task execution."""
+        mock_storage = Mock()
+        mock_storage.store_contents.return_value = [True, True]
+        task_manager.set_storage(mock_storage)
+
         # Mock scraper and its methods
         mock_scraper = Mock()
         mock_scraper.scrap_contents.return_value = [

@@ -21,14 +21,12 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 
 ### 🐳 推荐方式：Docker Compose 部署
 
-**推荐使用 Docker Compose 进行一键部署，包含 OctopusScraper、RSSHub、Redis、Prometheus 和告警服务。**
+**推荐使用 Docker Compose 一键部署，包含 OctopusScraper、PostgreSQL、RSSHub、Redis 和告警服务。**
 
-#### 1. 准备 Notion 配置
+#### 1. 准备 YAML 抓取配置
 
-首先需要获取 Notion API 密钥和数据库 ID：
-
-1. **获取 Notion API 密钥**: 参考 [官方文档](https://developers.notion.com/docs/create-a-notion-integration)
-2. **获取数据库 ID**: 参考 [官方文档](https://developers.notion.com/docs/working-with-databases)
+每个 Scraper 使用一个 `.yml` 或 `.yaml` 文件，放在
+`resources/scrapers.d/`。服务会自动加载新增、修改和删除；无效修改会记录错误并继续使用上一份有效配置。
 
 #### 2. 克隆项目并配置环境变量
 
@@ -39,13 +37,17 @@ cd OctopusScraper
 cp resources/envs/deploy.prod.env .env
 ```
 
-编辑 `.env` 文件，填入您的 Notion 配置：
+编辑 `.env` 文件，配置 PostgreSQL 和可选的 Notion 同步：
 
 ```env
 # Notion API Configuration
 NOTION_API_KEY="api_key"
 NOTION_CONTENT_DATABASE_ID="database_id"
-NOTION_SCRAPERS_DATABASE_ID="scraper_database_id"
+NOTION_SYNC_ENABLED=true
+
+POSTGRES_DB=octopus
+POSTGRES_USER=octopus
+POSTGRES_PASSWORD="change-me"
 
 # other envs...
 ```
@@ -72,14 +74,25 @@ docker-compose ps
 docker-compose logs -f octopus-service
 ```
 
-#### 4. 在 Notion 中配置抓取器
+#### 4. 配置抓取器
 
-在抓取器配置数据库中添加记录，例如：
+```yaml
+id: vscode-issues
+name: VSCode Issues
+enabled: true
+fetcher: rsshub
+hub_root: http://rsshub:1200
+route: /github/issues/microsoft/vscode
+fetch_params:
+  limit: 20
+priority: 1
+content_processor_configs: {}
+default_keywords:
+  - vscode
+```
 
-| Name          | Status | Fetcher | Hub Root           | Route                           | Priority | Fetch Params  |
-| ------------- | ------ | ------- | ------------------ | ------------------------------- | -------- | ------------- |
-| VSCode Issues | Active | rsshub  | http://rsshub:1200 | /github/issues/microsoft/vscode | 1        | {"limit": 20} |
-| 少数派热门    | Active | rsshub  | http://rsshub:1200 | /sspai/matrix                   | 2        | {"limit": 15} |
+`id` 必须唯一且只能包含小写字母、数字、点、下划线和连字符。未知字段、重复
+YAML key、重复 `id`/`name`、未知 fetcher 或 processor 会被拒绝。
 
 #### 5. 使用命令触发拉取和上传
 
@@ -101,9 +114,9 @@ curl -X POST http://localhost:8000/trigger_upload
 | GET | `/health/liveness` | 轻量存活检查 |
 | GET | `/health/readiness` | 就绪检查 |
 | POST | `/trigger_scraper` | 按当前配置提交抓取任务 |
-| POST | `/trigger_upload` | 上传已完成任务产生的内容 |
+| POST | `/trigger_upload` | 手动触发 PostgreSQL → Notion 增量同步 |
 | GET | `/admin/config/status` | 查看当前配置状态 |
-| POST | `/admin/config/refresh` | 从 Notion 刷新配置并重载 Octopus |
+| POST | `/admin/config/refresh` | 立即扫描 YAML 配置目录并热更新 |
 | GET | `/admin/system/info` | 查看系统与 TaskManager 摘要 |
 | GET | `/admin/scrapers` | 查看已配置的 scraper |
 | GET | `/admin/tasks/stats` | 查看任务统计 |
@@ -114,3 +127,6 @@ curl -X POST http://localhost:8000/trigger_upload
 Prometheus 抓取配置、告警规则和 Grafana 查询示例见
 [`docs/monitoring.md`](docs/monitoring.md)。`/metrics` 已替代原有的
 `/admin/monitoring/metrics` JSON 接口；迁移观察期内 Vector 告警服务仍会保留。
+
+PostgreSQL 表结构、同步状态和重试机制见
+[`docs/storage.md`](docs/storage.md)。

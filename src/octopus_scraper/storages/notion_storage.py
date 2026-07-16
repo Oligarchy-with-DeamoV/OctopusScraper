@@ -1,3 +1,4 @@
+import hashlib
 import html as html_module
 import os
 import re
@@ -457,6 +458,63 @@ class NotionStorage(BaseStorage):
             )
             return None
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    def _append_block_batch(self, page_id: str, children: List[Dict]) -> None:
+        """Append one block batch with bounded retries."""
+        self._rate_limit()
+        self.notion.blocks.children.append(
+            block_id=page_id,
+            children=children,
+        )
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    def _finalize_page(self, page_id: str, content_id: str) -> None:
+        """Publish the real ContentId only after every block is present."""
+        self._rate_limit()
+        self.notion.pages.update(
+            page_id=page_id,
+            properties={
+                NOTION_PROPERTIY_CONTENT_ID: {
+                    "rich_text": [{"text": {"content": content_id}}]
+                }
+            },
+        )
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    def _archive_partial_page(self, page_id: str) -> None:
+        """Archive a page that never reached the completed state."""
+        self._rate_limit()
+        self.notion.pages.update(page_id=page_id, archived=True)
+
+    @staticmethod
+    def _pending_content_id(content_id: str) -> str:
+        digest = hashlib.sha256(content_id.encode("utf-8")).hexdigest()
+        return f"pending:{digest}"
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    def _archive_pending_pages(self, pending_content_id: str) -> None:
+        """Archive incomplete pages left by an ambiguous create response."""
+        has_more = True
+        next_cursor = None
+        while has_more:
+            query_params = {
+                "database_id": self.config.database_id,
+                "page_size": 100,
+                "filter": {
+                    "property": NOTION_PROPERTIY_CONTENT_ID,
+                    "rich_text": {"equals": pending_content_id},
+                },
+            }
+            if next_cursor:
+                query_params["start_cursor"] = next_cursor
+
+            self._rate_limit()
+            response = self.notion.databases.query(**query_params)
+            for page in response.get("results", []):
+                self._archive_partial_page(page["id"])
+            has_more = response.get("has_more", False)
+            next_cursor = response.get("next_cursor")
+
     def _store_content(self, content: Content) -> bool:
         """存储单个内容，不做重复性检查。
 
@@ -476,6 +534,11 @@ class NotionStorage(BaseStorage):
 
         # Build validated properties
         properties = self._build_properties(content)
+        properties[NOTION_PROPERTIY_CONTENT_ID] = {
+            "rich_text": [
+                {"text": {"content": self._pending_content_id(content.content_id)}}
+            ]
+        }
 
         # Notion has a limit of ~100 blocks per page creation
         # If we have more blocks, we'll create the page with first 100,
@@ -551,12 +614,6 @@ class NotionStorage(BaseStorage):
 
             return False
 
-        # Update cache immediately after successful page creation,
-        # before appending remaining blocks. This ensures retry logic
-        # and concurrent uploads can detect this item was already created.
-        if self._content_ids_cache is not None:
-            self._content_ids_cache.add(content.content_id)
-
         # If there are remaining blocks, append them in batches
         if remaining_children:
             logger.info(
@@ -569,14 +626,8 @@ class NotionStorage(BaseStorage):
             for i in range(0, len(remaining_children), max_blocks_per_request):
                 batch = remaining_children[i : i + max_blocks_per_request]
 
-                # Apply rate limiting before each batch append
-                self._rate_limit()
-
                 try:
-                    self.notion.blocks.children.append(
-                        block_id=page_id,
-                        children=batch,
-                    )
+                    self._append_block_batch(page_id, batch)
                     logger.debug(
                         f"Appended batch of {len(batch)} blocks",
                         content_id=content.content_id,
@@ -585,15 +636,48 @@ class NotionStorage(BaseStorage):
                     )
                 except Exception as e:
                     logger.error(
-                        "Failed to append block batch",
+                        "Failed to append block batch after retries",
                         content_id=content.content_id,
                         page_id=page_id,
                         batch_start=i,
                         batch_size=len(batch),
                         error=str(e),
                     )
-                    # Continue trying other batches even if one fails
-                    continue
+                    try:
+                        self._archive_partial_page(page_id)
+                    except Exception as archive_error:
+                        logger.error(
+                            "Failed to archive partially created Notion page",
+                            content_id=content.content_id,
+                            page_id=page_id,
+                            error=str(archive_error),
+                        )
+                    if self._content_ids_cache is not None:
+                        self._content_ids_cache.discard(content.content_id)
+                    return False
+
+        try:
+            self._finalize_page(page_id, content.content_id)
+        except Exception as error:
+            logger.error(
+                "Failed to finalize Notion page after retries",
+                content_id=content.content_id,
+                page_id=page_id,
+                error=str(error),
+            )
+            try:
+                self._archive_partial_page(page_id)
+            except Exception as archive_error:
+                logger.error(
+                    "Failed to archive unfinalized Notion page",
+                    content_id=content.content_id,
+                    page_id=page_id,
+                    error=str(archive_error),
+                )
+            return False
+
+        if self._content_ids_cache is not None:
+            self._content_ids_cache.add(content.content_id)
 
         logger.info(
             "Content stored successfully",
@@ -644,41 +728,57 @@ class NotionStorage(BaseStorage):
         # Batch-internal dedup: keep first occurrence of each content_id
         if deduplicate:
             seen_ids: set = set()
-            unique_contents: List[Content] = []
+            content_entries = []
             batch_dup_count = 0
-            for content in contents:
+            for index, content in enumerate(contents):
                 if content.content_id not in seen_ids:
                     seen_ids.add(content.content_id)
-                    unique_contents.append(content)
+                    content_entries.append((index, content))
                 else:
                     batch_dup_count += 1
             if batch_dup_count > 0:
                 logger.warning(
                     "Removed batch-internal duplicates",
                     original_count=len(contents),
-                    unique_count=len(unique_contents),
+                    unique_count=len(content_entries),
                     duplicates_removed=batch_dup_count,
                 )
-            contents_to_process = unique_contents
         else:
-            contents_to_process = contents
+            content_entries = list(enumerate(contents))
 
         existing_content_ids = self.get_all_content_ids()
-        store_contents_list = []
+        final_results = [True] * len(contents)
+        store_entries = []
+        preflight_failures = 0
         if deduplicate:
             logger.info("Deduplication enabled, checking existing content IDs...")
-            for content in contents_to_process:
-                if content.content_id not in existing_content_ids:
-                    store_contents_list.append(content)
-                else:
+            for index, content in content_entries:
+                pending_content_id = self._pending_content_id(content.content_id)
+                if content.content_id in existing_content_ids:
                     logger.debug(
                         "Content already exists in storage, skipping",
                         content_id=content.content_id,
                     )
+                elif pending_content_id in existing_content_ids:
+                    try:
+                        self._archive_pending_pages(pending_content_id)
+                        existing_content_ids.discard(pending_content_id)
+                        store_entries.append((index, content))
+                    except Exception as error:
+                        logger.error(
+                            "Failed to archive incomplete Notion page",
+                            content_id=content.content_id,
+                            error=str(error),
+                        )
+                        final_results[index] = False
+                        preflight_failures += 1
+                else:
+                    store_entries.append((index, content))
         else:
-            store_contents_list = contents_to_process
+            store_entries = content_entries
 
         # Upload contents concurrently with bounded parallelism
+        store_contents_list = [content for _, content in store_entries]
         results = []
         if store_contents_list:
             results = self._concurrent_store(store_contents_list)
@@ -713,6 +813,19 @@ class NotionStorage(BaseStorage):
                         )
                         results[idx] = True  # It was actually created
                     else:
+                        pending_content_id = self._pending_content_id(
+                            content.content_id
+                        )
+                        if pending_content_id in refreshed_ids:
+                            try:
+                                self._archive_pending_pages(pending_content_id)
+                            except Exception as error:
+                                logger.error(
+                                    "Failed to archive ambiguous Notion page",
+                                    content_id=content.content_id,
+                                    error=str(error),
+                                )
+                                continue
                         retry_contents.append(content)
                         retry_original_indices.append(idx)
 
@@ -730,18 +843,20 @@ class NotionStorage(BaseStorage):
                     if still_failed:
                         self.invalidate_content_ids_cache()
 
-        # Count skipped (both batch-internal dups and Notion-existing)
-        skipped_count = len(contents) - len(store_contents_list)
-        results.extend([True] * skipped_count)
+        for (original_index, _), result in zip(store_entries, results):
+            final_results[original_index] = result
 
-        success_count = sum(1 for r in results if r)
-        failure_count = sum(1 for r in results if not r)
+        # Count skipped (both batch-internal duplicates and Notion-existing).
+        skipped_count = len(contents) - len(store_contents_list) - preflight_failures
+
+        success_count = sum(1 for result in final_results if result)
+        failure_count = sum(1 for result in final_results if not result)
         logger.info(
             f"Batch storage completed: {success_count} stored, "
             f"{failure_count} failed, {skipped_count} skipped "
             f"(1 API call for deduplicate check, concurrent upload)"
         )
-        return results
+        return final_results
 
     def _concurrent_store(self, contents: List[Content]) -> List[bool]:
         """Store multiple contents concurrently using a thread pool.
