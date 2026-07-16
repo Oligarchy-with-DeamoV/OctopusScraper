@@ -4,6 +4,10 @@
 .vscode
 .octopus/
 
+# User scraper configs are local deployment data.
+resources/scrapers.d/*
+!resources/scrapers.d/.gitkeep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -211,4 +215,3 @@ Temporary Items
 *.icloud
 
 # End of https://www.toptal.com/developers/gitignore/api/macos
-n

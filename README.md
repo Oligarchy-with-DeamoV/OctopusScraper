@@ -20,12 +20,17 @@ OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算�
 
 ### 🐳 推荐方式：Docker Compose 部署
 
-**推荐使用 Docker Compose 一键部署，包含 OctopusScraper、PostgreSQL、RSSHub、Redis 和告警服务。**
+**推荐使用 Docker Compose 部署 OctopusScraper、RSSHub、Redis 和告警服务，并连接外部 PostgreSQL。**
 
 #### 1. 准备 YAML 抓取配置
 
 每个 Scraper 使用一个 `.yml` 或 `.yaml` 文件，放在
 `resources/scrapers.d/`。服务会自动加载新增、修改和删除；无效修改会记录错误并继续使用上一份有效配置。
+该目录中的配置默认由 Git 忽略。可以复制仓库提供的样例开始配置：
+
+```bash
+cp resources/scraper.example.yaml resources/scrapers.d/my-feed.yaml
+```
 
 #### 2. 克隆项目并配置环境变量
 
@@ -47,9 +52,14 @@ NOTION_SYNC_ENABLED=true
 POSTGRES_DB=octopus
 POSTGRES_USER=octopus
 POSTGRES_PASSWORD="change-me"
+DB_HOST=host.docker.internal
+DB_PORT=5432
 
 # other envs...
 ```
+
+`host.docker.internal` 连接 Docker 宿主机上的 PostgreSQL；使用其他外部
+PostgreSQL 时，将 `DB_HOST` 改为对应主机名或 IP。
 
 编辑 `.env` 文件，填入您的飞书 Webhook 配置：
 

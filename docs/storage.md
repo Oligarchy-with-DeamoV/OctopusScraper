@@ -5,8 +5,8 @@ successful after its content transaction commits; Notion availability does not
 affect that task result.
 
 The service creates the current schema at startup and records schema version
-`1` in `schema_migrations`. Back up the `postgres-data` volume before deploying
-a version that changes the schema.
+`1` in `schema_migrations`. Back up the external PostgreSQL database before
+deploying a version that changes the schema.
 
 ## Synchronization states
 
@@ -26,7 +26,7 @@ are reclaimed after a worker interruption.
 POSTGRES_DB=octopus
 POSTGRES_USER=octopus
 POSTGRES_PASSWORD=replace-with-a-strong-password
-DB_HOST=postgres
+DB_HOST=host.docker.internal
 DB_PORT=5432
 NOTION_SYNC_ENABLED=true
 NOTION_API_KEY=secret
@@ -43,3 +43,6 @@ mode the service does not construct a Notion client or call the Notion API.
 `DATABASE_URL` may override the discrete PostgreSQL settings for local or
 managed databases. Credentials in a manually supplied URL must be percent
 encoded.
+
+`host.docker.internal` addresses PostgreSQL running on the Docker host. Set
+`DB_HOST` to the database hostname or IP when using another external server.
