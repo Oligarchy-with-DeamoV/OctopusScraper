@@ -303,6 +303,35 @@ class TestLLMTagsProcessor:
         assert mock_llm_client.generate.call_count == 1
 
     @patch("octopus_scraper.processors.llm_tags_processor.LLMClient")
+    def test_cache_key_uses_full_content_not_content_length(
+        self, mock_client_class, sample_config, sample_content
+    ):
+        """Test same-title, same-length content produces distinct stable cache keys."""
+        mock_llm_client = Mock()
+        mock_llm_client.health_check.return_value = True
+        mock_client_class.return_value = mock_llm_client
+
+        processor = LLMTagsProcessor(sample_config)
+        other_content = Content(
+            content_id="same_length",
+            title=sample_content.title,
+            link=sample_content.link,
+            summary=sample_content.summary,
+            content="B" * len(sample_content.content),
+            published=sample_content.published,
+            author=sample_content.author,
+            keywords=None,
+            tags=None,
+        )
+
+        first_key = processor._generate_cache_key(sample_content)
+        second_key = processor._generate_cache_key(other_content)
+
+        assert first_key != second_key
+        assert first_key == processor._generate_cache_key(sample_content)
+        assert len(first_key) == 64
+
+    @patch("octopus_scraper.processors.llm_tags_processor.LLMClient")
     def test_health_check(self, mock_client_class, sample_config):
         """Test processor health check."""
         mock_llm_client = Mock()

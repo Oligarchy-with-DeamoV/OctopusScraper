@@ -7,7 +7,6 @@ It provides structured tag extraction with confidence scoring and custom categor
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional, Union
 
 import structlog
@@ -18,6 +17,9 @@ from octopus_scraper.llm.prompts import TagsPromptManager
 from octopus_scraper.llm.schemas import TAGS_SCHEMA
 from octopus_scraper.processors.processor_base import ProcessingError, ProcessorBase
 from octopus_scraper.processors.protos import TagsProcessorConfig
+from octopus_scraper.processors.llm_structured_helper import (
+    StructuredLLMProcessorHelper,
+)
 from octopus_scraper.protos import Content
 from octopus_scraper.utils.text_processor import TextProcessor
 from octopus_scraper.utils.validators import DataValidator
@@ -248,23 +250,14 @@ class LLMTagsProcessor(ProcessorBase):
             summary_context="",
         )
 
-        # Generate response
-        response = self.llm_client.generate(messages)
-
-        if not response.success:
-            raise ProcessingError(f"LLM generation failed: {response.content}")
-
-        # Extract and validate JSON response
-        json_content = self.llm_client.extract_json_from_response(response.content)
-        tags_data = json.loads(json_content)
-
-        # Validate against schema
-        if not self.validator.validate_json(tags_data, TAGS_SCHEMA):
-            logger.warning("Generated tags don't match schema", data=tags_data)
-            # Try to fix the response
-            tags_data = self._fix_tags_response(tags_data)
-
-        return tags_data
+        return StructuredLLMProcessorHelper.generate_structured_data(
+            llm_client=self.llm_client,
+            validator=self.validator,
+            messages=messages,
+            schema=TAGS_SCHEMA,
+            fix_response=self._fix_tags_response,
+            invalid_schema_event="Generated tags don't match schema",
+        )
 
     def _apply_custom_categorization(self, tags_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -484,9 +477,20 @@ class LLMTagsProcessor(ProcessorBase):
         Returns:
             Cache key string
         """
-        # Create a simple hash based on title and content length
-        key_data = f"{content.title}:{len(content.content)}:{self.config.max_tags}"
-        return str(hash(key_data))
+        return StructuredLLMProcessorHelper.generate_cache_key(
+            "llm_tags",
+            content,
+            {
+                "provider": self.config.llm_provider,
+                "model": self.config.model_name,
+                "max_tags": self.config.max_tags,
+                "max_tags_count": self.config.max_tags_count,
+                "confidence_threshold": self.config.confidence_threshold,
+                "allow_new_tags": self.config.allow_new_tags,
+                "available_tags": self.config.available_tags,
+                "custom_categories": self.config.custom_categories,
+            },
+        )
 
     def get_stats(self) -> Dict[str, Any]:
         """
