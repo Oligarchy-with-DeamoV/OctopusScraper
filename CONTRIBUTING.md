@@ -29,6 +29,27 @@ poetry run pre-commit install
 
 ## Development Workflow
 
+### Make Targets
+
+If `make` is available, use the repository targets for common development
+tasks:
+
+```bash
+make help          # List all available targets
+make install       # Install dependencies
+make format        # Format source and test files
+make format-check  # Check formatting without changing files
+make test          # Run the default unit test suite
+make test-cov      # Run the CI test suite with coverage reports
+make run           # Start octopus_service
+make compose-up    # Start the Docker Compose stack
+make compose-down  # Stop the Docker Compose stack
+make compose-logs  # Follow Docker Compose logs
+make clean         # Remove reproducible caches and build artifacts
+```
+
+The Poetry commands below remain available in environments without `make`.
+
 ### Running Tests
 
 ```bash
@@ -38,17 +59,21 @@ poetry run pytest -m "not need_external_service and not integrate_test" ./tests/
 # Run a specific test file
 poetry run pytest tests/octopus_scraper/scraper_test.py
 
-# Run with coverage report
-poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ --cov=src --cov-report=term-missing
+# Run the CI test suite with coverage reports
+poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto --cov=src --cov-report=xml --cov-report=term-missing -q
 ```
 
 ### Code Style
 
-We use [Black](https://black.readthedocs.io/) for code formatting with a 120-character line length.
+We use [Black](https://black.readthedocs.io/) with its default 88-character line
+length.
 
 ```bash
 # Format code
-black src/ tests/
+poetry run black src/ tests/
+
+# Check formatting exactly as CI does
+poetry run black --check src/ tests/
 ```
 
 ### Pre-commit Hooks

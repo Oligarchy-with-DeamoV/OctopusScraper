@@ -22,7 +22,6 @@ from octopus_scraper.config.models import (
 )
 from octopus_scraper.octopus import Octopus
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
