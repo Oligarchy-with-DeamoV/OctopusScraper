@@ -57,6 +57,7 @@ class TaskManager:
         # Task queues and tracking
         self._task_queue = PriorityQueue(maxsize=max_queue_size)
         self._task_counter = itertools.count()  # Unique counter for queue ordering
+        self._state_lock = threading.RLock()
         self._running_tasks: Dict[str, Future] = {}
         self._task_results: Dict[str, TaskResult] = {}
         self._task_history: deque = deque(maxlen=10000)  # Keep last 10k tasks
@@ -123,7 +124,10 @@ class TaskManager:
                 break
 
         # Wait for running tasks to complete
-        for future in self._running_tasks.values():
+        with self._state_lock:
+            running_futures = list(self._running_tasks.values())
+
+        for future in running_futures:
             future.cancel()
 
         # Shutdown executor
@@ -161,15 +165,24 @@ class TaskManager:
             self._task_queue.put(
                 (priority_value, next(self._task_counter), task), block=False
             )
-            self._stats["total_tasks"] += 1
-            self._stats["current_queue_size"] = self._task_queue.qsize()
+            with self._state_lock:
+                self._task_results.setdefault(
+                    task.task_id,
+                    TaskResult(
+                        task_id=task.task_id,
+                        status=TaskStatus.PENDING,
+                        start_time=datetime.now(),
+                    ),
+                )
+                self._stats["total_tasks"] += 1
+                self._stats["current_queue_size"] = self._task_queue.qsize()
 
             logger.info(
                 "Task submitted",
                 task_id=task.task_id,
                 scraper_name=task.scraper_name,
                 priority=task.priority.name,
-                queue_size=self._stats["current_queue_size"],
+                queue_size=self._task_queue.qsize(),
             )
 
             return task.task_id
@@ -204,40 +217,40 @@ class TaskManager:
 
     def cancel_task(self, task_id: str) -> bool:
         """Cancel a task if it's still pending or running."""
-        # Check if task is running
-        if task_id in self._running_tasks:
-            future = self._running_tasks[task_id]
+        with self._state_lock:
+            future = self._running_tasks.get(task_id)
+
+        if future:
             cancelled = future.cancel()
             if cancelled:
                 self._mark_task_cancelled(task_id)
             return cancelled
 
-        # Task might be in queue - harder to cancel from PriorityQueue
-        # For now, mark it as cancelled when it's dequeued
-        if task_id in self._task_results:
-            result = self._task_results[task_id]
-            if result.status == TaskStatus.PENDING:
-                result.status = TaskStatus.CANCELLED
-                result.end_time = datetime.now()
-                self._stats["cancelled_tasks"] += 1
+        with self._state_lock:
+            result = self._task_results.get(task_id)
+            if result and result.status == TaskStatus.PENDING:
+                self._mark_task_cancelled(task_id)
                 return True
 
         return False
 
     def get_task_result(self, task_id: str) -> Optional[TaskResult]:
         """Get task result by ID."""
-        return self._task_results.get(task_id)
+        with self._state_lock:
+            return self._task_results.get(task_id)
 
     def get_task_status(self, task_id: str) -> Optional[TaskStatus]:
         """Get task status by ID."""
-        result = self._task_results.get(task_id)
+        with self._state_lock:
+            result = self._task_results.get(task_id)
         return result.status if result else None
 
     def list_tasks(
         self, status: Optional[TaskStatus] = None, limit: int = 100
     ) -> List[TaskResult]:
         """List tasks, optionally filtered by status."""
-        results = list(self._task_results.values())
+        with self._state_lock:
+            results = list(self._task_results.values())
 
         if status:
             results = [r for r in results if r.status == status]
@@ -249,14 +262,17 @@ class TaskManager:
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get task manager statistics."""
-        # Update current counts
-        self._stats["current_queue_size"] = self._task_queue.qsize()
-        self._stats["running_tasks_count"] = len(self._running_tasks)
+        with self._state_lock:
+            # Update current counts
+            self._stats["current_queue_size"] = self._task_queue.qsize()
+            self._stats["running_tasks_count"] = len(self._running_tasks)
+            stats = dict(self._stats)
+            task_results = list(self._task_results.values())
 
         # Calculate success rate
-        total_finished = self._stats["completed_tasks"] + self._stats["failed_tasks"]
+        total_finished = stats["completed_tasks"] + stats["failed_tasks"]
         success_rate = (
-            (self._stats["completed_tasks"] / total_finished * 100)
+            (stats["completed_tasks"] / total_finished * 100)
             if total_finished > 0
             else 0
         )
@@ -264,7 +280,7 @@ class TaskManager:
         # Recent task performance
         recent_tasks = [
             r
-            for r in self._task_results.values()
+            for r in task_results
             if r.end_time and r.end_time > datetime.now() - timedelta(hours=1)
         ]
 
@@ -274,7 +290,7 @@ class TaskManager:
             avg_duration = sum(durations) / len(durations) if durations else 0
 
         return {
-            **self._stats,
+            **stats,
             "success_rate_percent": round(success_rate, 2),
             "average_task_duration_seconds": round(avg_duration, 2),
             "recent_tasks_count": len(recent_tasks),
@@ -286,13 +302,14 @@ class TaskManager:
         """Clean up old task results to prevent memory leaks."""
         cutoff_time = datetime.now() - timedelta(hours=self.result_retention_hours)
 
-        to_remove = []
-        for task_id, result in self._task_results.items():
-            if result.end_time and result.end_time < cutoff_time:
-                to_remove.append(task_id)
+        with self._state_lock:
+            to_remove = []
+            for task_id, result in self._task_results.items():
+                if result.end_time and result.end_time < cutoff_time:
+                    to_remove.append(task_id)
 
-        for task_id in to_remove:
-            del self._task_results[task_id]
+            for task_id in to_remove:
+                del self._task_results[task_id]
 
         if to_remove:
             logger.debug(f"Cleaned up {len(to_remove)} old task results")
@@ -319,38 +336,50 @@ class TaskManager:
                 # Get next task from queue (blocks for up to 1 second)
                 try:
                     priority, counter, task = self._task_queue.get(timeout=1.0)
-                    self._stats["current_queue_size"] = self._task_queue.qsize()
+                    with self._state_lock:
+                        self._stats["current_queue_size"] = self._task_queue.qsize()
                 except Empty:
                     # Cleanup old results periodically
                     self.cleanup_old_results()
                     continue
 
                 # Check if we have capacity to run the task
-                if len(self._running_tasks) >= self.max_concurrent_tasks:
+                with self._state_lock:
+                    running_task_count = len(self._running_tasks)
+                if running_task_count >= self.max_concurrent_tasks:
                     # Put task back and wait
                     self._task_queue.put((priority, counter, task))
                     time.sleep(0.1)
                     continue
 
-                # Create task result tracking
-                result = TaskResult(
-                    task_id=task.task_id,
-                    status=TaskStatus.PENDING,
-                    start_time=datetime.now(),
-                )
-                self._task_results[task.task_id] = result
-                self._persist_result(result)
+                with self._state_lock:
+                    result = self._task_results.get(task.task_id)
+                    if result is None:
+                        result = TaskResult(
+                            task_id=task.task_id,
+                            status=TaskStatus.PENDING,
+                            start_time=datetime.now(),
+                        )
+                        self._task_results[task.task_id] = result
+
+                    if result.status == TaskStatus.CANCELLED:
+                        self._persist_result(result)
+                        continue
+
+                    self._persist_result(result)
 
                 # Submit task to executor
                 future = self._executor.submit(self._execute_task, task, result)
-                self._running_tasks[task.task_id] = future
-                self._stats["running_tasks_count"] = len(self._running_tasks)
+                with self._state_lock:
+                    self._running_tasks[task.task_id] = future
+                    self._stats["running_tasks_count"] = len(self._running_tasks)
+                    running_tasks_count = len(self._running_tasks)
 
                 logger.info(
                     "Task started",
                     task_id=task.task_id,
                     scraper_name=task.scraper_name,
-                    running_tasks=len(self._running_tasks),
+                    running_tasks=running_tasks_count,
                 )
 
             except Exception as e:
@@ -370,8 +399,9 @@ class TaskManager:
                     logger.warning("Pre-execution hook failed", error=str(e))
 
             # Mark task as running
-            result.status = TaskStatus.RUNNING
-            self._persist_result(result)
+            with self._state_lock:
+                result.status = TaskStatus.RUNNING
+                self._persist_result(result)
 
             # Create scraper instance
             scraper = Scraper(task.scraper_config)
@@ -415,25 +445,26 @@ class TaskManager:
                 )
 
             # Store contents in metadata BEFORE marking completed
-            result.metadata.update(
-                {
-                    "execution_time_seconds": execution_time,
-                    "scraper_config": task.scraper_name,
-                    "fetch_params": task.fetch_params,
-                    "contents": contents,
-                }
-            )
+            with self._state_lock:
+                result.metadata.update(
+                    {
+                        "execution_time_seconds": execution_time,
+                        "scraper_config": task.scraper_name,
+                        "fetch_params": task.fetch_params,
+                        "contents": contents,
+                    }
+                )
 
-            # Mark completed AFTER contents are stamped and stored,
-            # so trigger_upload never sees a COMPLETED task without contents.
-            result.mark_completed(
-                items_fetched=len(contents),
-                items_processed=len(contents),
-                items_uploaded=0,  # Upload happens separately
-            )
+                # Mark completed AFTER contents are stamped and stored,
+                # so trigger_upload never sees a COMPLETED task without contents.
+                result.mark_completed(
+                    items_fetched=len(contents),
+                    items_processed=len(contents),
+                    items_uploaded=0,  # Upload happens separately
+                )
 
-            self._stats["completed_tasks"] += 1
-            self._persist_result(result)
+                self._stats["completed_tasks"] += 1
+                self._persist_result(result)
 
             logger.info(
                 "Task completed successfully",
@@ -446,9 +477,10 @@ class TaskManager:
         except Exception as e:
             # Handle task failure
             error_msg = f"Task execution failed: {str(e)}"
-            result.mark_failed(error_msg)
-            self._stats["failed_tasks"] += 1
-            self._persist_result(result)
+            with self._state_lock:
+                result.mark_failed(error_msg)
+                self._stats["failed_tasks"] += 1
+                self._persist_result(result)
 
             logger.error(
                 "Task failed",
@@ -497,27 +529,36 @@ class TaskManager:
                     logger.warning("Post-execution hook failed", error=str(e))
 
             # Clean up running task tracking
-            if task.task_id in self._running_tasks:
-                del self._running_tasks[task.task_id]
-            self._stats["running_tasks_count"] = len(self._running_tasks)
+            with self._state_lock:
+                if task.task_id in self._running_tasks:
+                    del self._running_tasks[task.task_id]
+                self._stats["running_tasks_count"] = len(self._running_tasks)
 
-            # Add to history
-            self._task_history.append(result)
+                # Add to history
+                self._task_history.append(result)
 
     def _mark_task_cancelled(self, task_id: str):
         """Mark a task as cancelled."""
-        if task_id in self._task_results:
-            result = self._task_results[task_id]
-            result.status = TaskStatus.CANCELLED
-            result.end_time = datetime.now()
-            if result.start_time:
-                result.duration_seconds = (
-                    result.end_time - result.start_time
-                ).total_seconds()
+        with self._state_lock:
+            result = self._task_results.get(task_id)
+            if result and result.status in {
+                TaskStatus.CANCELLED,
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+            }:
+                return
 
-        self._stats["cancelled_tasks"] += 1
-        if task_id in self._task_results:
-            self._persist_result(self._task_results[task_id])
+            if result:
+                result.status = TaskStatus.CANCELLED
+                result.end_time = datetime.now()
+                if result.start_time:
+                    result.duration_seconds = (
+                        result.end_time - result.start_time
+                    ).total_seconds()
+
+            self._stats["cancelled_tasks"] += 1
+            if result:
+                self._persist_result(result)
         logger.info("Task cancelled", task_id=task_id)
 
     def _persist_result(self, result: TaskResult) -> None:
@@ -548,11 +589,12 @@ class TaskManager:
             logger.error("Failed to load persisted task results", error=str(e))
             return
 
-        for result in persisted_results:
-            self._task_results[result.task_id] = result
-            self._task_history.append(result)
+        with self._state_lock:
+            for result in persisted_results:
+                self._task_results[result.task_id] = result
+                self._task_history.append(result)
 
-        self._stats["persisted_task_results_count"] = len(persisted_results)
+            self._stats["persisted_task_results_count"] = len(persisted_results)
 
         logger.info(
             "Loaded persisted task results",

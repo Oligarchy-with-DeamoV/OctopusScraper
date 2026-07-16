@@ -7,7 +7,6 @@ It provides structured keyword extraction with importance scoring and filtering.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List, Optional, Set, Union
 
@@ -19,6 +18,9 @@ from octopus_scraper.llm.prompts import KeywordsPromptManager
 from octopus_scraper.llm.schemas import KEYWORDS_SCHEMA
 from octopus_scraper.processors.processor_base import ProcessingError, ProcessorBase
 from octopus_scraper.processors.protos import KeywordsProcessorConfig
+from octopus_scraper.processors.llm_structured_helper import (
+    StructuredLLMProcessorHelper,
+)
 from octopus_scraper.protos import Content
 from octopus_scraper.utils.text_processor import TextProcessor
 from octopus_scraper.utils.validators import DataValidator
@@ -256,23 +258,14 @@ class LLMKeywordsProcessor(ProcessorBase):
             summary_context="",
         )
 
-        # Generate response
-        response = self.llm_client.generate(messages)
-
-        if not response.success:
-            raise ProcessingError(f"LLM generation failed: {response.content}")
-
-        # Extract and validate JSON response
-        json_content = self.llm_client.extract_json_from_response(response.content)
-        keywords_data = json.loads(json_content)
-
-        # Validate against schema
-        if not self.validator.validate_json(keywords_data, KEYWORDS_SCHEMA):
-            logger.warning("Generated keywords don't match schema", data=keywords_data)
-            # Try to fix the response
-            keywords_data = self._fix_keywords_response(keywords_data)
-
-        return keywords_data
+        return StructuredLLMProcessorHelper.generate_structured_data(
+            llm_client=self.llm_client,
+            validator=self.validator,
+            messages=messages,
+            schema=KEYWORDS_SCHEMA,
+            fix_response=self._fix_keywords_response,
+            invalid_schema_event="Generated keywords don't match schema",
+        )
 
     def _filter_keywords(self, keywords_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -821,9 +814,19 @@ class LLMKeywordsProcessor(ProcessorBase):
         Returns:
             Cache key string
         """
-        # Create a simple hash based on title and content length
-        key_data = f"{content.title}:{len(content.content)}:{self.config.max_keywords}"
-        return str(hash(key_data))
+        return StructuredLLMProcessorHelper.generate_cache_key(
+            "llm_keywords",
+            content,
+            {
+                "provider": self.config.llm_provider,
+                "model": self.config.model_name,
+                "max_keywords": self.config.max_keywords,
+                "keywords_count": self.config.keywords_count,
+                "min_importance_score": self.config.min_importance_score,
+                "include_phrases": self.config.include_phrases,
+                "language_preference": self.config.language_preference,
+            },
+        )
 
     def get_stats(self) -> Dict[str, Any]:
         """

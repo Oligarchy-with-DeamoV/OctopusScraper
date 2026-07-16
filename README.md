@@ -1,7 +1,6 @@
 # OctopusScraper
 
 ![Python Version](https://img.shields.io/badge/python-3.9%7C3.10-blue)
-![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
 OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。OctopusScraper 的核心在于「采集」而不是二次业务加工，因此涉及到「业务分析」相关的操作应当拒绝不包含在本仓库内。
