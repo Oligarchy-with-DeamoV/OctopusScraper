@@ -148,6 +148,19 @@ class TestTaskManagerInitialization:
         finally:
             reloaded_manager.stop()
 
+    def test_load_persisted_results_handles_store_errors(self):
+        """Test persisted result load failures are logged without startup failure."""
+        manager = TaskManager(max_concurrent_tasks=1, max_queue_size=10)
+        manager._result_store = Mock()
+        manager._result_store.load_recent_results.side_effect = Exception("load failed")
+
+        try:
+            manager._load_persisted_results()
+
+            assert manager.get_statistics()["persisted_task_results_count"] == 0
+        finally:
+            manager.stop()
+
 
 class TestTaskSubmission:
     """Test task submission functionality."""
@@ -522,6 +535,20 @@ class TestTaskCancellation:
 
         assert result.status == TaskStatus.COMPLETED
         assert task_manager.get_statistics()["cancelled_tasks"] == 0
+
+    def test_persist_result_handles_store_errors(self, task_manager):
+        """Test persistence failures do not break task state updates."""
+        result = TaskResult(
+            task_id="persist_error",
+            status=TaskStatus.PENDING,
+            start_time=datetime.now(),
+        )
+        task_manager._result_store = Mock()
+        task_manager._result_store.save_result.side_effect = Exception("save failed")
+
+        task_manager._persist_result(result)
+
+        task_manager._result_store.save_result.assert_called_once_with(result)
 
 
 class TestTaskManagerStatistics:
