@@ -155,7 +155,20 @@ class NotionSyncService:
                 else:
                     stats["lost_claim_count"] += 1
 
-            logger.info("Notion synchronization batch completed", **stats)
+            log_context = {
+                key: value for key, value in stats.items() if key != "errors"
+            }
+            if stats["errors"] or stats["failed_count"] or stats["lost_claim_count"]:
+                logger.error(
+                    "Notion synchronization batch completed with errors",
+                    errors=stats["errors"],
+                    **log_context,
+                )
+            else:
+                logger.info(
+                    "Notion synchronization batch completed",
+                    **log_context,
+                )
             return stats
         finally:
             self._run_lock.release()

@@ -1,6 +1,6 @@
 import threading
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from octopus_scraper.protos import Content
 from octopus_scraper.storages.postgres_storage import (
@@ -92,6 +92,32 @@ def test_sync_success_updates_state(tmp_path):
         storage.dispose()
 
 
+def test_empty_sync_batch_logs_info_without_error_field(tmp_path):
+    storage = _storage(tmp_path)
+    notion = Mock()
+    service = NotionSyncService(
+        {
+            "enabled": True,
+            "api_key": "key",
+            "database_id": "db",
+        },
+        storage,
+        notion_storage=notion,
+    )
+    try:
+        with patch("octopus_scraper.sync.notion_sync.logger") as logger:
+            result = service.run_once()
+
+        logger.info.assert_called_once()
+        logger.error.assert_not_called()
+        _, log_context = logger.info.call_args
+        assert log_context["claimed_count"] == 0
+        assert "errors" not in log_context
+        assert result["errors"] == []
+    finally:
+        storage.dispose()
+
+
 def test_sync_failure_records_retry(tmp_path):
     storage = _storage(tmp_path)
     storage.store_contents([_content("one")])
@@ -109,10 +135,16 @@ def test_sync_failure_records_retry(tmp_path):
         notion_storage=notion,
     )
     try:
-        result = service.run_once()
+        with patch("octopus_scraper.sync.notion_sync.logger") as logger:
+            result = service.run_once()
 
         assert result["failed_count"] == 1
         assert storage.get_record("one").notion_sync_status == SYNC_RETRY
+        logger.error.assert_called_once()
+        logger.info.assert_not_called()
+        assert logger.error.call_args.kwargs["errors"] == [
+            {"content_id": "one", "error": "notion unavailable"}
+        ]
     finally:
         storage.dispose()
 
