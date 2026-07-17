@@ -22,6 +22,7 @@ from octopus_scraper.service.config_helpers import (
     DEFAULT_RSSHUB_CONNECT_TIMEOUT,
     DEFAULT_RSSHUB_READ_TIMEOUT,
     build_fetcher_config,
+    create_config_from_env,
     get_rsshub_request_timeout,
 )
 
@@ -63,8 +64,9 @@ class TestGetRsshubRequestTimeout:
 class TestBuildFetcherConfig:
     def _scraper(self, fetcher: str) -> ScraperConfig:
         return ScraperConfig(
+            id="demo",
             name="demo",
-            status="Active",
+            enabled=True,
             fetcher=fetcher,
             hub_root="http://example.com",
             route="/feed",
@@ -113,8 +115,9 @@ class TestBuildFetcherConfig:
 
     def test_none_fetch_params_normalised_to_empty_dict(self):
         scraper = ScraperConfig(
+            id="demo",
             name="demo",
-            status="Active",
+            enabled=True,
             fetcher="rsshub",
             hub_root="http://example.com",
             route="/feed",
@@ -122,3 +125,41 @@ class TestBuildFetcherConfig:
         )
         cfg = build_fetcher_config(scraper)
         assert cfg["fetch_params"] == {}
+
+
+def test_create_config_from_env_builds_storage_and_sync_settings():
+    with patch.dict(
+        os.environ,
+        {
+            "SCRAPER_CONFIG_DIR": "/tmp/scrapers",
+            "DATABASE_URL": "sqlite:///contents.sqlite3",
+            "NOTION_SYNC_ENABLED": "true",
+            "NOTION_API_KEY": "key",
+            "NOTION_CONTENT_DATABASE_ID": "db",
+        },
+        clear=True,
+    ):
+        file_config, database, sync, service, task_manager = create_config_from_env()
+
+    assert str(file_config.directory) == "/tmp/scrapers"
+    assert database.url == "sqlite:///contents.sqlite3"
+    assert sync.enabled is True
+    assert sync.database_id == "db"
+    assert service.config_refresh_interval == 1.0
+    assert task_manager["max_concurrent_tasks"] == 8
+
+
+def test_database_url_encodes_reserved_password_characters():
+    with patch.dict(
+        os.environ,
+        {
+            "POSTGRES_USER": "octopus",
+            "POSTGRES_PASSWORD": "p@ss:word",
+            "POSTGRES_DB": "octopus",
+            "DB_HOST": "postgres",
+        },
+        clear=True,
+    ):
+        _, database, _, _, _ = create_config_from_env()
+
+    assert "p%40ss%3Aword" in database.url

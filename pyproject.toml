@@ -22,6 +22,9 @@ doraemon = { file = "./resources/whls/doraemon-0.0.5b0-py3-none-any.whl" }
 pyyaml = "^6.0.1"
 sanic = ">=21.3.0"
 python-dotenv = "^1.1.0"
+prometheus-client = "^0.22.1"
+sqlalchemy = "^2.0"
+psycopg = {version = "^3.2", extras = ["binary"]}
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^4.0.0"

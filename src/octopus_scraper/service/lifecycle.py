@@ -1,9 +1,12 @@
 """Server lifecycle hooks for OctopusService."""
 
+from dataclasses import asdict
+
 import structlog
 from sanic.exceptions import SanicException
 
 from octopus_scraper.config import ConfigManager
+from octopus_scraper.metrics import metrics
 from octopus_scraper.octopus import Octopus
 from octopus_scraper.service.app import app
 from octopus_scraper.service.config_helpers import (
@@ -17,26 +20,24 @@ logger = structlog.get_logger()
 @app.listener("before_server_start")
 async def setup_octopus(app, _):
     """Initialize ConfigManager and Octopus instance with dynamic configuration loading."""
+    metrics.set_service_start_time()
     try:
         # Create configuration from environment variables
-        notion_config, service_config, task_manager_config = create_config_from_env()
-
-        # Validate required configuration
-        if not notion_config.api_key or not notion_config.scrapers_database_id:
-            logger.error(
-                "Missing NOTION_API_KEY or NOTION_SCRAPERS_DATABASE_ID environment variables."
-            )
-            raise ValueError(
-                "NOTION_API_KEY and NOTION_SCRAPERS_DATABASE_ID must be set."
-            )
+        (
+            file_config,
+            database_config,
+            notion_sync_config,
+            service_config,
+            task_manager_config,
+        ) = create_config_from_env()
 
         # Initialize ConfigManager
-        config_manager = ConfigManager(notion_config, service_config)
+        config_manager = ConfigManager(file_config, service_config)
         app.ctx.config_manager = config_manager
 
         logger.info("ConfigManager created successfully")
 
-        # Load initial configuration from Notion
+        # Load initial configuration from YAML files
         scrapers_config = await config_manager.load_initial_config()
 
         # Create base config for Octopus with TaskManager
@@ -51,14 +52,13 @@ async def setup_octopus(app, _):
                         "default_keywords": scraper.default_keywords,
                     },
                     "fetch_params": scraper.fetch_params or {},
+                    "scraper_id": scraper.id,
+                    "priority": scraper.priority,
                 }
                 for scraper in scrapers_config
             ],
-            "notion_api_config": {
-                "api_key": notion_config.api_key,
-                "database_id": notion_config.content_database_id
-                or notion_config.scrapers_database_id,
-            },
+            "database_config": asdict(database_config),
+            "notion_sync_config": asdict(notion_sync_config),
             "use_task_manager": True,  # Always enable TaskManager
             "task_manager_config": task_manager_config,
             "max_concurrent_scrapers": task_manager_config["max_concurrent_tasks"],
@@ -67,6 +67,7 @@ async def setup_octopus(app, _):
         # Initialize Octopus with loaded configuration
         octopus = Octopus(octopus_config)
         app.ctx.octopus = octopus
+        octopus.start_background_services()
 
         logger.info(
             "Octopus instance initialized successfully with TaskManager",
@@ -80,15 +81,13 @@ async def setup_octopus(app, _):
             max_concurrent_tasks=task_manager_config["max_concurrent_tasks"],
         )
 
-        # Start configuration monitoring
-        config_manager.start_config_watcher()
-
         # Register callback so the background watcher also reloads
         # Octopus when configuration changes are detected.
         async def _on_config_changed():
-            await reload_octopus_config(app)
+            return await reload_octopus_config(app)
 
         config_manager.set_on_config_changed(_on_config_changed)
+        config_manager.start_config_watcher()
         logger.info("Configuration monitoring started")
 
     except Exception as e:
@@ -168,6 +167,8 @@ async def reload_octopus_config(app):
                     "default_keywords": scraper.default_keywords,
                 },
                 "fetch_params": scraper.fetch_params or {},
+                "scraper_id": scraper.id,
+                "priority": scraper.priority,
             }
             for scraper in current_scrapers
         ]

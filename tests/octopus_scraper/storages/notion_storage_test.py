@@ -24,6 +24,7 @@ class TestNotionStorage:
             if not hasattr(storage.notion, "blocks"):
                 storage.notion.blocks = Mock()
                 storage.notion.blocks.children = Mock()
+            storage.notion.pages.update = Mock()
             return storage
 
     def test_store_content(self, notion_storage):
@@ -49,6 +50,17 @@ class TestNotionStorage:
                 "properties", call_kwargs[1].get("properties", {})
             )
             assert properties["Source"] == {"select": {"name": "test-scraper"}}
+            assert properties["ContentId"]["rich_text"][0]["text"][
+                "content"
+            ] == notion_storage._pending_content_id(content.content_id)
+            notion_storage.notion.pages.update.assert_called_with(
+                page_id="test_page_id",
+                properties={
+                    "ContentId": {
+                        "rich_text": [{"text": {"content": content.content_id}}]
+                    }
+                },
+            )
 
             # Verify the Published Date property is included in the call
             assert properties["Published Date"] == {
@@ -821,8 +833,8 @@ class TestNotionStorage:
             assert mock_create.call_count == 5
             mock_get_ids.assert_called_once()
 
-    def test_store_content_updates_cache_immediately_after_create(self, notion_storage):
-        """Cache should be updated right after pages.create succeeds, before block appending."""
+    def test_store_content_updates_cache_only_after_finalize(self, notion_storage):
+        """Incomplete pages must not enter the deduplication cache."""
         notion_storage._content_ids_cache = set()
 
         with patch.object(
@@ -845,10 +857,15 @@ class TestNotionStorage:
                 scraper_name="test",
             )
 
-            result = notion_storage._store_content(content)
-            assert result is True
-            # Cache should have been updated BEFORE block appending attempted
-            assert "test_id_123" in notion_storage._content_ids_cache
+            with patch.object(
+                notion_storage._markdown_converter,
+                "convert",
+                return_value=[{}] * 101,
+            ):
+                result = notion_storage._store_content(content)
+
+            assert result is False
+            assert "test_id_123" not in notion_storage._content_ids_cache
 
     def test_store_contents_retries_failed_items_after_sleep(self, notion_storage):
         """After first pass failures, store_contents should sleep, refresh cache,
@@ -860,14 +877,10 @@ class TestNotionStorage:
         def create_side_effect(**kwargs):
             call_count["value"] += 1
             props = kwargs.get("properties", {})
-            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
-            cid = (
-                content_id_text[0].get("text", {}).get("content", "")
-                if content_id_text
-                else ""
-            )
+            title_items = props.get("Name", {}).get("title", [{}])
+            title = title_items[0].get("text", {}).get("content", "")
             # First attempt for id_c fails, second attempt succeeds
-            if cid == "id_c" and call_count["value"] <= 2:
+            if title == "C" and call_count["value"] <= 2:
                 raise httpx.ReadTimeout("timeout")
             return {"id": f"page_{call_count['value']}"}
 
@@ -919,19 +932,91 @@ class TestNotionStorage:
             # Both should succeed (A on first pass, C on retry)
             assert all(r is True for r in results)
 
+    def test_store_contents_archives_ambiguous_create_before_retry(
+        self, notion_storage
+    ):
+        """A timed-out create must not leave a duplicate active page."""
+        import httpx
+
+        content = Content(
+            title="C",
+            link="https://c.com",
+            summary="c",
+            content_id="id_c",
+            content="c",
+            published="2025-01-01",
+            scraper_name="t",
+        )
+        pending_content_id = notion_storage._pending_content_id(content.content_id)
+
+        with patch.object(
+            notion_storage.notion.pages,
+            "create",
+            side_effect=[
+                httpx.ReadTimeout("timeout"),
+                {"id": "replacement-page"},
+            ],
+        ) as mock_create, patch.object(
+            notion_storage,
+            "get_all_content_ids",
+            side_effect=[set(), {pending_content_id}],
+        ), patch.object(
+            notion_storage, "_archive_pending_pages"
+        ) as mock_archive, patch(
+            "octopus_scraper.storages.notion_storage.time.sleep"
+        ):
+            results = notion_storage.store_contents([content], deduplicate=True)
+
+        assert results == [True]
+        mock_archive.assert_called_once_with(pending_content_id)
+        assert mock_create.call_count == 2
+
+    def test_store_contents_preserves_result_order_after_preflight_failure(
+        self, notion_storage
+    ):
+        """Cleanup failures must be attributed to the matching input."""
+        pending = Content(
+            title="Pending",
+            link="https://pending.example.com",
+            summary="pending",
+            content_id="pending-id",
+            content="pending",
+            published="2025-01-01",
+        )
+        new = Content(
+            title="New",
+            link="https://new.example.com",
+            summary="new",
+            content_id="new-id",
+            content="new",
+            published="2025-01-01",
+        )
+        pending_content_id = notion_storage._pending_content_id(pending.content_id)
+
+        with patch.object(
+            notion_storage,
+            "get_all_content_ids",
+            return_value={pending_content_id},
+        ), patch.object(
+            notion_storage,
+            "_archive_pending_pages",
+            side_effect=RuntimeError("archive failed"),
+        ), patch.object(
+            notion_storage, "_concurrent_store", return_value=[True]
+        ):
+            results = notion_storage.store_contents([pending, new], deduplicate=True)
+
+        assert results == [False, True]
+
     def test_store_contents_skips_retry_for_items_found_in_notion(self, notion_storage):
         """If a 'failed' item is found in Notion after sleep, skip it (it actually succeeded)."""
         import httpx
 
         def create_side_effect(**kwargs):
             props = kwargs.get("properties", {})
-            content_id_text = props.get("ContentId", {}).get("rich_text", [{}])
-            cid = (
-                content_id_text[0].get("text", {}).get("content", "")
-                if content_id_text
-                else ""
-            )
-            if cid == "id_c":
+            title_items = props.get("Name", {}).get("title", [{}])
+            title = title_items[0].get("text", {}).get("content", "")
+            if title == "C":
                 raise httpx.ReadTimeout("timeout")
             return {"id": "page_ok"}
 

@@ -40,7 +40,7 @@ async def trigger_scraper(request):
 
 @app.route("/trigger_upload", methods=["POST"])
 async def trigger_upload(request):
-    """从 TaskManager 已完成任务中收集未上传内容并上传到 Notion。"""
+    """Trigger one PostgreSQL-to-Notion incremental synchronization batch."""
     try:
         octopus: Octopus = app.ctx.octopus
         # trigger_upload 涉及同步 Notion API 调用，使用 to_thread 避免阻塞事件循环
@@ -48,7 +48,7 @@ async def trigger_upload(request):
 
         response = TriggerUploadResponse(
             status="success",
-            message="Upload completed successfully.",
+            message="Incremental synchronization completed.",
             data=upload_result,
         )
         return json(asdict(response))

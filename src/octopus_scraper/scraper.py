@@ -139,8 +139,15 @@ class Scraper:
         contents = self.activate_fetcher.fetch_contents(params)
         contents = self._filter_quality_contents(contents)
         if self.storage:
-            # 直接使用存储器的批量去重功能
-            existing_content_ids = self.storage.get_all_content_ids()
+            bounded_lookup = getattr(
+                type(self.storage), "get_existing_content_ids", None
+            )
+            if bounded_lookup is not None:
+                existing_content_ids = self.storage.get_existing_content_ids(
+                    content.content_id for content in contents
+                )
+            else:
+                existing_content_ids = self.storage.get_all_content_ids()
             new_contents = [
                 content
                 for content in contents

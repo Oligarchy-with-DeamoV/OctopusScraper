@@ -45,7 +45,7 @@ condition = '''
 '''
 
 # 1.3 octopus-service：配置加载的临时网络错误降噪
-# ConfigManager 每次刷新配置时，NotionConfigClient 先记录
+# ConfigManager 每次扫描 YAML 配置目录时先记录
 # `Failed to load scrapers configuration`，外层随后可能再记录
 # `Failed to reload configuration`。只用前者参与计数，避免一次网络抖动
 # 被重复算作两次；后者若属于同类网络错误则不即时告警。

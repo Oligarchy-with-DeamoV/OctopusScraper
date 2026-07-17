@@ -2,7 +2,6 @@ import argparse
 import os
 
 import structlog
-import yaml
 from doraemon.logger.slogger import configure_structlog
 from octopus_scraper.logging_config import LoggingConfigurator
 
@@ -27,15 +26,18 @@ Examples:
     parser.add_argument(
         "--host",
         type=str,
-        default=os.getenv("OCTOPUS_HOST", "0.0.0.0"),  # nosec B104
-        help="Host to bind the service (default: 0.0.0.0, env: OCTOPUS_HOST)",
+        default=os.getenv(
+            "SERVICE_HOST",
+            os.getenv("OCTOPUS_HOST", "0.0.0.0"),  # nosec B104
+        ),
+        help="Host to bind the service (default: 0.0.0.0, env: SERVICE_HOST)",
     )
 
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("OCTOPUS_PORT", "8000")),
-        help="Port to bind the service (default: 8000, env: OCTOPUS_PORT)",
+        default=int(os.getenv("SERVICE_PORT", os.getenv("OCTOPUS_PORT", "8000"))),
+        help="Port to bind the service (default: 8000, env: SERVICE_PORT)",
     )
 
     parser.add_argument(
@@ -61,12 +63,17 @@ Examples:
         help="Set log format (default: plain, env: OCTOPUS_LOG_FORMAT)",
     )
 
+    parser.add_argument(
+        "--scraper-config-dir",
+        type=str,
+        default=os.getenv("SCRAPER_CONFIG_DIR", "resources/scrapers.d"),
+        help=(
+            "Directory containing one scraper per .yml/.yaml file "
+            "(env: SCRAPER_CONFIG_DIR)"
+        ),
+    )
+
     return parser.parse_args()
-
-
-def load_yml_config(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def run_octopus_service():
@@ -93,6 +100,7 @@ def run_octopus_service():
         )
 
     LoggingConfigurator.configure_service_logging(args.log_level)
+    os.environ["SCRAPER_CONFIG_DIR"] = args.scraper_config_dir
 
     logger.info(
         "Starting OctopusScraper service",
@@ -100,6 +108,7 @@ def run_octopus_service():
         port=args.port,
         debug=args.debug,
         log_level=args.log_level,
+        scraper_config_dir=args.scraper_config_dir,
     )
 
     # Import and configure the service

@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import structlog
 
+from octopus_scraper.metrics import metrics
 from octopus_scraper.scraper import Content, Scraper
 from octopus_scraper.task_manager.models import (
     ScraperTask,
@@ -77,6 +78,8 @@ class TaskManager:
             "running_tasks_count": 0,
             "persisted_task_results_count": 0,
         }
+        metrics.configure_task_manager(max_queue_size, max_concurrent_tasks)
+        metrics.set_task_state(queued=0, running=0)
 
         # Task lifecycle hooks
         self._pre_execution_hooks: List[Callable] = []
@@ -176,6 +179,11 @@ class TaskManager:
                 )
                 self._stats["total_tasks"] += 1
                 self._stats["current_queue_size"] = self._task_queue.qsize()
+                metrics.tasks_submitted.inc()
+                metrics.set_task_state(
+                    queued=self._stats["current_queue_size"],
+                    running=len(self._running_tasks),
+                )
 
             logger.info(
                 "Task submitted",
@@ -223,7 +231,13 @@ class TaskManager:
         if future:
             cancelled = future.cancel()
             if cancelled:
+                del self._running_tasks[task_id]
+                self._stats["running_tasks_count"] = len(self._running_tasks)
                 self._mark_task_cancelled(task_id)
+                metrics.set_task_state(
+                    queued=self._task_queue.qsize(),
+                    running=self._stats["running_tasks_count"],
+                )
             return cancelled
 
         with self._state_lock:
@@ -338,6 +352,10 @@ class TaskManager:
                     priority, counter, task = self._task_queue.get(timeout=1.0)
                     with self._state_lock:
                         self._stats["current_queue_size"] = self._task_queue.qsize()
+                        metrics.set_task_state(
+                            queued=self._stats["current_queue_size"],
+                            running=len(self._running_tasks),
+                        )
                 except Empty:
                     # Cleanup old results periodically
                     self.cleanup_old_results()
@@ -349,6 +367,10 @@ class TaskManager:
                 if running_task_count >= self.max_concurrent_tasks:
                     # Put task back and wait
                     self._task_queue.put((priority, counter, task))
+                    metrics.set_task_state(
+                        queued=self._task_queue.qsize(),
+                        running=len(self._running_tasks),
+                    )
                     time.sleep(0.1)
                     continue
 
@@ -374,6 +396,10 @@ class TaskManager:
                     self._running_tasks[task.task_id] = future
                     self._stats["running_tasks_count"] = len(self._running_tasks)
                     running_tasks_count = len(self._running_tasks)
+                    metrics.set_task_state(
+                        queued=self._task_queue.qsize(),
+                        running=self._stats["running_tasks_count"],
+                    )
 
                 logger.info(
                     "Task started",
@@ -444,26 +470,58 @@ class TaskManager:
                     total_count=len(contents),
                 )
 
-            # Store contents in metadata BEFORE marking completed
+            if self._storage:
+                if not contents:
+                    storage_stats = {
+                        "requested": 0,
+                        "inserted": 0,
+                        "duplicates": 0,
+                    }
+                else:
+                    stats_method = getattr(
+                        type(self._storage), "store_contents_with_stats", None
+                    )
+                    if stats_method is not None:
+                        storage_stats = self._storage.store_contents_with_stats(
+                            contents
+                        )
+                    else:
+                        results = self._storage.store_contents(
+                            contents, deduplicate=True
+                        )
+                        if not all(results):
+                            raise RuntimeError(
+                                "Canonical storage rejected one or more contents"
+                            )
+                        storage_stats = {
+                            "requested": len(contents),
+                            "inserted": len(contents),
+                            "duplicates": 0,
+                        }
+            else:
+                raise RuntimeError("Canonical storage is not configured")
+
             with self._state_lock:
                 result.metadata.update(
                     {
                         "execution_time_seconds": execution_time,
                         "scraper_config": task.scraper_name,
                         "fetch_params": task.fetch_params,
-                        "contents": contents,
+                        "storage": storage_stats,
                     }
                 )
 
-                # Mark completed AFTER contents are stamped and stored,
-                # so trigger_upload never sees a COMPLETED task without contents.
                 result.mark_completed(
                     items_fetched=len(contents),
                     items_processed=len(contents),
-                    items_uploaded=0,  # Upload happens separately
+                    items_uploaded=0,
                 )
 
                 self._stats["completed_tasks"] += 1
+                metrics.record_task_completed(
+                    duration=result.duration_seconds or 0,
+                    items_fetched=result.items_fetched,
+                )
                 self._persist_result(result)
 
             logger.info(
@@ -471,6 +529,7 @@ class TaskManager:
                 task_id=task.task_id,
                 scraper_name=task.scraper_name,
                 items_fetched=len(contents),
+                items_stored=storage_stats["inserted"],
                 duration_seconds=result.duration_seconds,
             )
 
@@ -480,6 +539,7 @@ class TaskManager:
             with self._state_lock:
                 result.mark_failed(error_msg)
                 self._stats["failed_tasks"] += 1
+                metrics.record_task_failed(result.duration_seconds or 0)
                 self._persist_result(result)
 
             logger.error(
@@ -509,7 +569,9 @@ class TaskManager:
 
                 # Schedule retry (this is simplified - in production you'd want a proper scheduler)
                 threading.Timer(
-                    task.retry_delay_seconds, lambda: self.submit_task(retry_task)
+                    task.retry_delay_seconds,
+                    self._submit_retry_task,
+                    args=(retry_task,),
                 ).start()
 
                 logger.info(
@@ -533,6 +595,10 @@ class TaskManager:
                 if task.task_id in self._running_tasks:
                     del self._running_tasks[task.task_id]
                 self._stats["running_tasks_count"] = len(self._running_tasks)
+                metrics.set_task_state(
+                    queued=self._task_queue.qsize(),
+                    running=self._stats["running_tasks_count"],
+                )
 
                 # Add to history
                 self._task_history.append(result)
@@ -557,9 +623,22 @@ class TaskManager:
                     ).total_seconds()
 
             self._stats["cancelled_tasks"] += 1
+            metrics.tasks_cancelled.inc()
             if result:
                 self._persist_result(result)
         logger.info("Task cancelled", task_id=task_id)
+
+    def _submit_retry_task(self, task: ScraperTask) -> None:
+        """Submit a scheduled retry and count only accepted retries."""
+        try:
+            self.submit_task(task)
+            metrics.task_retries.inc()
+        except Exception as e:
+            logger.error(
+                "Failed to submit scheduled retry",
+                task_id=task.task_id,
+                error=str(e),
+            )
 
     def _persist_result(self, result: TaskResult) -> None:
         """Persist a task result if result persistence is configured."""
