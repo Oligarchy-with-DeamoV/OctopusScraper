@@ -156,6 +156,8 @@ services:
       - TZ=Asia/Shanghai
       - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL}
       - VECTOR_LOG=${VECTOR_LOG:-info}
+      # Vector 0.57+ requires an explicit opt-in for ${...} interpolation.
+      - VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true
     volumes:
       - ./vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
