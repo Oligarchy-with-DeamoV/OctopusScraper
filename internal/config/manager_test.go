@@ -56,6 +56,48 @@ func TestConfigManagerRetainsLastGoodAndRejectsDuplicates(t *testing.T) {
 	}
 }
 
+func TestConfigManagerRetainsRenamedLastGoodAfterInvalidEdit(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	originalPath := writeConfigFile(
+		t,
+		directory,
+		"original.yaml",
+		testScraperYAML("feed", "/feed.xml", true),
+	)
+	manager := newTestConfigManager(directory)
+	if _, err := manager.LoadInitial(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	renamedPath := filepath.Join(directory, "renamed.yaml")
+	if err := os.Rename(originalPath, renamedPath); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := manager.Reload(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("path-only rename changed the semantic configuration")
+	}
+	writeConfigFile(t, directory, "renamed.yaml", "id: feed\nname: Broken\n")
+	changed, err = manager.Reload(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("invalid renamed edit changed the active configuration")
+	}
+	scrapers := manager.GetCurrentScrapers()
+	if len(scrapers) != 1 || scrapers[0].Route != "/feed.xml" {
+		t.Fatalf("last-good scraper = %#v", scrapers)
+	}
+	if manager.GetFileErrors()[renamedPath] == "" {
+		t.Fatal("missing error for invalid renamed configuration")
+	}
+}
+
 func TestConfigManagerResolvesCascadingDuplicateRestores(t *testing.T) {
 	directory := t.TempDir()
 	writeConfigFile(

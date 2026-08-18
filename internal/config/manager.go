@@ -292,6 +292,7 @@ func (m *ConfigManager) refresh(ctx context.Context, force bool, invokeCallback 
 		return false, err
 	}
 	if newHash == oldHash {
+		m.acceptedByPath = candidate
 		m.fileErrors = errors
 		m.fileHashes = fileHashes
 		m.lastCheck = now

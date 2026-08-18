@@ -8,7 +8,8 @@ endpoints for human diagnostics.
 The Docker Compose stack exposes the endpoint but does not bundle a Prometheus
 server. Configure an external Prometheus instance to scrape
 `octopus-service:<SERVICE_PORT>/metrics` (`8000` by default). Vector continues
-to deliver Feishu alerts from container error logs.
+to deliver Feishu alerts from container error logs, including fatal startup
+errors emitted before the normal logger is initialized.
 
 ## Metric model
 

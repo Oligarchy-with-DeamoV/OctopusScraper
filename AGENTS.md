@@ -58,25 +58,34 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
   keys, unknown fields, invalid URLs, duplicate IDs/names, and unsupported
   fetchers/processors.
 - Invalid changes to an accepted YAML file retain that file's last valid value.
+- Path-only config renames transfer the accepted last-good snapshot to the new
+  path before later invalid edits are evaluated.
 - Config reload swaps immutable scraper snapshots without cancelling submitted
   tasks.
 - Processor and custom-category insertion order affects behavior and must be
   included in config fingerprints and reload diffs.
 - Task submission is bounded and priority ordered. Retries are bounded.
+- Queue saturation may delay a scheduled retry but must not discard it.
 - Graceful shutdown rejects new work, cancels queued work, and lets running
   tasks drain until the shutdown deadline before forcing cancellation.
+- PostgreSQL closes only after task and Notion workers report a complete stop.
+- `SCRAPER_TIMEOUT` controls task execution deadlines.
 - Persisted non-terminal task results must be finalized during startup; never
   expose stale `pending`, `running`, or `retrying` work after a restart.
 - Task-result SQLite persistence is optional and must not prevent PostgreSQL
   scraping from starting when history cannot be read or written.
 - Notion workers claim rows with leases and PostgreSQL
   `FOR UPDATE SKIP LOCKED`.
+- Losing a Notion lease cancels the active writer before another worker can
+  reclaim the row.
 - Notion deduplication must treat `request_status.type=incomplete` as a
   truncated query and verify misses with exact content-ID queries.
 - A YAML-selected LLM endpoint must not inherit a global API key configured
   for a different endpoint.
 - The structured `"Task failed"` event and error-level output are stable Vector
   alert signals.
+- Fatal startup errors emitted before logger initialization must also match the
+  Vector error filter.
 - Browser rendering uses remote Browserless/CDP. Do not add Chromium to the
   service image.
 - Deprecated Python compatibility aliases and placeholder providers must not

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,10 +18,58 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	arguments := os.Args[1:]
+	if err := run(arguments); err != nil {
+		writeFatalError(os.Stderr, arguments, err)
 		os.Exit(1)
 	}
+}
+
+func writeFatalError(
+	writer io.Writer,
+	arguments []string,
+	err error,
+) {
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	if fatalLogFormat(arguments) == "json" {
+		_ = json.NewEncoder(writer).Encode(struct {
+			Time  string `json:"time"`
+			Level string `json:"level"`
+			Event string `json:"event"`
+			Error string `json:"error"`
+		}{
+			Time:  timestamp,
+			Level: "error",
+			Event: "OctopusScraper command failed",
+			Error: err.Error(),
+		})
+		return
+	}
+	fmt.Fprintf(
+		writer,
+		"%s [error] OctopusScraper command failed error=%q\n",
+		timestamp,
+		err,
+	)
+}
+
+func fatalLogFormat(arguments []string) string {
+	for index, argument := range arguments {
+		if argument == "--log-format" && index+1 < len(arguments) {
+			return strings.ToLower(strings.TrimSpace(arguments[index+1]))
+		}
+		if value, found := strings.CutPrefix(
+			argument,
+			"--log-format=",
+		); found {
+			return strings.ToLower(strings.TrimSpace(value))
+		}
+	}
+	format := os.Getenv("LOG_FORMAT")
+	if format == "" {
+		format = os.Getenv("OCTOPUS_LOG_FORMAT")
+	}
+	return strings.ToLower(strings.TrimSpace(format))
 }
 
 func run(arguments []string) error {

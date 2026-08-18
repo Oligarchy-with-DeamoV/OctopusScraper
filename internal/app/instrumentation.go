@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -127,14 +128,16 @@ func (s *InstrumentedSyncService) Stop(ctx context.Context) error {
 	if cancel != nil {
 		cancel()
 	}
+	serviceErr := s.Service.Stop(ctx)
+	var workerErr error
 	if done != nil {
 		select {
 		case <-done:
 		case <-ctx.Done():
-			return ctx.Err()
+			workerErr = ctx.Err()
 		}
 	}
-	return s.Service.Stop(ctx)
+	return errors.Join(serviceErr, workerErr)
 }
 
 func (s *InstrumentedSyncService) runLoop(ctx context.Context) {

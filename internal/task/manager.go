@@ -23,6 +23,7 @@ var (
 const (
 	interruptedTaskMessage = "Task interrupted by service restart"
 	forcedShutdownWait     = time.Second
+	retryAdmissionDelay    = 100 * time.Millisecond
 )
 
 // ExecutionResult reports one scraper attempt.
@@ -224,8 +225,15 @@ func markInterruptedResult(result *Result, recoveredAt time.Time) bool {
 	return true
 }
 
-func NewScraperTask(scraper configScraper, fetchParams map[string]any) ScraperTask {
+func NewScraperTask(
+	scraper configScraper,
+	fetchParams map[string]any,
+	timeout time.Duration,
+) ScraperTask {
 	now := time.Now()
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
 	return ScraperTask{
 		ID:              uuid.NewString(),
 		ScraperName:     scraper.Name,
@@ -234,7 +242,7 @@ func NewScraperTask(scraper configScraper, fetchParams map[string]any) ScraperTa
 		Priority:        priorityFromInt(scraper.Priority),
 		MaxRetries:      3,
 		RetryDelay:      time.Minute,
-		Timeout:         5 * time.Minute,
+		Timeout:         timeout,
 		CreatedAt:       now,
 		ScheduledAt:     now,
 		Tags:            []string{scraper.Fetcher},
@@ -258,7 +266,10 @@ type configScraper struct {
 	DefaultKeywords []string
 }
 
-func NewTaskFromConfig(scraper config.ScraperConfig) ScraperTask {
+func NewTaskFromConfig(
+	scraper config.ScraperConfig,
+	timeout time.Duration,
+) ScraperTask {
 	return NewScraperTask(configScraper{
 		Config:          scraper,
 		Name:            scraper.Name,
@@ -267,7 +278,7 @@ func NewTaskFromConfig(scraper config.ScraperConfig) ScraperTask {
 		HubRoot:         scraper.HubRoot,
 		Route:           scraper.Route,
 		DefaultKeywords: scraper.DefaultKeywords,
-	}, scraper.FetchParams)
+	}, scraper.FetchParams, timeout)
 }
 
 func (m *Manager) Submit(task ScraperTask) (string, error) {
@@ -589,33 +600,45 @@ func (m *Manager) finish(
 				retry.Metadata = map[string]any{}
 			}
 			retry.Metadata["original_task_id"] = task.ID
-			retryID := retry.ID
-			timer := time.AfterFunc(delay, func() {
-				m.mu.Lock()
-				delete(m.retryTimers, retryID)
-				stopping := m.stopping
-				m.mu.Unlock()
-				if stopping {
-					return
-				}
-				if _, err := m.Submit(retry); err != nil {
-					if errors.Is(err, errManagerStopping) {
-						return
-					}
-					m.logger.Error(
-						"Failed to submit scheduled retry",
-						"task_id", retry.ID,
-						"error", err,
-					)
-					return
-				}
-				m.observer.Retried()
-			})
-			m.retryTimers[retryID] = timer
+			m.scheduleRetryLocked(retry, delay)
 		}
 	}
 	m.persistLocked(result)
 	m.observer.State(len(m.queue), len(m.running))
+}
+
+func (m *Manager) scheduleRetryLocked(
+	retry ScraperTask,
+	delay time.Duration,
+) {
+	retryID := retry.ID
+	m.retryTimers[retryID] = time.AfterFunc(delay, func() {
+		m.submitScheduledRetry(retry)
+	})
+}
+
+func (m *Manager) submitScheduledRetry(retry ScraperTask) {
+	m.mu.Lock()
+	delete(m.retryTimers, retry.ID)
+	_, err := m.submitLocked(retry)
+	if errors.Is(err, ErrQueueFull) {
+		m.scheduleRetryLocked(retry, retryAdmissionDelay)
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+	if err == nil {
+		m.observer.Retried()
+		return
+	}
+	if errors.Is(err, errManagerStopping) {
+		return
+	}
+	m.logger.Error(
+		"Failed to submit scheduled retry",
+		"task_id", retry.ID,
+		"error", err,
+	)
 }
 
 func (m *Manager) cleanupLoop() {

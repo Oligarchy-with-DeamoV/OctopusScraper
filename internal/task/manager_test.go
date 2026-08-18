@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ func TestNewManagerValidatesDependencies(t *testing.T) {
 	if _, err := NewManager(logger, nil, 1, 1, time.Hour, nil, nil); err == nil {
 		t.Fatal("expected missing executor error")
 	}
+
 	for _, capacities := range [][2]int{{0, 1}, {1, 0}, {-1, 1}} {
 		if _, err := NewManager(
 			logger,
@@ -46,9 +48,12 @@ func TestNewTaskFromConfigMapsFieldsAndPriority(t *testing.T) {
 			Priority:        priority,
 			FetchParams:     map[string]any{"limit": 10},
 			DefaultKeywords: []string{"go"},
-		})
+		}, 42*time.Second)
 		if task.ID == "" || task.Priority != expected || task.ScraperName != "Feed" {
 			t.Fatalf("unexpected task: %#v", task)
+		}
+		if task.Timeout != 42*time.Second {
+			t.Fatalf("task timeout = %s", task.Timeout)
 		}
 		if task.Metadata["fetcher"] != "rsshub" ||
 			task.FetchParams["limit"] != 10 ||
@@ -90,6 +95,27 @@ func (e *fakeExecutor) Execute(
 	}, nil
 }
 
+type retrySaturationExecutor struct {
+	block <-chan struct{}
+}
+
+func (e retrySaturationExecutor) Execute(
+	ctx context.Context,
+	task ScraperTask,
+) (ExecutionResult, error) {
+	if task.ID == "retry" {
+		return ExecutionResult{}, errors.New("planned failure")
+	}
+	if strings.HasPrefix(task.ID, "block-") {
+		select {
+		case <-e.block:
+		case <-ctx.Done():
+			return ExecutionResult{}, ctx.Err()
+		}
+	}
+	return ExecutionResult{}, nil
+}
+
 func TestManagerCompletesAndPersistsTask(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "tasks.sqlite3")
 	store, err := NewResultStore(databasePath)
@@ -117,7 +143,7 @@ func TestManagerCompletesAndPersistsTask(t *testing.T) {
 		Route:       "/feed",
 		Priority:    5,
 		FetchParams: map[string]any{},
-	})
+	}, time.Minute)
 	task.MaxRetries = 0
 	task.Metadata["batch_id"] = "batch-1"
 	taskID, err := manager.Submit(task)
@@ -617,6 +643,63 @@ func TestManagerRetriesFailedTask(t *testing.T) {
 		stats.TotalTasks != 2 || stats.SuccessRatePercent != 50 {
 		t.Fatalf("unexpected retry statistics: %#v", stats)
 	}
+	if err := manager.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerRetainsRetryWhileQueueIsFull(t *testing.T) {
+	block := make(chan struct{})
+	manager, err := NewManager(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		retrySaturationExecutor{block: block},
+		1,
+		1,
+		time.Hour,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := ScraperTask{
+		ID:          "retry",
+		ScraperName: "retry",
+		Priority:    PriorityNormal,
+		MaxRetries:  1,
+		RetryDelay:  500 * time.Millisecond,
+		Timeout:     2 * time.Second,
+	}
+	if _, err := manager.Submit(retry); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, manager, retry.ID, StatusFailed)
+	running := ScraperTask{
+		ID:          "block-running",
+		ScraperName: "block-running",
+		Priority:    PriorityNormal,
+		Timeout:     time.Second,
+	}
+	queued := ScraperTask{
+		ID:          "block-queued",
+		ScraperName: "block-queued",
+		Priority:    PriorityNormal,
+		Timeout:     time.Second,
+	}
+	if _, err := manager.Submit(running); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, manager, running.ID, StatusRunning)
+	if _, err := manager.Submit(queued); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(retry.RetryDelay + 2*retryAdmissionDelay)
+	if _, exists := manager.Result("retry_retry_1"); exists {
+		t.Fatal("retry was submitted while the queue was full")
+	}
+
+	close(block)
+	waitForStatus(t, manager, "retry_retry_1", StatusCompleted)
 	if err := manager.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}

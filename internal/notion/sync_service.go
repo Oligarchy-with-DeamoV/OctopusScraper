@@ -202,6 +202,7 @@ func (s *SyncService) runBatch(ctx context.Context) (BatchStats, error) {
 					contentID,
 					claimID,
 					claimLost,
+					cancelOperation,
 				)
 			}(current.ContentID)
 
@@ -341,6 +342,7 @@ func (s *SyncService) heartbeatClaims(
 	contentID string,
 	claimID string,
 	lost chan<- error,
+	cancelOperation context.CancelFunc,
 ) {
 	interval := s.config.Lease / 3
 	if interval <= 0 {
@@ -362,6 +364,7 @@ func (s *SyncService) heartbeatClaims(
 				case lost <- fmt.Errorf("renew Notion synchronization claim: %w", err):
 				default:
 				}
+				cancelOperation()
 				return
 			}
 			if !renewed {
@@ -369,6 +372,7 @@ func (s *SyncService) heartbeatClaims(
 				case lost <- errors.New("Notion synchronization claim was lost"):
 				default:
 				}
+				cancelOperation()
 				return
 			}
 		}

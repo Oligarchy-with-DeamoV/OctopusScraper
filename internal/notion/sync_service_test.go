@@ -173,6 +173,57 @@ func TestSyncServiceBusyAndLostClaim(t *testing.T) {
 	}
 }
 
+func TestSyncServiceCancelsUploadWhenHeartbeatLosesClaim(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{}, 1)
+	store := &fakeCanonicalStore{
+		claims:       [][]content.Content{{{ContentID: "id-heartbeat", Title: "T"}}},
+		renewResults: []bool{true, false},
+	}
+	service := NewSyncService(
+		config.NotionConfig{
+			Enabled:     true,
+			BatchSize:   1,
+			Lease:       30 * time.Millisecond,
+			MaxAttempts: 3,
+		},
+		store,
+		&fakeUploader{
+			results: []bool{true},
+			block:   make(chan struct{}),
+			started: started,
+		},
+	)
+
+	finished := make(chan map[string]any, 1)
+	go func() {
+		stats, _ := service.RunOnce(context.Background())
+		finished <- stats
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("upload did not start")
+	}
+	select {
+	case stats := <-finished:
+		if stats["lost_claim_count"] != 1 {
+			t.Fatalf("lost-claim stats = %+v", stats)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lost heartbeat claim did not cancel the active upload")
+	}
+	if len(store.markSyncedCalls) != 0 ||
+		len(store.markFailedCalls) != 0 {
+		t.Fatalf(
+			"lost claim was finalized: synced=%v failed=%v",
+			store.markSyncedCalls,
+			store.markFailedCalls,
+		)
+	}
+}
+
 type fakeUploader struct {
 	results []bool
 	err     error

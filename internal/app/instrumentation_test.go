@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,6 +45,64 @@ func TestInstrumentedSyncRunsPeriodicBatches(t *testing.T) {
 	if err := instrumented.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestInstrumentedSyncStopsUnderlyingServiceBeforeWorkerDrain(t *testing.T) {
+	t.Parallel()
+
+	service := &stopReleasingSyncService{
+		started:    make(chan struct{}, 1),
+		release:    make(chan struct{}),
+		stopCalled: make(chan struct{}),
+	}
+	instrumented := &InstrumentedSyncService{
+		Service:  service,
+		Metrics:  observability.NewMetrics("test"),
+		Interval: time.Hour,
+	}
+	instrumented.Start(context.Background())
+	select {
+	case <-service.started:
+	case <-time.After(time.Second):
+		t.Fatal("periodic upload did not start")
+	}
+
+	stopCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = instrumented.Stop(stopCtx)
+	select {
+	case <-service.stopCalled:
+	case <-time.After(time.Second):
+		t.Fatal("underlying sync service was not stopped")
+	}
+}
+
+type stopReleasingSyncService struct {
+	started    chan struct{}
+	release    chan struct{}
+	stopCalled chan struct{}
+	stopOnce   sync.Once
+}
+
+func (s *stopReleasingSyncService) RunOnce(
+	context.Context,
+) (map[string]any, error) {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	<-s.release
+	return map[string]any{}, nil
+}
+
+func (*stopReleasingSyncService) Start(context.Context) {}
+
+func (s *stopReleasingSyncService) Stop(context.Context) error {
+	s.stopOnce.Do(func() {
+		close(s.stopCalled)
+		close(s.release)
+	})
+	return nil
 }
 
 func (f failingFetcherFactory) Create(

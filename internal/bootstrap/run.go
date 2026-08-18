@@ -106,6 +106,7 @@ func Run(ctx context.Context, options Options) error {
 		configManager,
 		canonicalStore,
 		syncService,
+		serviceConfig.ScraperTimeout,
 	)
 
 	resultStore := openTaskResultStore(
@@ -196,14 +197,26 @@ func Run(ctx context.Context, options Options) error {
 	}
 	cancelRuntime()
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil && runErr == nil {
-		runErr = fmt.Errorf("shutdown HTTP server: %w", err)
+	httpShutdownCtx, cancelHTTPShutdown := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
+		if runErr == nil {
+			runErr = fmt.Errorf("shutdown HTTP server: %w", err)
+		}
+		_ = httpServer.Close()
 	}
-	if err := octopusRuntime.Stop(shutdownCtx); err != nil && runErr == nil {
+	cancelHTTPShutdown()
+	runtimeShutdownCtx, cancelRuntimeShutdown := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	if err := octopusRuntime.Stop(runtimeShutdownCtx); err != nil &&
+		runErr == nil {
 		runErr = fmt.Errorf("stop runtime: %w", err)
 	}
+	cancelRuntimeShutdown()
 	return runErr
 }
 

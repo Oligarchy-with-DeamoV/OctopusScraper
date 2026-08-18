@@ -172,6 +172,7 @@ type Runtime struct {
 	configSource ConfigSource
 	store        storage.CanonicalStore
 	syncService  SyncService
+	taskTimeout  time.Duration
 
 	mu      sync.RWMutex
 	manager *task.Manager
@@ -182,12 +183,14 @@ func NewRuntime(
 	configSource ConfigSource,
 	store storage.CanonicalStore,
 	syncService SyncService,
+	taskTimeout time.Duration,
 ) *Runtime {
 	return &Runtime{
 		logger:       logger,
 		configSource: configSource,
 		store:        store,
 		syncService:  syncService,
+		taskTimeout:  taskTimeout,
 	}
 }
 
@@ -205,7 +208,10 @@ func (r *Runtime) TriggerScraper(_ context.Context) (string, int, error) {
 	scrapers := r.configSource.CurrentScrapers()
 	tasks := make([]task.ScraperTask, 0, len(scrapers))
 	for _, scraper := range scrapers {
-		tasks = append(tasks, task.NewTaskFromConfig(scraper))
+		tasks = append(
+			tasks,
+			task.NewTaskFromConfig(scraper, r.taskTimeout),
+		)
 	}
 	batchID := fmt.Sprintf("scraper_batch_%d", time.Now().Unix())
 	submitted, err := manager.SubmitBatch(batchID, tasks)
@@ -293,19 +299,47 @@ func legacyFetcherType(fetcherName string) string {
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
-	var stopErrors []error
+	type stopResult struct {
+		name string
+		err  error
+	}
+	stops := make([]func() stopResult, 0, 2)
 	if r.syncService != nil {
-		if err := r.syncService.Stop(ctx); err != nil {
-			stopErrors = append(stopErrors, fmt.Errorf("stop sync service: %w", err))
-		}
+		stops = append(stops, func() stopResult {
+			return stopResult{
+				name: "sync service",
+				err:  r.syncService.Stop(ctx),
+			}
+		})
 	}
 	manager, err := r.taskManager()
 	if err == nil {
-		if err := manager.Stop(ctx); err != nil {
-			stopErrors = append(stopErrors, fmt.Errorf("stop task manager: %w", err))
+		stops = append(stops, func() stopResult {
+			return stopResult{
+				name: "task manager",
+				err:  manager.Stop(ctx),
+			}
+		})
+	}
+	results := make(chan stopResult, len(stops))
+	for _, stop := range stops {
+		go func(stop func() stopResult) {
+			results <- stop()
+		}(stop)
+	}
+	var stopErrors []error
+	for range stops {
+		result := <-results
+		if result.err != nil {
+			stopErrors = append(
+				stopErrors,
+				fmt.Errorf("stop %s: %w", result.name, result.err),
+			)
 		}
 	}
-	r.store.Close()
+	if len(stopErrors) == 0 {
+		r.store.Close()
+	}
 	return errors.Join(stopErrors...)
 }
 

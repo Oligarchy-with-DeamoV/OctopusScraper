@@ -170,12 +170,17 @@ func (s *runtimeSyncService) Stop(context.Context) error {
 	return s.err
 }
 
-type successfulExecutor struct{}
+type successfulExecutor struct {
+	tasks chan<- task.ScraperTask
+}
 
-func (successfulExecutor) Execute(
-	context.Context,
-	task.ScraperTask,
+func (e successfulExecutor) Execute(
+	_ context.Context,
+	submitted task.ScraperTask,
 ) (task.ExecutionResult, error) {
+	if e.tasks != nil {
+		e.tasks <- submitted
+	}
 	return task.ExecutionResult{ItemsFetched: 1}, nil
 }
 
@@ -194,14 +199,21 @@ func TestRuntimeOperations(t *testing.T) {
 			Route:   "https://example.com/feed",
 		},
 	}}
-	runtime := NewRuntime(logger, configSource, store, syncService)
+	runtime := NewRuntime(
+		logger,
+		configSource,
+		store,
+		syncService,
+		time.Minute,
+	)
 
 	if _, _, err := runtime.TriggerScraper(context.Background()); err == nil {
 		t.Fatal("expected trigger before task manager setup to fail")
 	}
+	submittedTasks := make(chan task.ScraperTask, 1)
 	manager, err := task.NewManager(
 		logger,
-		successfulExecutor{},
+		successfulExecutor{tasks: submittedTasks},
 		1,
 		10,
 		time.Hour,
@@ -219,6 +231,14 @@ func TestRuntimeOperations(t *testing.T) {
 	}
 	if batchID == "" || scraperCount != 1 {
 		t.Fatalf("unexpected trigger result: %q %d", batchID, scraperCount)
+	}
+	select {
+	case submitted := <-submittedTasks:
+		if submitted.Timeout != time.Minute {
+			t.Fatalf("submitted timeout = %s", submitted.Timeout)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scraper task was not executed")
 	}
 	if result, err := runtime.TriggerUpload(context.Background()); err != nil ||
 		result["synced_count"] != 1 {
@@ -282,6 +302,7 @@ func TestRuntimeDisabledSyncAndErrors(t *testing.T) {
 		staticConfigSource{},
 		store,
 		nil,
+		time.Minute,
 	)
 	result, err := runtime.TriggerUpload(context.Background())
 	if err != nil || result["enabled"] != false {
@@ -298,5 +319,27 @@ func TestRuntimeDisabledSyncAndErrors(t *testing.T) {
 	}
 	if len(runtime.ListTasks(nil, 10)) != 0 {
 		t.Fatal("expected empty task list")
+	}
+}
+
+func TestRuntimeKeepsStoreOpenWhenDependencyStopIsIncomplete(t *testing.T) {
+	t.Parallel()
+
+	store := &memoryStore{}
+	syncService := &runtimeSyncService{
+		err: errors.New("stop failed"),
+	}
+	runtime := NewRuntime(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		staticConfigSource{},
+		store,
+		syncService,
+		time.Minute,
+	)
+	if err := runtime.Stop(context.Background()); err == nil {
+		t.Fatal("expected dependency stop failure")
+	}
+	if store.closed.Load() {
+		t.Fatal("store closed while a dependency may still be running")
 	}
 }
