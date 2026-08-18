@@ -1,54 +1,37 @@
-# ============================================================
-# Stage 1: Build — install Poetry and project dependencies
-# ============================================================
-FROM python:3.10-slim AS builder
+FROM golang:1.26.6-bookworm AS builder
 
-RUN pip install --no-cache-dir poetry
+ARG VERSION=0.2.0
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
 
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+WORKDIR /src
 
-WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy dependency manifests first for better layer caching.
-# Changes to source code won't invalidate the dependency layer.
-COPY pyproject.toml poetry.lock README.md ./
-COPY resources/ ./resources/
+COPY . .
 
-# Install production dependencies only, then remove the cache
-RUN poetry install --without dev --no-root && rm -rf "$POETRY_CACHE_DIR"
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w \
+      -X github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/version.Version=${VERSION} \
+      -X github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/version.Commit=${COMMIT} \
+      -X github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/version.Date=${BUILD_DATE}" \
+    -o /out/runtime/octopus_service \
+    ./cmd/octopus_service \
+      && mkdir -p /out/runtime/.octopus /out/runtime/resources/scrapers.d
 
-# Copy the application source code
-COPY src/ ./src/
-
-# Install the project itself (root package)
-RUN poetry install --without dev && rm -rf "$POETRY_CACHE_DIR"
-
-# ============================================================
-# Stage 2: Runtime — minimal image with only what's needed
-# ============================================================
-FROM python:3.10-slim AS runtime
-
-# Install minimal runtime dependencies (lxml, etc. may need these)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libxml2 \
-        libxslt1.1 \
-    && rm -rf /var/lib/apt/lists/*
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy only the virtual environment and source code from the builder
-COPY --from=builder /app/.venv ./.venv
-COPY --from=builder /app/src ./src
+COPY --from=builder --chown=65532:65532 /out/runtime/ /app/
 
-# Activate the virtual environment via PATH
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+ENV OCTOPUS_TASK_RESULT_PATH=/app/.octopus/task_results.sqlite3
 
 EXPOSE 8000
 
-# Use the installed script directly — Poetry is NOT in this image
-ENTRYPOINT ["octopus_service", "--host", "0.0.0.0", "--port", "8000"]
+USER 65532:65532
+
+ENTRYPOINT ["/app/octopus_service"]
+CMD ["serve"]

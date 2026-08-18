@@ -1,0 +1,10 @@
+[
+  {
+    "content_id": "06fcdf56dc257fc4",
+    "title": "Fixture Article",
+    "link": "https://example.com/articles/1?tracking=ignored",
+    "published": "Tue, 18 Aug 2026 10:00:00 GMT",
+    "summary": "Fixture **summary**.",
+    "content": "Fixture **summary**."
+  }
+]

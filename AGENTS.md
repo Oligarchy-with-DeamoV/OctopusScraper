@@ -1,284 +1,166 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents when working with code in this repository.
+Guidance for coding agents working on OctopusScraper.
 
-## Project Overview
+## Project
 
-OctopusScraper (`octopus-scraper`, v0.2.0) is a multi-functional information
-scraping tool that fetches, processes, and persists web content via RSS feeds
-with Notion as the canonical storage backend. It provides:
+OctopusScraper (`v0.2.0`) is a Go service that:
 
-- RSS-based content acquisition through pluggable fetchers (RSSHub or direct
-  RSS endpoints)
-- A configurable content-processing pipeline (HTML extraction, LLM
-  summarization, keyword & tag generation)
-- Notion-backed persistence with deduplication, retry logic, and concurrency
-  control
-- A Sanic web service (`octopus_service`) exposing trigger endpoints, plus a
-  Docker Compose stack bundling RSSHub, Redis, a cron scheduler, and a Vector
-  log-monitoring sidecar that pushes alerts to Feishu
+- fetches RSS/Atom content from RSSHub or direct feed URLs;
+- applies optional HTML and OpenAI-compatible processors;
+- stores canonical content and synchronization state in PostgreSQL;
+- synchronizes PostgreSQL rows to Notion with leases and retries;
+- exposes trigger, health, admin, and Prometheus endpoints;
+- runs with RSSHub, Redis, a cron scheduler, and Vector in Docker Compose.
+
+The repository only covers information collection and persistence. Business
+analysis belongs outside this project.
 
 ## Commands
 
 ```bash
-# Install dependencies
-poetry install
-
-# Run the web service (entry point defined in pyproject.toml)
-poetry run octopus_service
-
-# Run all unit tests (excludes external/integration tests) — default dev run
-poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
-
-# Run a single test file
-poetry run pytest tests/octopus_scraper/task_manager/test_task_manager.py
-
-# Run a single test by name
-poetry run pytest -k "test_function_name"
-
-# Run with coverage
-poetry run pytest --cov=src tests/
-
-# Format code (Black uses its default line length of 88; CI checks the same)
-poetry run black src/ tests/
-
-# Run the full Docker Compose stack (octopus-service + rsshub + redis + scheduler + vector-alert)
+go mod download
+gofmt -w .
+go vet ./...
+go test ./...
+go test -race ./...
+go test -coverprofile=coverage.out ./...
+go run ./cmd/octopus_service serve
 docker compose up -d
 ```
 
-> The project does **not** use ruff or mypy. Black 24.10.0 is the sole
-> formatter, enforced via `.pre-commit-config.yaml`.
+Build the production image:
 
-## Architecture
+```bash
+docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
+```
 
-### Source layout: `src/octopus_scraper/`
+## Layout
 
-**Entry point**: `cli/__init__.py` — defines `run_octopus_service`, the
-`octopus_service` console script. It parses CLI / env config, configures
-structlog (plain console or JSON via `OCTOPUS_LOG_FORMAT`), and starts the
-Sanic app from `service/app.py`.
+- `cmd/octopus_service/` — service and container-healthcheck entry point.
+- `internal/bootstrap/` — dependency construction and process lifecycle.
+- `internal/config/` — environment settings and strict YAML polling.
+- `internal/fetcher/` — RSSHub and direct RSS acquisition.
+- `internal/processor/` — ordered HTML and LLM processing pipeline.
+- `internal/storage/` — PostgreSQL canonical store and migrations.
+- `internal/notion/` — Notion REST client, block conversion, and sync worker.
+- `internal/task/` — bounded priority queue, workers, retries, and SQLite results.
+- `internal/httpapi/` — trigger, health, admin, and metrics routes.
+- `internal/observability/` — `slog` handlers and Prometheus metrics.
+- `contracts/` — language-neutral compatibility fixtures.
 
-**Main modules:**
+## Runtime invariants
 
-1. **`task_manager/`** — Concurrent task scheduling
-   - `task_manager.py` — `TaskManager`: PriorityQueue-based scheduler backed by
-     a `ThreadPoolExecutor`. Supports pre/post-execution hooks, retry logic,
-     and result retention. Emits the structured `"Task failed"` log entry that
-     downstream alerting (Vector) keys on.
-   - `models.py` — `ScraperTask`, `TaskResult`, `TaskStatus` (`PENDING`,
-     `RUNNING`, `COMPLETED`, `FAILED`).
+- PostgreSQL is canonical. A scrape succeeds after its database write commits.
+- Notion failure must not roll back canonical content.
+- Preserve schema version `1` unless a migration is explicitly requested.
+- Scraper config uses one YAML document per file. Reject aliases, duplicate
+  keys, unknown fields, invalid URLs, duplicate IDs/names, and unsupported
+  fetchers/processors.
+- Invalid changes to an accepted YAML file retain that file's last valid value.
+- Config reload swaps immutable scraper snapshots without cancelling submitted
+  tasks.
+- Processor and custom-category insertion order affects behavior and must be
+  included in config fingerprints and reload diffs.
+- Task submission is bounded and priority ordered. Retries are bounded.
+- Graceful shutdown rejects new work, cancels queued work, and lets running
+  tasks drain until the shutdown deadline before forcing cancellation.
+- Persisted non-terminal task results must be finalized during startup; never
+  expose stale `pending`, `running`, or `retrying` work after a restart.
+- Task-result SQLite persistence is optional and must not prevent PostgreSQL
+  scraping from starting when history cannot be read or written.
+- Notion workers claim rows with leases and PostgreSQL
+  `FOR UPDATE SKIP LOCKED`.
+- Notion deduplication must treat `request_status.type=incomplete` as a
+  truncated query and verify misses with exact content-ID queries.
+- A YAML-selected LLM endpoint must not inherit a global API key configured
+  for a different endpoint.
+- The structured `"Task failed"` event and error-level output are stable Vector
+  alert signals.
+- Browser rendering uses remote Browserless/CDP. Do not add Chromium to the
+  service image.
+- Deprecated Python compatibility aliases and placeholder providers must not
+  be reintroduced.
 
-2. **`processors/`** — Ordered content processing pipeline
-   - `processor_base.py` — `ProcessorBase` abstract class
-   - `processor_pipeline.py` — Composes processors in order
-   - `html_content_processor.py`, `llm_summary_processor.py`,
-     `llm_keywords_processor.py`, `llm_tags_processor.py` — Concrete
-     processors, registered in `AVAILABLE_PROCESSOR`
-   - `llm_processor.py` — Shared LLM invocation logic
+## Go style
 
-3. **`storages/`** — Persistence layer
-   - `base_storage.py` — Abstract storage interface with retry/skip accounting
-   - `postgres_storage.py` — canonical PostgreSQL content persistence,
-     deduplication, sync state, retry metadata, and worker leases
-   - `notion_storage.py` — optional downstream Notion API writes
-   - `markdown_to_notion.py` — Markdown → Notion block converter
-
-4. **`config/`** — Scraper configuration
-   - `config_manager.py` — `ConfigManager`: loads one scraper per YAML file,
-     polls with content fingerprints, and preserves the last valid file on
-     parse or validation failures
-   - `yaml_config.py`, `models.py` — strict YAML parsing and config schemas
-
-5. **`service/`** — Sanic web service
-   - `app.py` — App factory, route registration
-   - `routes.py` — `/trigger_scraper`, `/trigger_upload`, etc.
-   - `admin.py`, `health.py`, `lifecycle.py` — Admin endpoints, liveness
-     check, startup/shutdown hooks
-   - `config_helpers.py` — structlog configuration helpers (chooses JSON vs
-     console renderer based on `LOG_FORMAT`)
-
-6. **`utils/`** — Cross-cutting helpers
-   - `rsshub.py`, `direct_rss.py` — Fetchers, registered in
-     `AVAILABLE_FETCHERS`
-   - `text_processor.py`, `tools.py`, `validators.py`
-
-7. **`llm/`** — LLM client wrapper
-   - `client.py`, `prompts.py`, `schemas.py`, `utils.py`
-
-**Top-level modules:**
-
-- `octopus.py` — `Octopus`: main orchestrator. Holds scraper configs, delegates
-  scraping to `TaskManager`, handles upload to Notion with a threading lock to
-  serialize concurrent uploads.
-- `octopus_service.py` — Sanic service glue retained at package root
-- `scraper.py` — `Scraper`: runs fetch → process → dedupe pipeline for a
-  single scraper config
-- `protos.py` — `Content` dataclass, the DTO flowing through the pipeline
-- `logging_config.py` — `LoggingConfigurator`: sets root log level and quiets
-  `httpx` / `httpcore`
-
-### Key patterns
-
-- **Configuration**: Scrapers come from `SCRAPER_CONFIG_DIR`; one `.yml` or
-  `.yaml` file defines one scraper. Runtime settings come from `.env` (loaded
-  with `python-dotenv`). PostgreSQL uses `DATABASE_URL`; optional Notion sync
-  uses `NOTION_SYNC_ENABLED`, `NOTION_API_KEY`, and
-  `NOTION_CONTENT_DATABASE_ID`. Service tuning:
-  `SERVICE_HOST`, `SERVICE_PORT`, `OCTOPUS_LOG_LEVEL`, `OCTOPUS_LOG_FORMAT`,
-  `LOG_LEVEL`, `LOG_FORMAT`, `USE_TASK_MANAGER`,
-  `TASK_MANAGER_MAX_CONCURRENT`,   `TASK_MANAGER_MAX_QUEUE_SIZE`, `SCRAPER_CONFIG_POLL_INTERVAL`,
-  `SCRAPER_CONFIG_DEBOUNCE_SECONDS`, `NOTION_SYNC_INTERVAL_SECONDS`, and
-  `NOTION_SYNC_BATCH_SIZE`. Alerting: `FEISHU_WEBHOOK_URL`.
-- **Data storage**: PostgreSQL is canonical for scraped content. Notion is an
-  optional downstream synchronization target. Redis is used only by the
-  bundled RSSHub instance for caching.
-- **Service architecture**: HTTP routes → `Octopus` orchestrator →
-  `TaskManager` (ThreadPoolExecutor) → `Scraper` → fetchers + processor
-  pipeline → `PostgresStorage`. `NotionSyncService` claims due rows with
-  database leases for periodic or manual incremental synchronization.
-- **Background / async work**: `TaskManager` (thread pool + priority queue).
-  Periodic triggering is performed by the `scheduler` container (BusyBox
-  `crond`) reading `scheduler/crontab` and calling the HTTP trigger
-  endpoints.
-- **Logging**: `structlog.get_logger()` throughout, with named keyword
-  arguments for structured context. Renderer is chosen at startup —
-  `ConsoleRenderer` for `LOG_FORMAT=plain` (default), `JSONRenderer` for
-  `LOG_FORMAT=json`. Level via `OCTOPUS_LOG_LEVEL` / `LOG_LEVEL`. The
-  `"Task failed"` event in `task_manager.py` is the stable signal Vector
-  uses for alerting; do not rename it without updating `vector.toml`.
-- **Error handling**: External calls (Notion, LLM, HTTP) wrapped in
-  try/except and re-tried with `tenacity` where appropriate. Failures are
-  logged with structured context (`task_id`, `scraper_name`, `error`,
-  `retry_count`, `max_retries`).
-- **No legacy code**: Deprecated or replaced code MUST be deleted, not left
-  behind "for reference". When a module is superseded, remove the old files
-  entirely and update all imports, tests, and documentation.
-
-### Infrastructure
-
-- **Docker Compose** (`docker-compose.yml`):
-  - `octopus-service` — the Sanic app (built from `dockerfiles/Dockerfile`)
-  - `scheduler` — Alpine + `crond` reading `scheduler/crontab`
-  - `rsshub` — RSSHub instance (custom `info-channel:1.0.0` image by default)
-  - `redis` — cache for RSSHub
-  - `vector-alert` — Vector sidecar reading `vector.toml`; tails Docker
-    container logs and forwards matched error events to Feishu via webhook
-- **Dockerfiles** live in `dockerfiles/`
-- **Scheduler**: `scheduler/crontab` controls all periodic triggers
-- **Vector config**: `vector.toml` defines log sources, filters, Feishu card
-  formatting, and the HTTP sink for `FEISHU_WEBHOOK_URL`
-
-## Code Style
-
-- **Formatter**: Black, default 88 char line length (pinned to 24.10.0 in
-  `.pre-commit-config.yaml`; `pyproject.toml` has no `[tool.black]`
-  override, and CI runs `poetry run black --check src/ tests/`)
-- Always use classes instead of standalone functions
-- Google Python Style Guide for docstrings
-- 4-space indentation, PEP 8 compliance
-- Type hints required on all public functions/methods
-- Descriptive names; comments for non-obvious logic only
+- Go 1.26.6.
+- Run `gofmt`; CI rejects formatting drift.
+- Prefer the standard library for HTTP, concurrency, contexts, and logging.
+- Keep interfaces at consumer boundaries and concrete types elsewhere.
+- Propagate `context.Context` through blocking and external operations.
+- Bound goroutines, queues, response bodies, retries, and external timeouts.
+- Return explicit wrapped errors; do not log-and-return-success.
+- Use structured `slog` attributes. Do not log credentials or full database
+  URLs.
+- Add comments only for exported APIs or non-obvious invariants.
+- Avoid global mutable state.
 
 ## Testing
 
-- Tests mirror source structure under `tests/`
-- Markers (defined in `pyproject.toml`):
-  - `need_external_service` — requires external APIs (Notion, LLM, …)
-  - `integrate_test` — full integration against real RSS sources
-- The default local / pre-commit run excludes both markers:
-  `poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto`
-- `pytest-asyncio` with `asyncio_mode = "auto"` — no `@pytest.mark.asyncio`
-  needed
-- External APIs / network calls MUST be mocked in non-integration tests
-- `pythonpath = "src"` — imports use `from octopus_scraper.xxx import ...`
+- Unit tests use `httptest`, temporary directories, and local fakes.
+- Tests must not call real RSS, Browserless, OpenAI, Notion, or PostgreSQL
+  services unless explicitly marked as integration tests.
+- Compatibility fixtures cover YAML, RSS normalization, API JSON, Notion
+  blocks, metrics, and stable log events.
+- Run the race detector for concurrent code.
+- CI requires at least 70% coverage.
 
 ## Dependencies
 
-- **Poetry** for all dependency management — never use pip directly
-- Python `>3.9, <3.11` (3.9 or 3.10 only)
-- Notable runtime deps: `sanic >=21.3.0`, `feedparser ^6.0.11`,
-  `notion_client ^2.3.0`, `tenacity ^9.0.0`, `httpx ^0.27.0` (with `socks`),
-  `playwright ^1.40.0`, `python-dotenv ^1.1.0`, `readability-lxml`,
-  `markdownify`, `mistune`
-- `doraemon` is a vendored internal wheel at
-  `resources/whls/doraemon-0.0.5b0-py3-none-any.whl` — do not replace it
-  with a PyPI package
-- Primary package source is the Aliyun PyPI mirror
+- Go modules only.
+- `pgx/v5` is the PostgreSQL driver; use explicit SQL rather than an ORM.
+- Notion uses its REST API directly; do not add an unofficial SDK.
+- SQLite must remain pure Go so release builds use `CGO_ENABLED=0`.
+- Review new dependencies for maintenance, license, binary-size impact, and
+  whether the standard library already covers the requirement.
 
-## Iteration Workflow (MANDATORY for AI agents)
+## No legacy code
 
-Every code change — feature, fix, refactor, docs, even one-line typos —
-must go through this loop. **Direct pushes to `main` are forbidden**,
-no exceptions. The loop ensures CI is the single source of truth for
-"is this change safe to merge".
+Delete superseded code, tests, packaging, and documentation in the same
+cutover. Do not keep old implementations for reference.
 
-### The 6-step loop
+## Mandatory change workflow
 
-1. **Branch from latest `main`**
+Direct pushes to `main` are forbidden.
+
+1. Branch from latest `main`:
 
    ```bash
-   git checkout main && git pull --ff-only origin main
+   git checkout main
+   git pull --ff-only origin main
    git checkout -b <type>/<slug>
    ```
 
-   `<type>` ∈ {`feat`, `fix`, `docs`, `refactor`, `test`, `chore`} —
-   matches Conventional Commits.
-   `<slug>` is 2–5 word kebab-case (e.g. `fix/login-redirect-loop`,
-   `feat/csv-export`).
-
-2. **Implement and verify locally** before pushing:
+2. Verify locally:
 
    ```bash
-   poetry run black --check src/ tests/
-   poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
+   test -z "$(gofmt -l .)"
+   go vet ./...
+   go test -race -coverprofile=coverage.out ./...
+   docker build -f dockerfiles/Dockerfile -t octopus-scraper:verify .
    ```
 
-   If you touched `vector.toml`, also validate it:
+   If `vector.toml` changes:
 
    ```bash
-   docker run --rm -v "$PWD/vector.toml:/etc/vector/vector.toml:ro" \
-     timberio/vector:latest-alpine validate /etc/vector/vector.toml
+   docker run --rm \
+     -v "$PWD/vector.toml:/etc/vector/vector.toml:ro" \
+     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+     timberio/vector:latest-alpine \
+     validate /etc/vector/vector.toml
    ```
 
-3. **Commit** with Conventional Commits format. Every commit message
-   must include the trailer:
+3. Commit with Conventional Commits and this trailer:
 
-   ```
+   ```text
    Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
    ```
 
-4. **Push the branch and open a PR**:
+4. Push and open a PR against `main`. The PR body must contain a
+   `## Verification` section listing exact commands and outcomes.
 
-   ```bash
-   git push -u origin HEAD
-   gh pr create --fill --base main
-   ```
+5. Watch CI and fix failures on the same branch. Stop after three failed fix
+   pushes and report the remaining failure.
 
-   The PR body must include a `## Verification` section listing
-   exactly what was run locally (the commands from step 2 plus their
-   outcomes).
-
-5. **Watch CI and self-heal until green**:
-
-   ```bash
-   gh run watch --exit-status        # blocks until the run finishes
-   # if it fails:
-   gh run view <run-id> --log-failed # diagnose
-   # push fix commits to the same branch, repeat
-   ```
-
-   **Hard limit: 3 fix attempts.** If CI is still red after the third
-   push, stop. Summarize what was tried and surface the failure to the
-   human — do NOT keep guessing. Suspected-flaky failures count toward
-   this budget; if you believe a failure is flaky, say so explicitly
-   in the PR and stop.
-
-6. **Stop after the PR is green. Do NOT auto-merge.** Report the PR URL
-   and the final green CI run ID. Merging is the human's call.
-
-### Why no direct pushes to `main`
-
-Changes that "look clean locally" can still fail on CI's cold
-environment. The PR + CI loop catches those before they land on `main`,
-and gives reviewers a single artifact (the PR diff) to inspect rather
-than a moving `main`.
+6. Stop after green CI. Do not merge automatically.

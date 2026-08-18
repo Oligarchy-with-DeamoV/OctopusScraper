@@ -1,43 +1,12 @@
-# Version control
-.git/
-.gitignore
-
-# Python artifacts
-__pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-*.egg
-dist/
-build/
-.eggs/
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Test and coverage
-tests/
-htmlcov/
-.coverage
-.pytest_cache/
-.tox/
-
-# IDE and editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# CI/CD and config
-.github/
-.claude/
-.pre-commit-config.yaml
-
-# Docker (avoid recursive copy)
-docker-compose.yml
-dockerfiles/
-
-# Docs and misc
-LICENSE
+.git
+.github
+.idea
+.vscode
+.env
+.octopus
+coverage.out
+*.test
+*.prof
+octopus_service
+log
+resources/scrapers.d

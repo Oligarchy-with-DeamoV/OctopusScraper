@@ -1,89 +1,62 @@
 # OctopusScraper
 
-![Python Version](https://img.shields.io/badge/python-3.9%7C3.10-blue)
+![Go Version](https://img.shields.io/badge/go-1.26-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
-OctopusScraper 是一款多功能信息抓取工具，旨在通过高效的算法分析和处理各种媒体数据。OctopusScraper 的核心在于「采集」而不是二次业务加工，因此涉及到「业务分析」相关的操作应当拒绝不包含在本仓库内。
+OctopusScraper 是一个面向 RSS 信息源的采集服务。它负责抓取、内容处理、
+PostgreSQL 持久化以及可选的 Notion 增量同步，不承载业务分析逻辑。
 
-## 📋 目录
+## 架构
 
-- [安装](#安装)
-- [快速开始](#快速开始)
-- [基础使用](#基础使用)
-- [部署配置](#部署配置)
-- [开发指南](#开发指南)
-- [测试](#测试)
-- [更新日志](CHANGELOG.md)
-- [贡献](#贡献)
-
-## ⚡ 快速开始
-
-### 🐳 推荐方式：Docker Compose 部署
-
-**推荐使用 Docker Compose 部署 OctopusScraper、RSSHub、Redis 和告警服务，并连接外部 PostgreSQL。**
-
-#### 1. 准备 YAML 抓取配置
-
-每个 Scraper 使用一个 `.yml` 或 `.yaml` 文件，放在
-`resources/scrapers.d/`。服务会自动加载新增、修改和删除；无效修改会记录错误并继续使用上一份有效配置。
-该目录中的配置默认由 Git 忽略。可以复制仓库提供的样例开始配置：
-
-```bash
-cp resources/scraper.example.yaml resources/scrapers.d/my-feed.yaml
+```text
+HTTP API -> Task Manager -> RSS Fetcher -> Processor Pipeline -> PostgreSQL
+                                                              -> Notion Sync
 ```
 
-#### 2. 克隆项目并配置环境变量
+- Go 单进程服务提供 HTTP API、配置热更新、任务调度和 Prometheus 指标。
+- PostgreSQL 是内容的唯一事实来源。
+- Notion 是可选的下游同步目标，故障不会影响抓取事务。
+- RSSHub、Redis、scheduler 和 Vector 由 Docker Compose 独立运行。
+- Browserless/Chrome 通过远程 CDP 使用，不打包进服务镜像。
+
+## Docker Compose 部署
 
 ```bash
-cd OctopusScraper
-
-# 创建 .env 文件
 cp resources/envs/deploy.prod.env .env
+cp resources/scraper.example.yaml resources/scrapers.d/my-feed.yaml
+docker compose up -d
+docker compose ps
 ```
 
-编辑 `.env` 文件，配置 PostgreSQL 和可选的 Notion 同步：
+主要配置：
 
 ```env
-# Notion API Configuration
-NOTION_API_KEY="api_key"
-NOTION_CONTENT_DATABASE_ID="database_id"
-NOTION_SYNC_ENABLED=true
-
 POSTGRES_DB=octopus
 POSTGRES_USER=octopus
-POSTGRES_PASSWORD="change-me"
+POSTGRES_PASSWORD=replace-with-a-strong-password
 DB_HOST=host.docker.internal
 DB_PORT=5432
 
-# other envs...
+NOTION_SYNC_ENABLED=false
+NOTION_API_KEY=
+NOTION_CONTENT_DATABASE_ID=
+NOTION_CONTENT_DATA_SOURCE_ID=
+
+SERVICE_HOST=0.0.0.0
+SERVICE_PORT=8000
+LOG_LEVEL=INFO
+LOG_FORMAT=plain
+SCRAPER_CONFIG_DIR=/etc/octopus-scraper/scrapers.d
+TASK_MANAGER_MAX_CONCURRENT=3
+TASK_MANAGER_MAX_QUEUE_SIZE=1000
 ```
 
-`host.docker.internal` 连接 Docker 宿主机上的 PostgreSQL；使用其他外部
-PostgreSQL 时，将 `DB_HOST` 改为对应主机名或 IP。
+`NOTION_CONTENT_DATA_SOURCE_ID` 在数据库包含多个 data source 时必填；单 data
+source 数据库会自动解析。
 
-编辑 `.env` 文件，填入您的飞书 Webhook 配置：
+## Scraper 配置
 
-```env
-# Vector Monitor
-FEISHU_WEBHOOK_URL="your feishu webhook"
-
-# other envs...
-```
-
-#### 3. 一键启动服务
-
-```bash
-# 启动完整服务栈 (推荐)
-docker-compose up -d
-
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f octopus-service
-```
-
-#### 4. 配置抓取器
+每个 `.yml` 或 `.yaml` 文件定义一个 scraper：
 
 ```yaml
 id: vscode-issues
@@ -100,42 +73,76 @@ default_keywords:
   - vscode
 ```
 
-`id` 必须唯一且只能包含小写字母、数字、点、下划线和连字符。未知字段、重复
-YAML key、重复 `id`/`name`、未知 fetcher 或 processor 会被拒绝。
+支持的 fetcher：
 
-#### 5. 使用命令触发拉取和上传
+- `rsshub`
+- `direct_rss`
 
-docker-compose 会自动使用 ./scheduler/crontab 中的配置定时执行配置更新和拉取上传指令按需配置。
+支持的 processor：
 
-```bash
-# 触发根据配置拉取服务
-curl -X POST http://localhost:8000/trigger_scraper
+- `html_content`
+- `llm_summary`
+- `llm_keywords`
+- `llm_tags`
 
-# 触发根据结果上传服务
-curl -X POST http://localhost:8000/trigger_upload
-```
+YAML 中自定义的 LLM `base_url` / `api_base` 不会继承其他主机使用的
+`OPENAI_API_KEY`。需要共用全局密钥时，同时设置 `OPENAI_BASE_URL`；独立
+网关需在对应 processor 中提供自己的 `api_key`。
 
-保留的 HTTP API 面向个人部署的日常运行与排障，避免暴露低频调试/运行时控制接口：
+配置目录按内容指纹轮询。无效的新文件会被忽略；已加载文件出现无效修改时，
+服务继续使用它的上一份有效配置。
+
+## HTTP API
 
 | Method | Path | 用途 |
-| ------ | ---- | ---- |
+| --- | --- | --- |
 | GET | `/health` | 综合健康检查 |
-| GET | `/health/liveness` | 轻量存活检查 |
+| GET | `/health/liveness` | 存活检查 |
 | GET | `/health/readiness` | 就绪检查 |
-| POST | `/trigger_scraper` | 按当前配置提交抓取任务 |
-| POST | `/trigger_upload` | 手动触发 PostgreSQL → Notion 增量同步 |
-| GET | `/admin/config/status` | 查看当前配置状态 |
-| POST | `/admin/config/refresh` | 立即扫描 YAML 配置目录并热更新 |
-| GET | `/admin/system/info` | 查看系统与 TaskManager 摘要 |
-| GET | `/admin/scrapers` | 查看已配置的 scraper |
-| GET | `/admin/tasks/stats` | 查看任务统计 |
-| GET | `/admin/tasks` | 查看任务列表，支持 `status` 与 `limit` 查询参数 |
-| GET | `/admin/tasks/<task_id>` | 查看单个任务详情 |
-| GET | `/metrics` | Prometheus 指标抓取接口 |
+| POST | `/trigger_scraper` | 提交全部启用的 scraper |
+| POST | `/trigger_upload` | 执行一批 PostgreSQL → Notion 同步 |
+| GET | `/admin/config/status` | 配置状态 |
+| POST | `/admin/config/refresh` | 立即刷新配置 |
+| GET | `/admin/system/info` | 运行信息 |
+| GET | `/admin/scrapers` | scraper 列表 |
+| GET | `/admin/tasks/stats` | 任务统计 |
+| GET | `/admin/tasks` | 任务列表 |
+| GET | `/admin/tasks/{task_id}` | 任务详情 |
+| GET | `/metrics` | Prometheus 指标 |
 
-Prometheus 抓取配置、告警规则和 Grafana 查询示例见
-[`docs/monitoring.md`](docs/monitoring.md)。`/metrics` 已替代原有的
-`/admin/monitoring/metrics` JSON 接口；迁移观察期内 Vector 告警服务仍会保留。
+```bash
+curl -X POST http://localhost:8001/trigger_scraper
+curl -X POST http://localhost:8001/trigger_upload
+```
 
-PostgreSQL 表结构、同步状态和重试机制见
-[`docs/storage.md`](docs/storage.md)。
+## 本地开发
+
+要求 Go 1.26.6、Docker 和可访问的 PostgreSQL。
+
+```bash
+go mod download
+gofmt -w .
+go vet ./...
+go test ./...
+go test -race ./...
+go run ./cmd/octopus_service serve \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --scraper-config-dir resources/scrapers.d
+```
+
+构建镜像：
+
+```bash
+docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
+docker image inspect octopus-scraper:latest --format '{{.Size}}'
+```
+
+## 数据与故障恢复
+
+PostgreSQL schema、Notion 租约和重试状态见
+[`docs/storage.md`](docs/storage.md)。监控指标和 Vector 告警见
+[`docs/monitoring.md`](docs/monitoring.md)。
+
+升级前备份 PostgreSQL。Go 服务沿用 schema version `1`，可直接回滚到兼容该
+schema 的旧镜像。切换镜像时只运行一个写入实例。

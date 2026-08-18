@@ -1,0 +1,8 @@
+id: example-feed
+name: Example Feed
+name: Duplicate Name
+enabled: true
+fetcher: direct_rss
+hub_root: https://example.com
+route: /feed.xml
+content_processor_configs: {}

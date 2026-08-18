@@ -3,9 +3,9 @@
 # ──────────────────────────────────────────────────────────
 
 # 每 1 小时触发 scraper
-0 * * * * curl -sf -X POST http://octopus-service:8000/trigger_scraper 2>&1 | logger -t trigger_scraper
+0 * * * * curl -sf -X POST http://octopus-service:__SERVICE_PORT__/trigger_scraper 2>&1 | logger -t trigger_scraper
 
 # ──────────────────────────────────────────────────────────
 # 添加更多定时任务只需在下方新增一行，例如：
-# */5 * * * * curl -sf -X POST http://octopus-service:8000/some_other_task 2>&1 | logger -t some_other_task
-# 0 */2 * * * curl -sf -X POST http://octopus-service:8000/cleanup 2>&1 | logger -t cleanup
+# */5 * * * * curl -sf -X POST http://octopus-service:__SERVICE_PORT__/some_other_task 2>&1 | logger -t some_other_task
+# 0 */2 * * * curl -sf -X POST http://octopus-service:__SERVICE_PORT__/cleanup 2>&1 | logger -t cleanup

@@ -5,10 +5,10 @@ replaces the removed `GET /admin/monitoring/metrics` JSON snapshot. Use the
 remaining `/admin/config/status`, `/admin/system/info`, and `/admin/tasks/stats`
 endpoints for human diagnostics.
 
-The Docker Compose stack includes Prometheus with the scrape configuration in
-`prometheus/prometheus.yml` and alert rules in `prometheus/alerts.yml`.
-Prometheus evaluates the rules, while the existing Vector service continues to
-deliver Feishu alerts during the migration observation period.
+The Docker Compose stack exposes the endpoint but does not bundle a Prometheus
+server. Configure an external Prometheus instance to scrape
+`octopus-service:<SERVICE_PORT>/metrics` (`8000` by default). Vector continues
+to deliver Feishu alerts from container error logs.
 
 ## Metric model
 
@@ -24,8 +24,8 @@ fixed values `rss`, `notion`, and `llm`; upload outcomes use `processed` and
 `failed`. Metrics never include task IDs, URLs, database IDs, or error text.
 
 External request metrics count high-level operations rather than every HTTP
-retry. A Notion upload batch, configuration refresh, RSS fetch, or LLM
-generation is one operation.
+retry. An RSS fetch, Notion upload batch, or LLM generation is one external
+operation. Configuration refreshes use the dedicated configuration metrics.
 
 ## Grafana queries
 
@@ -45,13 +45,4 @@ generation is one operation.
 ```bash
 curl http://localhost:8001/metrics
 docker compose config
-docker run --rm \
-  --entrypoint /bin/promtool \
-  -v "$PWD/prometheus:/etc/prometheus:ro" \
-  prom/prometheus:v3.5.0 \
-  check config /etc/prometheus/prometheus.yml
 ```
-
-Alert delivery must remain on Vector until Prometheus rules have been observed
-in production and an Alertmanager receiver provides equivalent Feishu
-delivery.

@@ -1,29 +1,37 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install format format-check test test-cov run compose-up compose-down compose-logs clean
-
-FIND_PRUNE := \( -path './.git' -o -path './.venv' -o -path './venv' -o -path './env' -o -path './ENV' -o -path './env.bak' -o -path './venv.bak' -o -path './__pypackages__' \) -prune -o
+.PHONY: help install format format-check vet test test-race test-cov run build compose-up compose-down compose-logs clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-install: ## Install project dependencies
-	poetry install
+install: ## Download Go modules
+	go mod download
 
-format: ## Format source and test files with Black
-	poetry run black src/ tests/
+format: ## Format Go source
+	gofmt -w .
 
-format-check: ## Check formatting with Black
-	poetry run black --check src/ tests/
+format-check: ## Check Go formatting
+	test -z "$$(gofmt -l .)"
 
-test: ## Run unit tests without external or integration tests
-	poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto
+vet: ## Run Go static checks
+	go vet ./...
 
-test-cov: ## Run the CI test suite with coverage reports
-	poetry run pytest -m "not need_external_service and not integrate_test" ./tests/ -n auto --cov=src --cov-report=xml --cov-report=term-missing -q
+test: ## Run unit tests
+	go test ./...
 
-run: ## Start the OctopusScraper service
-	poetry run octopus_service
+test-race: ## Run tests with the race detector
+	go test -race ./...
+
+test-cov: ## Run tests and write coverage.out
+	go test -race -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+
+run: ## Start the service
+	go run ./cmd/octopus_service serve
+
+build: ## Build the service binary
+	CGO_ENABLED=0 go build -trimpath -o octopus_service ./cmd/octopus_service
 
 compose-up: ## Start the Docker Compose stack
 	docker compose up -d
@@ -34,9 +42,5 @@ compose-down: ## Stop the Docker Compose stack
 compose-logs: ## Follow Docker Compose logs
 	docker compose logs -f
 
-clean: ## Remove reproducible caches and build artifacts
-	find . $(FIND_PRUNE) -type d -name '__pycache__' -exec rm -rf {} +
-	find . $(FIND_PRUNE) -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.pyd' \) -exec rm -f {} +
-	find . $(FIND_PRUNE) -type d -name '*.egg-info' -exec rm -rf {} +
-	rm -rf .pytest_cache htmlcov build dist
-	rm -f .coverage .coverage.* coverage.xml
+clean: ## Remove generated Go artifacts
+	rm -f octopus_service coverage.out
