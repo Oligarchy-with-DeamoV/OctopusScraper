@@ -23,6 +23,7 @@ go vet ./...
 go test ./...
 go test -race ./...
 go test -race -coverprofile=coverage.out ./...
+make changelog-check
 ```
 
 External RSS, Browserless, OpenAI, Notion, and PostgreSQL calls must use local
@@ -41,7 +42,29 @@ explicitly opt-in.
 ## Pull requests
 
 1. Create a focused branch from the latest `main`.
-2. Add or update tests and documentation.
+2. Add or update tests and documentation. Add one changelog fragment for each
+   user-visible change:
+
+   ```text
+   changelog.d/<issue-or-slug>.<type>.md
+   ```
+
+   Valid types are `added`, `changed`, `fixed`, `removed`, and `security`.
+   Each fragment contains one concise user-visible change without a Markdown
+   bullet. Internal refactors, tests, and maintenance with no behavior change
+   do not require a fragment.
 3. Run formatting, vet, race tests, coverage, and the Docker build.
 4. Open a PR against `main` with a `## Verification` section.
 5. Wait for green CI. Maintainers perform the merge.
+
+## Version tags
+
+Git tags are the only source of formal versions. To prepare a version:
+
+1. Run `make changelog-release VERSION=x.y.z`.
+2. Commit the generated changelog update and fragment removals through a PR.
+3. After the PR merges and CI passes, run the `Create version tag` workflow
+   from `main` with the same version.
+
+The workflow creates an annotated `vx.y.z` or `vx.y.z-rc.N` tag. It does not
+create a GitHub Release or publish binaries or images.

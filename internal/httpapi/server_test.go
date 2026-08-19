@@ -226,6 +226,6 @@ func newTestServer() *Server {
 			MaxConcurrentTasks: 3,
 		},
 		observability.NewMetrics("test"),
-		"0.2.0",
+		"test-version",
 	)
 }
