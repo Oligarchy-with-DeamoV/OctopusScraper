@@ -4,7 +4,7 @@ Guidance for coding agents working on OctopusScraper.
 
 ## Project
 
-OctopusScraper (`v0.2.0`) is a Go service that:
+OctopusScraper is a Go service that:
 
 - fetches RSS/Atom content from RSSHub or direct feed URLs;
 - applies optional HTML and OpenAI-compatible processors;
@@ -25,6 +25,7 @@ go vet ./...
 go test ./...
 go test -race ./...
 go test -coverprofile=coverage.out ./...
+go run ./tools/changelog check
 go run ./cmd/octopus_service serve
 docker compose up -d
 ```

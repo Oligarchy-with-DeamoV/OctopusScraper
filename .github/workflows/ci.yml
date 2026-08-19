@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main, dev]
+    tags: ["v*"]
   pull_request:
     branches: [main, dev]
+  workflow_call:
 
 permissions:
   contents: read
@@ -25,6 +27,9 @@ jobs:
 
       - name: Run vet
         run: go vet ./...
+
+      - name: Validate changelog fragments
+        run: go run ./tools/changelog check
 
       - name: Run tests with race detector
         run: go test -race -coverprofile=coverage.out ./...
@@ -65,13 +70,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve build metadata
+        id: build
+        shell: bash
+        run: |
+          description="$(git describe --tags --always --dirty)"
+          if [[ "$description" == v* ]]; then
+            version="${description#v}"
+          else
+            version="dev-${description}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build service image
         run: |
           docker build \
-            --build-arg VERSION=0.2.0 \
+            --build-arg VERSION="${{ steps.build.outputs.version }}" \
             --build-arg COMMIT="${GITHUB_SHA}" \
-            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg BUILD_DATE="${{ steps.build.outputs.date }}" \
             -f dockerfiles/Dockerfile \
             -t octopus-scraper:ci \
             .

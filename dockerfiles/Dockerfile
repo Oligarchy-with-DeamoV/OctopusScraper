@@ -1,6 +1,6 @@
 FROM golang:1.26.6-bookworm AS builder
 
-ARG VERSION=0.2.0
+ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
