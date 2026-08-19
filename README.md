@@ -40,7 +40,6 @@ DB_PORT=5432
 NOTION_SYNC_ENABLED=false
 NOTION_API_KEY=
 NOTION_CONTENT_DATABASE_ID=
-NOTION_CONTENT_DATA_SOURCE_ID=
 
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
@@ -51,8 +50,8 @@ TASK_MANAGER_MAX_CONCURRENT=3
 TASK_MANAGER_MAX_QUEUE_SIZE=1000
 ```
 
-`NOTION_CONTENT_DATA_SOURCE_ID` 在数据库包含多个 data source 时必填；单 data
-source 数据库会自动解析。
+目标 Notion database 必须包含且只包含一个 data source。零个或多个 data
+source 会在首次同步时返回明确错误，不影响服务启动或 PostgreSQL 抓取。
 
 ## Scraper 配置
 

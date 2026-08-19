@@ -50,15 +50,14 @@ type DatabaseConfig struct {
 
 // NotionConfig controls optional downstream synchronization.
 type NotionConfig struct {
-	Enabled      bool
-	APIKey       string
-	DatabaseID   string
-	DataSourceID string
-	Interval     time.Duration
-	BatchSize    int
-	MaxAttempts  int
-	Lease        time.Duration
-	RetryDelay   time.Duration
+	Enabled     bool
+	APIKey      string
+	DatabaseID  string
+	Interval    time.Duration
+	BatchSize   int
+	MaxAttempts int
+	Lease       time.Duration
+	RetryDelay  time.Duration
 }
 
 // ServiceConfig contains process-wide runtime settings.

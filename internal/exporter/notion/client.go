@@ -161,13 +161,9 @@ func (c *Client) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	dataSourceID := strings.TrimSpace(c.config.DataSourceID)
-	if dataSourceID == "" {
-		resolvedID, err := c.resolveDataSourceID(ctx)
-		if err != nil {
-			return err
-		}
-		dataSourceID = resolvedID
+	dataSourceID, err := c.resolveDataSourceID(ctx)
+	if err != nil {
+		return err
 	}
 	properties, err := c.retrieveDataSource(ctx, dataSourceID)
 	if err != nil {
@@ -396,7 +392,11 @@ func (c *Client) resolveDataSourceID(ctx context.Context) (string, error) {
 	case 1:
 		return response.DataSources[0].ID, nil
 	default:
-		return "", fmt.Errorf("database %s has %d data sources; set DataSourceID explicitly", c.config.DatabaseID, len(response.DataSources))
+		return "", fmt.Errorf(
+			"database %s has %d data sources; this target is unsupported, use a database containing exactly one data source",
+			c.config.DatabaseID,
+			len(response.DataSources),
+		)
 	}
 }
 
