@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.1] - 2026-08-19
 
 ### Fixed
-- Bounded RSSHub, Redis, and Vector resource usage in Docker Compose and made Redis evict cache entries before reaching its container memory limit.
+- Bounded scheduler, RSSHub, Redis, and Vector resource usage in Docker Compose and made Redis evict cache entries before reaching its container memory limit.
 
 ## [0.3.0] - 2026-08-19
 

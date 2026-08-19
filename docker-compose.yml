@@ -131,6 +131,14 @@ services:
         echo "Scheduler started with cron jobs:"
         cat /var/spool/cron/crontabs/root
         crond -f -l 2
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
+          cpus: "0.1"
     networks:
       - octopus-network
 
