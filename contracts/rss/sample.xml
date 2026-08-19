@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <link>https://example.com</link>
+    <description>Fixture feed</description>
+    <item>
+      <guid>fixture-1</guid>
+      <title>Fixture Article</title>
+      <link>https://example.com/articles/1?tracking=ignored</link>
+      <pubDate>Tue, 18 Aug 2026 10:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Fixture <strong>summary</strong>.</p>]]></description>
+    </item>
+  </channel>
+</rss>

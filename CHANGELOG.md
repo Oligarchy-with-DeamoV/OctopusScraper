@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Reimplemented the service in Go 1.26.
+- Replaced Sanic, Poetry, SQLAlchemy, and Python worker threads with `net/http`,
+  Go modules, `pgx`, and bounded goroutine workers.
+- Replaced the Python runtime image with a statically linked distroless image.
+- Updated Notion synchronization for API version `2026-03-11` and data sources.
+
+### Removed
+- Removed the Python runtime, tests, packaging, vendored `doraemon` wheel,
+  deprecated `llm` processor, misspelled fetcher alias, and placeholder
+  provider implementations.
+
 ## [0.2.0] - 2025-05-07
 
 ### Added

@@ -26,16 +26,9 @@ condition = "match(string!(.message), r'(?i)^(?:\\x1b\\[[\\d;]*m)*(error|fatal)(
 
 # 1.2 octopus-service：匹配所有 error / critical 级别的结构化日志
 # 覆盖 task_manager 的 `Task failed`、config 重载失败、scraper / processor /
-# Notion / LLM 等任意模块的 logger.error(...)。仅过滤"级别"而非"事件名"，
-# 避免遗漏新增的错误事件。前提：structlog 配置里加了 `add_log_level` processor
-# （详见 src/octopus_scraper/service/config_helpers.py 与 cli/__init__.py），
-# 否则两种渲染器都不会把 level 写进输出，本 filter 永远不会命中。
-# - LOG_FORMAT=plain (ConsoleRenderer): `... [error    ] Task failed   key=value`
-#   级别以 `[error    ]` / `[critical ]` 形式出现（可能被 ANSI 颜色码包裹）。
-# - LOG_FORMAT=json (JSONRenderer):     `{"event":"...","level":"error",...}`
-#   通过 `"level":"error"` 字面量匹配。
-# Python traceback 的 `File "..."` / `raise ...` 续行不含上述级别标记，
-# 因此不会与告警重复（这是 docker_logs 按行切分日志的预期表现）。
+# Notion / LLM 等任意模块的错误日志。Go slog handler 保持两种稳定格式：
+# - LOG_FORMAT=plain: `... [error] Task failed task_id="..."`
+# - LOG_FORMAT=json:  `{"event":"Task failed","level":"error",...}`
 [transforms.filter_octopus_errors]
 type = "filter"
 inputs = ["octopus_logs"]
@@ -44,23 +37,21 @@ condition = '''
   match(string!(.message), r'"level"\s*:\s*"(?i:error|critical)"')
 '''
 
-# 1.3 octopus-service：配置加载的临时网络错误降噪
-# ConfigManager 每次扫描 YAML 配置目录时先记录
-# `Failed to load scrapers configuration`，外层随后可能再记录
-# `Failed to reload configuration`。只用前者参与计数，避免一次网络抖动
-# 被重复算作两次；后者若属于同类网络错误则不即时告警。
+# 1.3 octopus-service：配置目录临时网络错误降噪
+# Go ConfigManager 用 `scan config directory failed` 记录目录扫描失败。
+# 持续网络异常进入聚合告警，单次抖动不即时推送。
 [transforms.filter_octopus_config_load_network_errors]
 type = "filter"
 inputs = ["filter_octopus_errors"]
 condition = '''
-  match(string!(.message), r'Failed to load scrapers configuration') &&
+  match(string!(.message), r'scan config directory failed') &&
   match(string!(.message), r'(?i)(timeout|timed out|readtimeout|connecttimeout|connect|connection|network|temporary|remoteprotocolerror|rate[_ -]?limit|too_many_requests|429|500|502|503|504|badgateway|serviceunavailable|gatewaytimeout)')
 '''
 
 [transforms.filter_octopus_immediate_errors]
 type = "filter"
 inputs = ["filter_octopus_errors"]
-condition = "!(match(string!(.message), r'(Failed to load scrapers configuration|Failed to reload configuration)') && match(string!(.message), r'(?i)(timeout|timed out|readtimeout|connecttimeout|connect|connection|network|temporary|remoteprotocolerror|rate[_ -]?limit|too_many_requests|429|500|502|503|504|badgateway|serviceunavailable|gatewaytimeout)'))"
+condition = "!(match(string!(.message), r'scan config directory failed') && match(string!(.message), r'(?i)(timeout|timed out|readtimeout|connecttimeout|connect|connection|network|temporary|remoteprotocolerror|rate[_ -]?limit|too_many_requests|429|500|502|503|504|badgateway|serviceunavailable|gatewaytimeout)'))"
 
 # ==================== 转换3：附加告警元数据 ====================
 [transforms.format_rsshub_alert]
@@ -90,8 +81,8 @@ source = '''
   .error_message = string!(.message)
 '''
 
-# 30 分钟窗口内至少 3 次才发送。默认每 5 分钟刷新一次配置，因此持续
-# 网络异常会触发告警，单次或短暂抖动则不会即时推送。
+# 30 分钟窗口内至少 3 次才发送。默认每秒扫描一次配置目录，持续网络异常
+# 会在窗口结束时触发告警，单次或短暂抖动不会即时推送。
 [transforms.aggregate_octopus_config_load_network_errors]
 type = "reduce"
 inputs = ["mark_octopus_config_load_network_errors"]

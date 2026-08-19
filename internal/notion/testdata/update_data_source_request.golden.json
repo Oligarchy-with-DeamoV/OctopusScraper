@@ -1,0 +1,32 @@
+{
+  "properties": {
+    "Author": {
+      "rich_text": {},
+      "type": "rich_text"
+    },
+    "ContentId": {
+      "rich_text": {},
+      "type": "rich_text"
+    },
+    "Keywords": {
+      "multi_select": {},
+      "type": "multi_select"
+    },
+    "Published Date": {
+      "date": {},
+      "type": "date"
+    },
+    "Summary": {
+      "rich_text": {},
+      "type": "rich_text"
+    },
+    "Tags": {
+      "multi_select": {},
+      "type": "multi_select"
+    },
+    "URL": {
+      "type": "url",
+      "url": {}
+    }
+  }
+}

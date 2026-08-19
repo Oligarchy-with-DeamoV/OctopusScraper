@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "ContentId": {
+      "rich_text": [
+        {
+          "annotations": {
+            "bold": false,
+            "code": false,
+            "color": "default",
+            "italic": false,
+            "strikethrough": false,
+            "underline": false
+          },
+          "text": {
+            "content": "article-123"
+          },
+          "type": "text"
+        }
+      ],
+      "type": "rich_text"
+    }
+  }
+}
