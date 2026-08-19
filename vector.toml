@@ -24,11 +24,10 @@ type = "filter"
 inputs = ["rsshub_logs"]
 condition = "match(string!(.message), r'(?i)^(?:\\x1b\\[[\\d;]*m)*(error|fatal)(?:\\x1b\\[[\\d;]*m)*\\s*:')"
 
-# 1.2 octopus-service：匹配所有 error / critical 级别的结构化日志
+# 1.2 octopus-service：匹配所有 error / critical 级别的日志
 # 覆盖 task_manager 的 `Task failed`、config 重载失败、scraper / processor /
-# Notion / LLM 等任意模块的错误日志。Go slog handler 保持两种稳定格式：
-# - LOG_FORMAT=plain: `... [error] Task failed task_id="..."`
-# - LOG_FORMAT=json:  `{"event":"Task failed","level":"error",...}`
+# Notion / LLM 等任意模块的错误日志。运行时日志固定为 JSON，保留
+# `{"event":"Task failed","level":"error",...}`；正则仍兼容旧纯文本行。
 [transforms.filter_octopus_errors]
 type = "filter"
 inputs = ["octopus_logs"]

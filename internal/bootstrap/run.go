@@ -24,7 +24,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func Run(ctx context.Context, options Options) error {
+func Run(ctx context.Context, options Options) (err error) {
 	runtimeCtx, cancelRuntime := context.WithCancel(ctx)
 	defer cancelRuntime()
 	if err := loadDotEnv(); err != nil {
@@ -36,13 +36,23 @@ func Run(ctx context.Context, options Options) error {
 	}
 	applyOptions(&serviceConfig, options)
 
-	logger, err := observability.NewLogger(
-		serviceConfig.LogLevel,
-		serviceConfig.LogFormat,
+	loggerRuntime, err := observability.NewLoggerRuntime(
+		observability.LoggerOptions{
+			Level:         serviceConfig.LogLevel,
+			Format:        serviceConfig.LogFormat,
+			FilePath:      serviceConfig.LogFile,
+			RetentionDays: serviceConfig.LogRetentionDays,
+		},
 	)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := loggerRuntime.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close logger: %w", closeErr))
+		}
+	}()
+	logger := loggerRuntime.Logger()
 	metrics := observability.NewMetrics(version.Version)
 	configManager := config.NewManager(serviceConfig.ScraperConfig, logger)
 	configManager.SetHealthObserver(metrics.SetConfigHealth)
@@ -162,6 +172,7 @@ func Run(ctx context.Context, options Options) error {
 		metrics,
 		version.Version,
 	)
+	api.SetLogLevelController(loggerRuntime)
 	if serviceConfig.MCP.Enabled {
 		api.EnableMCP(runtimeCtx, canonicalStore)
 	}
@@ -180,6 +191,7 @@ func Run(ctx context.Context, options Options) error {
 			"debug", serviceConfig.Debug,
 			"log_level", serviceConfig.LogLevel,
 			"log_format", serviceConfig.LogFormat,
+			"log_file_enabled", serviceConfig.LogFile != "",
 			"scraper_config_dir", serviceConfig.ScraperConfig.Directory,
 			"version", version.Version,
 			"commit", version.Commit,
@@ -305,7 +317,7 @@ func applyOptions(serviceConfig *config.ServiceConfig, options Options) {
 		serviceConfig.LogLevel = options.LogLevel
 	}
 	if options.LogFormat != "" {
-		serviceConfig.LogFormat = options.LogFormat
+		serviceConfig.LogFormat = "json"
 	}
 	if options.ScraperConfigDir != "" {
 		serviceConfig.ScraperConfig.Directory = options.ScraperConfigDir

@@ -2,11 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +105,14 @@ func TestApplyOptionsPreservesEnvironmentValues(t *testing.T) {
 	}
 }
 
+func TestApplyOptionsTreatsLogFormatAsDeprecatedCompatibilityInput(t *testing.T) {
+	serviceConfig := config.ServiceConfig{LogFormat: "json"}
+	applyOptions(&serviceConfig, Options{LogFormat: "plain"})
+	if serviceConfig.LogFormat != "json" {
+		t.Fatalf("LogFormat = %q", serviceConfig.LogFormat)
+	}
+}
+
 func TestLoadDotEnv(t *testing.T) {
 	originalDirectory, err := os.Getwd()
 	if err != nil {
@@ -144,6 +154,32 @@ func TestLoadDotEnv(t *testing.T) {
 	}
 	if value := os.Getenv("OCTOPUS_BOOTSTRAP_TEST"); value != "loaded" {
 		t.Fatalf("unexpected loaded value %q", value)
+	}
+}
+
+func TestRunInitializesAndClosesLoggerBeforeConfigFailure(t *testing.T) {
+	directory := t.TempDir()
+	logPath := filepath.Join(directory, "logs", "octopus.log")
+	t.Setenv("SCRAPER_CONFIG_DIR", filepath.Join(directory, "missing"))
+	t.Setenv("LOG_LEVEL", "DEBUG")
+	t.Setenv("LOG_FILE", logPath)
+	t.Setenv("LOG_RETENTION_DAYS", "1")
+
+	err := Run(context.Background(), Options{})
+	if err == nil || !strings.Contains(err.Error(), "load initial scraper configuration") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(content, &payload); err != nil {
+		t.Fatalf("log file is not JSON: %s", content)
+	}
+	if payload["level"] != "error" ||
+		payload["event"] != "scan config directory failed" {
+		t.Fatalf("unexpected startup log payload: %#v", payload)
 	}
 }
 

@@ -47,7 +47,9 @@ services:
       # Cache config, will affect content refresh
       - OCTOPUS_DEBUG=${OCTOPUS_DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_FORMAT=${LOG_FORMAT:-plain}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_FILE=${LOG_FILE:-}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-14}
       - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-3}
       - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
       - RESULT_RETENTION_HOURS=${RESULT_RETENTION_HOURS:-48}
@@ -97,6 +99,7 @@ services:
     volumes:
       - ./resources/scrapers.d:/etc/octopus-scraper/scrapers.d:ro
       - task-results:/app/.octopus
+      - octopus-logs:/app/logs
 
     networks:
       - octopus-network
@@ -208,3 +211,4 @@ networks:
 volumes:
   redis-data:
   task-results:
+  octopus-logs:

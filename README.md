@@ -47,7 +47,9 @@ MCP_API_TOKEN=
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 LOG_LEVEL=INFO
-LOG_FORMAT=plain
+LOG_FORMAT=json
+LOG_FILE=
+LOG_RETENTION_DAYS=14
 SCRAPER_CONFIG_DIR=/etc/octopus-scraper/scrapers.d
 TASK_MANAGER_MAX_CONCURRENT=3
 TASK_MANAGER_MAX_QUEUE_SIZE=1000
@@ -55,6 +57,13 @@ TASK_MANAGER_MAX_QUEUE_SIZE=1000
 
 目标 Notion database 必须包含且只包含一个 data source。零个或多个 data
 source 会在首次同步时返回明确错误，不影响服务启动或 PostgreSQL 抓取。
+
+运行时日志始终是结构化 JSON，写入 stdout，并保留 `event` 作为消息字段以兼容
+Vector 告警。`LOG_FORMAT` 只作为旧部署的兼容输入保留；`plain` 和 `json` 都会
+得到 JSON 日志，其他值会在启动时被拒绝。设置 `LOG_FILE` 后，同一份 JSON
+会同时写入 stdout 和文件；文件日志按 100 MiB 和日期轮转，压缩归档，并按
+`LOG_RETENTION_DAYS`（默认 14 天，最高 365 天）清理。在容器中启用文件日志时，
+建议把 `LOG_FILE` 指向 `/app/logs/octopus.log`，Compose 已提供持久化卷。
 
 ## Scraper 配置
 

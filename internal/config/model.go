@@ -75,6 +75,8 @@ type ServiceConfig struct {
 	Debug              bool
 	LogLevel           string
 	LogFormat          string
+	LogFile            string
+	LogRetentionDays   int
 	Environment        string
 	ScraperConfig      FileSettings
 	Database           DatabaseConfig

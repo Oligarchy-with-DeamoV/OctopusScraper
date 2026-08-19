@@ -18,6 +18,8 @@ const defaultTaskResultPath = ".octopus/task_results.sqlite3"
 const (
 	defaultMCPQueryTimeoutSeconds = 5
 	defaultMCPConcurrentQueries   = 4
+	defaultLogRetentionDays       = 14
+	maxLogRetentionDays           = 365
 )
 
 // LoadServiceConfigFromEnv resolves runtime defaults and env aliases.
@@ -152,14 +154,35 @@ func LoadServiceConfigFromEnv() (ServiceConfig, error) {
 	if err != nil {
 		return ServiceConfig{}, err
 	}
+	logLevel := firstEnvOrDefault([]string{"LOG_LEVEL", "OCTOPUS_LOG_LEVEL"}, "INFO")
+	if err := validateLogLevel(logLevel); err != nil {
+		return ServiceConfig{}, err
+	}
+	logFormat, err := normalizeLogFormat(firstNonEmptyEnv("LOG_FORMAT", "OCTOPUS_LOG_FORMAT"))
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+	logRetentionDays, err := positiveInt(
+		firstNonEmptyEnv("LOG_RETENTION_DAYS"),
+		defaultLogRetentionDays,
+		"LOG_RETENTION_DAYS",
+	)
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+	if logRetentionDays > maxLogRetentionDays {
+		logRetentionDays = maxLogRetentionDays
+	}
 
 	serviceConfig := ServiceConfig{
-		Host:        firstEnvOrDefault([]string{"SERVICE_HOST", "OCTOPUS_HOST"}, "0.0.0.0"),
-		Port:        servicePort,
-		Debug:       debug,
-		LogLevel:    firstEnvOrDefault([]string{"LOG_LEVEL", "OCTOPUS_LOG_LEVEL"}, "INFO"),
-		LogFormat:   firstEnvOrDefault([]string{"LOG_FORMAT", "OCTOPUS_LOG_FORMAT"}, "plain"),
-		Environment: firstEnvOrDefault([]string{"ENVIRONMENT"}, "development"),
+		Host:             firstEnvOrDefault([]string{"SERVICE_HOST", "OCTOPUS_HOST"}, "0.0.0.0"),
+		Port:             servicePort,
+		Debug:            debug,
+		LogLevel:         logLevel,
+		LogFormat:        logFormat,
+		LogFile:          expandPath(firstEnvOrDefault([]string{"LOG_FILE"}, "")),
+		LogRetentionDays: logRetentionDays,
+		Environment:      firstEnvOrDefault([]string{"ENVIRONMENT"}, "development"),
 		ScraperConfig: FileSettings{
 			Directory:    expandPath(firstEnvOrDefault([]string{"SCRAPER_CONFIG_DIR"}, "resources/scrapers.d")),
 			PollInterval: pollInterval,
@@ -265,6 +288,24 @@ func firstEnvOrDefault(names []string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func validateLogLevel(value string) error {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL":
+		return nil
+	default:
+		return fmt.Errorf("unsupported log level: %s", value)
+	}
+}
+
+func normalizeLogFormat(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "json", "plain":
+		return "json", nil
+	default:
+		return "", fmt.Errorf("unsupported log format: %s", value)
+	}
 }
 
 func positiveInt(raw string, fallback int, field string) (int, error) {

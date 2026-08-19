@@ -22,42 +22,29 @@ func TestParseServeOptionsUsesBootstrapDefaultsWhenFlagsAreAbsent(t *testing.T) 
 	}
 }
 
-func TestWriteFatalErrorUsesStableLogFormats(t *testing.T) {
-	t.Run("plain", func(t *testing.T) {
-		t.Setenv("LOG_FORMAT", "plain")
-		var output bytes.Buffer
-		writeFatalError(&output, nil, errors.New("database unavailable"))
-		if !bytes.Contains(output.Bytes(), []byte("[error]")) ||
-			!bytes.Contains(
-				output.Bytes(),
-				[]byte("database unavailable"),
-			) {
-			t.Fatalf("plain fatal output = %q", output.String())
-		}
-	})
-
-	t.Run("json cli override", func(t *testing.T) {
-		t.Setenv("LOG_FORMAT", "plain")
-		var output bytes.Buffer
-		writeFatalError(
-			&output,
-			[]string{"serve", "--log-format=json"},
-			errors.New("database unavailable"),
-		)
-		var payload struct {
-			Level string `json:"level"`
-			Event string `json:"event"`
-			Error string `json:"error"`
-		}
-		if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.Level != "error" ||
-			payload.Event != "OctopusScraper command failed" ||
-			payload.Error != "database unavailable" {
-			t.Fatalf("json fatal output = %#v", payload)
-		}
-	})
+func TestWriteFatalErrorUsesStableJSONSignal(t *testing.T) {
+	t.Setenv("LOG_FORMAT", "plain")
+	var output bytes.Buffer
+	writeFatalError(
+		&output,
+		[]string{"serve", "--log-format=plain"},
+		errors.New("database unavailable"),
+	)
+	var payload struct {
+		Timestamp string `json:"timestamp"`
+		Level     string `json:"level"`
+		Event     string `json:"event"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Timestamp == "" ||
+		payload.Level != "error" ||
+		payload.Event != "OctopusScraper command failed" ||
+		payload.Error != "database unavailable" {
+		t.Fatalf("fatal output = %#v", payload)
+	}
 }
 
 func TestParseServeOptionsAcceptsOverrides(t *testing.T) {

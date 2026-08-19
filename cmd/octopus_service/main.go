@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -31,45 +30,17 @@ func writeFatalError(
 	err error,
 ) {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	if fatalLogFormat(arguments) == "json" {
-		_ = json.NewEncoder(writer).Encode(struct {
-			Time  string `json:"time"`
-			Level string `json:"level"`
-			Event string `json:"event"`
-			Error string `json:"error"`
-		}{
-			Time:  timestamp,
-			Level: "error",
-			Event: "OctopusScraper command failed",
-			Error: err.Error(),
-		})
-		return
-	}
-	fmt.Fprintf(
-		writer,
-		"%s [error] OctopusScraper command failed error=%q\n",
-		timestamp,
-		err,
-	)
-}
-
-func fatalLogFormat(arguments []string) string {
-	for index, argument := range arguments {
-		if argument == "--log-format" && index+1 < len(arguments) {
-			return strings.ToLower(strings.TrimSpace(arguments[index+1]))
-		}
-		if value, found := strings.CutPrefix(
-			argument,
-			"--log-format=",
-		); found {
-			return strings.ToLower(strings.TrimSpace(value))
-		}
-	}
-	format := os.Getenv("LOG_FORMAT")
-	if format == "" {
-		format = os.Getenv("OCTOPUS_LOG_FORMAT")
-	}
-	return strings.ToLower(strings.TrimSpace(format))
+	_ = json.NewEncoder(writer).Encode(struct {
+		Timestamp string `json:"timestamp"`
+		Level     string `json:"level"`
+		Event     string `json:"event"`
+		Error     string `json:"error"`
+	}{
+		Timestamp: timestamp,
+		Level:     "error",
+		Event:     "OctopusScraper command failed",
+		Error:     err.Error(),
+	})
 }
 
 func run(arguments []string) error {
@@ -136,7 +107,7 @@ func parseServeOptions(arguments []string) (bootstrap.Options, error) {
 		&options.LogFormat,
 		"log-format",
 		"",
-		"Log format: plain or json",
+		"Deprecated log format compatibility input; runtime logs are JSON",
 	)
 	flags.StringVar(
 		&options.ScraperConfigDir,
@@ -231,7 +202,7 @@ Flags:
   --port int                    Port to bind the service
   --debug                       Enable debug mode
   --log-level string            Log level
-  --log-format plain|json       Log format
+  --log-format plain|json       Deprecated; runtime logs are always JSON
   --scraper-config-dir string   Directory containing scraper YAML files`)
 }
 

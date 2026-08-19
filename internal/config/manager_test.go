@@ -196,6 +196,9 @@ func TestLoadServiceConfigFromEnvUsesPythonDefaultsAndAliases(t *testing.T) {
 	t.Setenv("OCTOPUS_HOST", "127.0.0.1")
 	t.Setenv("SERVICE_PORT", "8080")
 	t.Setenv("OCTOPUS_LOG_LEVEL", "DEBUG")
+	t.Setenv("LOG_FORMAT", "plain")
+	t.Setenv("LOG_FILE", "~/logs/octopus.log")
+	t.Setenv("LOG_RETENTION_DAYS", "400")
 	t.Setenv("SCRAPER_CONFIG_DIR", "~/scrapers")
 	t.Setenv("TASK_MANAGER_MAX_CONCURRENT", "4")
 	t.Setenv("MAX_QUEUE_SIZE", "42")
@@ -213,6 +216,11 @@ func TestLoadServiceConfigFromEnvUsesPythonDefaultsAndAliases(t *testing.T) {
 	}
 	if config.LogLevel != "DEBUG" {
 		t.Fatalf("LogLevel = %q", config.LogLevel)
+	}
+	if config.LogFormat != "json" ||
+		config.LogFile != filepath.Join(home, "logs", "octopus.log") ||
+		config.LogRetentionDays != maxLogRetentionDays {
+		t.Fatalf("log config = format:%q file:%q retention:%d", config.LogFormat, config.LogFile, config.LogRetentionDays)
 	}
 	if config.MaxConcurrentTasks != 4 || config.MaxQueueSize != 42 {
 		t.Fatalf("task manager config = max=%d queue=%d", config.MaxConcurrentTasks, config.MaxQueueSize)
@@ -454,6 +462,9 @@ func TestLoadServiceConfigRejectsInvalidScalarValues(t *testing.T) {
 		{name: "debug boolean", field: "DEBUG", value: "sometimes"},
 		{name: "notion boolean", field: "NOTION_SYNC_ENABLED", value: "enabled"},
 		{name: "mcp boolean", field: "MCP_ENABLED", value: "enabled"},
+		{name: "log level", field: "LOG_LEVEL", value: "verbose"},
+		{name: "log format", field: "LOG_FORMAT", value: "xml"},
+		{name: "log retention", field: "LOG_RETENTION_DAYS", value: "0"},
 		{name: "non-finite timeout", field: "RSSHUB_READ_TIMEOUT", value: "NaN"},
 		{name: "duration overflow", field: "RESULT_RETENTION_HOURS", value: "999999999999"},
 		{name: "pool overflow", field: "DB_POOL_SIZE", value: "2147483648"},

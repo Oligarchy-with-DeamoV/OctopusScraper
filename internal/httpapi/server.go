@@ -37,6 +37,11 @@ type ConfigManager interface {
 	AllScrapers() []config.ScraperConfig
 }
 
+type LogLevelController interface {
+	SetLevel(string) error
+	Level() string
+}
+
 type healthCache struct {
 	mu        sync.Mutex
 	checkedAt time.Time
@@ -51,6 +56,7 @@ type Server struct {
 	serviceConfig config.ServiceConfig
 	metrics       *observability.Metrics
 	version       string
+	logLevels     LogLevelController
 	startedAt     time.Time
 	health        healthCache
 	mcpHandler    http.Handler
@@ -73,6 +79,10 @@ func NewServer(
 		version:       version,
 		startedAt:     time.Now(),
 	}
+}
+
+func (s *Server) SetLogLevelController(controller LogLevelController) {
+	s.logLevels = controller
 }
 
 func (s *Server) EnableMCP(
@@ -98,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/config/status", s.configStatus)
 	mux.HandleFunc("POST /admin/config/refresh", s.configRefresh)
 	mux.HandleFunc("GET /admin/system/info", s.systemInfo)
+	mux.HandleFunc("POST /admin/system/log-level", s.updateLogLevel)
 	mux.HandleFunc("GET /admin/scrapers", s.scrapers)
 	mux.HandleFunc("GET /admin/tasks/stats", s.taskStats)
 	mux.HandleFunc("GET /admin/tasks", s.tasks)
@@ -337,8 +348,9 @@ func (s *Server) systemInfo(writer http.ResponseWriter, request *http.Request) {
 				"scraper_timeout":              s.serviceConfig.ScraperTimeout.Seconds(),
 				"upload_timeout":               s.serviceConfig.UploadTimeout.Seconds(),
 				"upload_max_retries":           s.serviceConfig.UploadMaxRetries,
-				"log_level":                    s.serviceConfig.LogLevel,
+				"log_level":                    s.currentLogLevel(),
 				"log_format":                   s.serviceConfig.LogFormat,
+				"log_file_enabled":             s.serviceConfig.LogFile != "",
 			},
 			"octopus_instance": map[string]any{
 				"scrapers_configured":     len(s.configManager.CurrentScrapers()),
@@ -357,6 +369,55 @@ func (s *Server) systemInfo(writer http.ResponseWriter, request *http.Request) {
 			},
 		},
 	})
+}
+
+func (s *Server) updateLogLevel(writer http.ResponseWriter, request *http.Request) {
+	if s.logLevels == nil {
+		writeJSON(writer, http.StatusNotFound, map[string]any{
+			"status":  "error",
+			"message": "Log level updates are not available.",
+		})
+		return
+	}
+	var payload struct {
+		Level string `json:"level"`
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, 1024)
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{
+			"status":  "error",
+			"message": fmt.Sprintf("Invalid log level request: %s", err),
+		})
+		return
+	}
+	level := strings.TrimSpace(payload.Level)
+	if level == "" {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{
+			"status":  "error",
+			"message": "Log level is required.",
+		})
+		return
+	}
+	if err := s.logLevels.SetLevel(level); err != nil {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"status": "success",
+		"data": map[string]any{
+			"log_level": s.logLevels.Level(),
+		},
+	})
+}
+
+func (s *Server) currentLogLevel() string {
+	if s.logLevels != nil {
+		return s.logLevels.Level()
+	}
+	return s.serviceConfig.LogLevel
 }
 
 func (s *Server) scrapers(writer http.ResponseWriter, _ *http.Request) {

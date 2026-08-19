@@ -97,7 +97,9 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 
 - Go 1.26.6.
 - Run `gofmt`; CI rejects formatting drift.
-- Prefer the standard library for HTTP, concurrency, contexts, and logging.
+- Prefer the standard library for HTTP, concurrency, and contexts. Logging uses
+  Zap behind injected `*slog.Logger`; Lumberjack is limited to optional file
+  rotation.
 - Keep interfaces at consumer boundaries and concrete types elsewhere.
 - Propagate `context.Context` through blocking and external operations.
 - Bound goroutines, queues, response bodies, retries, and external timeouts.

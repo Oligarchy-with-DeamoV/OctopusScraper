@@ -11,6 +11,16 @@ server. Configure an external Prometheus instance to scrape
 to deliver Feishu alerts from container error logs, including fatal startup
 errors emitted before the normal logger is initialized.
 
+Runtime logs are JSON-only and use `event` for the message field, so the
+existing Vector filter continues to match `{"event":"Task failed","level":"error"}`
+and `critical` variants. `LOG_FILE` is optional; when set, the same JSON lines
+are written to stdout and to the file, with 100 MiB plus daily rotation,
+compressed archives, and `LOG_RETENTION_DAYS` cleanup.
+
+The initial level comes from `LOG_LEVEL`. Use `POST /admin/system/log-level`
+with a JSON body such as `{"level":"debug"}` to adjust the injected logger at
+runtime without rebuilding it.
+
 ## Metric model
 
 - Counters: task attempts, retries, cancellations, configuration refreshes,
