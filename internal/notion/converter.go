@@ -398,7 +398,7 @@ func applyLink(richText []map[string]any, link *string) []map[string]any {
 
 func splitTextToRichText(text string, ann annotations, link *string) []map[string]any {
 	if text == "" {
-		return nil
+		return []map[string]any{}
 	}
 	richText := make([]map[string]any, 0, len(text)/maxTextLength+1)
 	for len(text) > 0 {

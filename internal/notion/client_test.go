@@ -99,6 +99,38 @@ func TestClientStoreContentsPayloads(t *testing.T) {
 	}
 }
 
+func TestBuildPagePropertiesUsesArrayForEmptyAuthor(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{}
+	properties, err := client.buildPageProperties(content.Content{
+		ContentID: "empty-rich-text",
+		Title:     "Empty rich text",
+	}, pendingContentID("empty-rich-text"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(properties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	summary, ok := decoded[propertyNameSummary]["rich_text"].([]any)
+	if !ok || len(summary) == 0 {
+		t.Fatalf("Summary.rich_text = %#v, want non-empty JSON array", decoded[propertyNameSummary]["rich_text"])
+	}
+	author, ok := decoded[propertyNameAuthor]["rich_text"].([]any)
+	if !ok {
+		t.Fatalf("Author.rich_text = %#v, want JSON array", decoded[propertyNameAuthor]["rich_text"])
+	}
+	if len(author) != 0 {
+		t.Fatalf("Author.rich_text = %#v, want empty array", author)
+	}
+}
+
 func TestClientUsesContentIDCache(t *testing.T) {
 	t.Parallel()
 
