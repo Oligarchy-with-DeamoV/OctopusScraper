@@ -131,6 +131,14 @@ services:
         echo "Scheduler started with cron jobs:"
         cat /var/spool/cron/crontabs/root
         crond -f -l 2
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
+          cpus: "0.1"
     networks:
       - octopus-network
 
@@ -155,6 +163,14 @@ services:
       CACHE_CONTENT_EXPIRE: ${CACHE_CONTENT_EXPIRE:-43200}
       CACHE_EXPIRE: ${CACHE_EXPIRE:-300}
       LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+        reservations:
+          memory: 256M
+          cpus: "0.5"
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
@@ -168,6 +184,12 @@ services:
 
   redis:
     image: redis:alpine
+    command:
+      - redis-server
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - allkeys-lru
     restart: always
     volumes:
       - redis-data:/data
@@ -177,6 +199,14 @@ services:
       timeout: 10s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 64M
+          cpus: "0.25"
     networks:
       - octopus-network
 
@@ -193,6 +223,14 @@ services:
       - VECTOR_LOG=${VECTOR_LOG:-info}
       # Vector 0.57+ requires an explicit opt-in for ${...} interpolation.
       - VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 64M
+          cpus: "0.25"
     volumes:
       - ./vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
