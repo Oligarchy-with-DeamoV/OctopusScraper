@@ -27,6 +27,19 @@ type Uploader interface {
 	StoreContents(context.Context, []content.Content, bool) ([]bool, error)
 }
 
+func (c *Client) ID() string { return "notion" }
+
+func (c *Client) Deliver(ctx context.Context, item content.Content) error {
+	results, err := c.StoreContents(ctx, []content.Content{item}, true)
+	if err != nil {
+		return err
+	}
+	if len(results) != 1 || !results[0] {
+		return errors.New("Notion upload failed")
+	}
+	return nil
+}
+
 type Client struct {
 	config     config.NotionConfig
 	httpClient *http.Client

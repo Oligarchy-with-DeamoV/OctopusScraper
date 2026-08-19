@@ -40,21 +40,69 @@ CREATE TABLE IF NOT EXISTS contents (
     tags_json TEXT NOT NULL DEFAULT '[]',
     scraper_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
-    notion_sync_status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    notion_synced_at TIMESTAMPTZ,
-    notion_sync_attempts INTEGER NOT NULL DEFAULT 0,
-    notion_sync_error TEXT,
-    notion_next_attempt_at TIMESTAMPTZ NOT NULL,
-    notion_claimed_by VARCHAR(128),
-    notion_claimed_at TIMESTAMPTZ,
-    notion_lease_expires_at TIMESTAMPTZ
+    updated_at TIMESTAMPTZ NOT NULL
 )`
-	createContentIndexesSQL = `
-CREATE INDEX IF NOT EXISTS ix_contents_notion_sync_status ON contents (notion_sync_status);
-CREATE INDEX IF NOT EXISTS ix_contents_notion_next_attempt_at ON contents (notion_next_attempt_at);
-CREATE INDEX IF NOT EXISTS ix_contents_notion_claimed_by ON contents (notion_claimed_by);
-CREATE INDEX IF NOT EXISTS ix_contents_notion_lease_expires_at ON contents (notion_lease_expires_at)`
+	createExporterTablesSQL = `
+CREATE TABLE IF NOT EXISTS export_targets (
+    exporter_id VARCHAR(128) PRIMARY KEY,
+    enabled BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS content_exports (
+    content_id TEXT NOT NULL REFERENCES contents(content_id) ON DELETE CASCADE,
+    exporter_id VARCHAR(128) NOT NULL REFERENCES export_targets(exporter_id) ON DELETE CASCADE,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    claimed_by VARCHAR(128),
+    claimed_at TIMESTAMPTZ,
+    lease_expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (content_id, exporter_id)
+)`
+	createExporterIndexesSQL = `
+CREATE INDEX IF NOT EXISTS ix_content_exports_due
+    ON content_exports (exporter_id, status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS ix_content_exports_claim
+    ON content_exports (exporter_id, claimed_by);
+CREATE INDEX IF NOT EXISTS ix_content_exports_lease
+    ON content_exports (exporter_id, lease_expires_at)`
+	migrateV1ToV2SQL = `
+INSERT INTO export_targets (exporter_id, enabled)
+VALUES ('notion', TRUE)
+ON CONFLICT (exporter_id) DO NOTHING;
+INSERT INTO content_exports (
+    content_id, exporter_id, status, attempts, error, next_attempt_at,
+    completed_at, claimed_by, claimed_at, lease_expires_at, updated_at
+)
+SELECT content_id, 'notion', notion_sync_status, notion_sync_attempts,
+       notion_sync_error, notion_next_attempt_at, notion_synced_at,
+       notion_claimed_by, notion_claimed_at, notion_lease_expires_at, updated_at
+FROM contents
+ON CONFLICT (content_id, exporter_id) DO NOTHING;
+DO $$
+BEGIN
+    IF (SELECT COUNT(*) FROM contents) <>
+       (SELECT COUNT(*) FROM content_exports WHERE exporter_id = 'notion') THEN
+        RAISE EXCEPTION 'notion export migration count mismatch';
+    END IF;
+END $$;
+DROP INDEX IF EXISTS ix_contents_notion_sync_status;
+DROP INDEX IF EXISTS ix_contents_notion_next_attempt_at;
+DROP INDEX IF EXISTS ix_contents_notion_claimed_by;
+DROP INDEX IF EXISTS ix_contents_notion_lease_expires_at;
+ALTER TABLE contents
+    DROP COLUMN notion_sync_status,
+    DROP COLUMN notion_synced_at,
+    DROP COLUMN notion_sync_attempts,
+    DROP COLUMN notion_sync_error,
+    DROP COLUMN notion_next_attempt_at,
+    DROP COLUMN notion_claimed_by,
+    DROP COLUMN notion_claimed_at,
+    DROP COLUMN notion_lease_expires_at`
 )
 
 type dbPool interface {
@@ -113,17 +161,37 @@ func (s *PostgresStore) Initialize(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
 		return fmt.Errorf("acquire schema migration lock: %w", err)
 	}
-	for _, statement := range []string{createSchemaMigrationsSQL, createContentsSQL, createContentIndexesSQL} {
-		if _, err := tx.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("apply schema migration: %w", err)
+	if _, err := tx.Exec(ctx, createSchemaMigrationsSQL); err != nil {
+		return fmt.Errorf("create schema migrations table: %w", err)
+	}
+	var currentVersion int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&currentVersion); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if currentVersion > SchemaVersion {
+		return fmt.Errorf("database schema version %d is newer than supported version %d", currentVersion, SchemaVersion)
+	}
+	if currentVersion == 0 {
+		for _, statement := range []string{createContentsSQL, createExporterTablesSQL, createExporterIndexesSQL} {
+			if _, err := tx.Exec(ctx, statement); err != nil {
+				return fmt.Errorf("create schema version 2: %w", err)
+			}
+		}
+	} else if currentVersion == 1 {
+		for _, statement := range []string{createExporterTablesSQL, migrateV1ToV2SQL, createExporterIndexesSQL} {
+			if _, err := tx.Exec(ctx, statement); err != nil {
+				return fmt.Errorf("migrate schema version 1 to 2: %w", err)
+			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `
+	if currentVersion < SchemaVersion {
+		if _, err := tx.Exec(ctx, `
 INSERT INTO schema_migrations (version, applied_at)
 VALUES ($1, NOW())
 ON CONFLICT (version) DO NOTHING
 `, SchemaVersion); err != nil {
-		return fmt.Errorf("record schema version: %w", err)
+			return fmt.Errorf("record schema version: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit schema migration: %w", err)
@@ -205,6 +273,20 @@ func (s *PostgresStore) StoreContents(ctx context.Context, contents []content.Co
 		}
 		stats.Inserted += int(commandTag.RowsAffected())
 	}
+	contentIDs := make([]string, 0, len(unique))
+	for _, item := range unique {
+		contentIDs = append(contentIDs, item.ContentID)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO content_exports (content_id, exporter_id, status, attempts, next_attempt_at)
+SELECT c.content_id, t.exporter_id, $1, 0, NOW()
+FROM contents c
+CROSS JOIN export_targets t
+WHERE c.content_id = ANY($2) AND t.enabled
+ON CONFLICT (content_id, exporter_id) DO NOTHING
+`, SyncPending, contentIDs); err != nil {
+		return stats, fmt.Errorf("create content export states: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return stats, fmt.Errorf("commit content batch: %w", err)
 	}
@@ -220,36 +302,74 @@ func (s *PostgresStore) StoreContents(ctx context.Context, contents []content.Co
 	return stats, nil
 }
 
-func (s *PostgresStore) ClaimContents(ctx context.Context, workerID string, batchSize int, lease time.Duration, maxAttempts int) ([]content.Content, error) {
+func (s *PostgresStore) RegisterTarget(ctx context.Context, exporterID string, enabled bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin exporter registration: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+INSERT INTO export_targets (exporter_id, enabled)
+VALUES ($1, $2)
+ON CONFLICT (exporter_id) DO UPDATE
+SET enabled = EXCLUDED.enabled, updated_at = NOW()
+`, exporterID, enabled); err != nil {
+		return fmt.Errorf("register exporter target %q: %w", exporterID, err)
+	}
+	if enabled {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO content_exports (content_id, exporter_id, status, attempts, next_attempt_at)
+SELECT content_id, $1, $2, 0, NOW()
+FROM contents
+ON CONFLICT (content_id, exporter_id) DO NOTHING
+`, exporterID, SyncPending); err != nil {
+			return fmt.Errorf("backfill exporter target %q: %w", exporterID, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit exporter registration %q: %w", exporterID, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) Claim(ctx context.Context, exporterID, workerID string, batchSize int, lease time.Duration, maxAttempts int) ([]content.Content, error) {
 	rows, err := s.pool.Query(ctx, `
 WITH due AS (
-    SELECT content_id
-    FROM contents
+    SELECT content_id, exporter_id
+    FROM content_exports
     WHERE (
-        notion_sync_status IN ($1, $2)
-        AND notion_sync_attempts < $3
-        AND notion_next_attempt_at <= NOW()
+        exporter_id = $1
+        AND status IN ($2, $3)
+        AND attempts < $4
+        AND next_attempt_at <= NOW()
     ) OR (
-        notion_sync_status = $4
-        AND notion_lease_expires_at <= NOW()
+        exporter_id = $1
+        AND status = $5
+        AND lease_expires_at <= NOW()
     )
-    ORDER BY created_at, content_id
-    LIMIT $5
+    ORDER BY next_attempt_at, content_id
+    LIMIT $6
     FOR UPDATE SKIP LOCKED
+),
+claimed AS (
+    UPDATE content_exports AS e
+    SET status = $5,
+        claimed_by = $7,
+        claimed_at = NOW(),
+        lease_expires_at = NOW() + ($8 * INTERVAL '1 second'),
+        updated_at = NOW()
+    FROM due
+    WHERE e.content_id = due.content_id
+      AND e.exporter_id = due.exporter_id
+    RETURNING e.content_id
 )
-UPDATE contents AS c
-SET notion_sync_status = $4,
-    notion_claimed_by = $6,
-    notion_claimed_at = NOW(),
-    notion_lease_expires_at = NOW() + ($7 * INTERVAL '1 second'),
-    updated_at = NOW()
-FROM due
-WHERE c.content_id = due.content_id
-RETURNING c.content_id, c.title, c.link, c.summary, c.content, c.published,
-          c.author, c.keywords_json, c.tags_json, c.scraper_name
-`, SyncPending, SyncRetry, maxAttempts, SyncProcessing, batchSize, workerID, int(lease.Seconds()))
+SELECT c.content_id, c.title, c.link, c.summary, c.content, c.published,
+       c.author, c.keywords_json, c.tags_json, c.scraper_name
+FROM contents c
+JOIN claimed ON claimed.content_id = c.content_id
+`, exporterID, SyncPending, SyncRetry, maxAttempts, SyncProcessing, batchSize, workerID, int(lease.Seconds()))
 	if err != nil {
-		return nil, fmt.Errorf("claim contents: %w", err)
+		return nil, fmt.Errorf("claim contents for exporter %q: %w", exporterID, err)
 	}
 	defer rows.Close()
 	claimed, err := scanContents(rows)
@@ -259,50 +379,53 @@ RETURNING c.content_id, c.title, c.link, c.summary, c.content, c.published,
 	return claimed, nil
 }
 
-func (s *PostgresStore) RenewClaim(ctx context.Context, contentID, workerID string, lease time.Duration) (bool, error) {
+func (s *PostgresStore) Renew(ctx context.Context, exporterID, contentID, workerID string, lease time.Duration) (bool, error) {
 	commandTag, err := s.pool.Exec(ctx, `
-UPDATE contents
-SET notion_lease_expires_at = NOW() + ($1 * INTERVAL '1 second'),
+UPDATE content_exports
+SET lease_expires_at = NOW() + ($1 * INTERVAL '1 second'),
     updated_at = NOW()
-WHERE content_id = $2
-  AND notion_claimed_by = $3
-  AND notion_sync_status = $4
-`, int(lease.Seconds()), contentID, workerID, SyncProcessing)
+WHERE exporter_id = $2
+  AND content_id = $3
+  AND claimed_by = $4
+  AND status = $5
+`, int(lease.Seconds()), exporterID, contentID, workerID, SyncProcessing)
 	if err != nil {
 		return false, fmt.Errorf("renew content claim: %w", err)
 	}
 	return commandTag.RowsAffected() == 1, nil
 }
 
-func (s *PostgresStore) MarkSynced(ctx context.Context, contentID, workerID string) (bool, error) {
+func (s *PostgresStore) Complete(ctx context.Context, exporterID, contentID, workerID string) (bool, error) {
 	commandTag, err := s.pool.Exec(ctx, `
-UPDATE contents
-SET notion_sync_status = $1,
-    notion_synced_at = NOW(),
-    notion_sync_error = NULL,
-    notion_claimed_by = NULL,
-    notion_claimed_at = NULL,
-    notion_lease_expires_at = NULL,
+UPDATE content_exports
+SET status = $1,
+    completed_at = NOW(),
+    error = NULL,
+    claimed_by = NULL,
+    claimed_at = NULL,
+    lease_expires_at = NULL,
     updated_at = NOW()
-WHERE content_id = $2
-  AND notion_claimed_by = $3
-  AND notion_sync_status = $4
-`, SyncSynced, contentID, workerID, SyncProcessing)
+WHERE exporter_id = $2
+  AND content_id = $3
+  AND claimed_by = $4
+  AND status = $5
+`, SyncSynced, exporterID, contentID, workerID, SyncProcessing)
 	if err != nil {
 		return false, fmt.Errorf("mark content synced: %w", err)
 	}
 	return commandTag.RowsAffected() == 1, nil
 }
 
-func (s *PostgresStore) MarkSyncFailed(ctx context.Context, contentID, workerID, errorMessage string, maxAttempts int) (bool, error) {
+func (s *PostgresStore) Fail(ctx context.Context, exporterID, contentID, workerID, errorMessage string, maxAttempts int) (bool, error) {
 	var attemptsBefore int
 	if err := s.pool.QueryRow(ctx, `
-SELECT notion_sync_attempts
-FROM contents
-WHERE content_id = $1
-  AND notion_claimed_by = $2
-  AND notion_sync_status = $3
-`, contentID, workerID, SyncProcessing).Scan(&attemptsBefore); err != nil {
+SELECT attempts
+FROM content_exports
+WHERE exporter_id = $1
+  AND content_id = $2
+  AND claimed_by = $3
+  AND status = $4
+`, exporterID, contentID, workerID, SyncProcessing).Scan(&attemptsBefore); err != nil {
 		if err == pgx.ErrNoRows {
 			return false, nil
 		}
@@ -314,20 +437,21 @@ WHERE content_id = $1
 		status = SyncFailed
 	}
 	commandTag, err := s.pool.Exec(ctx, `
-UPDATE contents
-SET notion_sync_attempts = $1,
-    notion_sync_status = $2,
-    notion_sync_error = LEFT($3, 2000),
-    notion_next_attempt_at = NOW() + ($4 * INTERVAL '1 second'),
-    notion_claimed_by = NULL,
-    notion_claimed_at = NULL,
-    notion_lease_expires_at = NULL,
+UPDATE content_exports
+SET attempts = $1,
+    status = $2,
+    error = LEFT($3, 2000),
+    next_attempt_at = NOW() + ($4 * INTERVAL '1 second'),
+    claimed_by = NULL,
+    claimed_at = NULL,
+    lease_expires_at = NULL,
     updated_at = NOW()
-WHERE content_id = $5
-  AND notion_claimed_by = $6
-  AND notion_sync_status = $7
-  AND notion_sync_attempts = $8
-`, attempts, status, errorMessage, int(nextRetryDelay(attempts).Seconds()), contentID, workerID, SyncProcessing, attemptsBefore)
+WHERE exporter_id = $5
+  AND content_id = $6
+  AND claimed_by = $7
+  AND status = $8
+  AND attempts = $9
+`, attempts, status, errorMessage, int(nextRetryDelay(attempts).Seconds()), exporterID, contentID, workerID, SyncProcessing, attemptsBefore)
 	if err != nil {
 		return false, fmt.Errorf("mark sync failed: %w", err)
 	}
@@ -336,9 +460,9 @@ WHERE content_id = $5
 
 func (s *PostgresStore) SyncCounts(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT notion_sync_status, COUNT(content_id)
-FROM contents
-GROUP BY notion_sync_status
+SELECT status, COUNT(content_id)
+FROM content_exports
+GROUP BY status
 `)
 	if err != nil {
 		return nil, fmt.Errorf("query sync counts: %w", err)
@@ -385,10 +509,9 @@ func buildInsertContentsQuery(contents []content.Content) (string, []any, error)
 	builder.WriteString(`
 INSERT INTO contents (
     content_id, title, link, summary, content, published, author,
-    keywords_json, tags_json, scraper_name, created_at, updated_at,
-    notion_sync_status, notion_sync_attempts, notion_next_attempt_at
+    keywords_json, tags_json, scraper_name, created_at, updated_at
 ) VALUES `)
-	args := make([]any, 0, len(contents)*15)
+	args := make([]any, 0, len(contents)*10)
 	placeholder := 1
 	for index, item := range contents {
 		if index > 0 {
@@ -409,10 +532,9 @@ INSERT INTO contents (
 			return "", nil, fmt.Errorf("marshal tags for %s: %w", item.ContentID, err)
 		}
 		builder.WriteString(fmt.Sprintf(`
-    ($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW(),NOW(),$%d,$%d,NOW())`,
+    ($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW(),NOW())`,
 			placeholder, placeholder+1, placeholder+2, placeholder+3, placeholder+4,
 			placeholder+5, placeholder+6, placeholder+7, placeholder+8, placeholder+9,
-			placeholder+10, placeholder+11,
 		))
 		args = append(args,
 			item.ContentID,
@@ -425,10 +547,8 @@ INSERT INTO contents (
 			string(keywordsJSON),
 			string(tagsJSON),
 			item.ScraperName,
-			SyncPending,
-			0,
 		)
-		placeholder += 12
+		placeholder += 10
 	}
 	builder.WriteString(`
 ON CONFLICT (content_id) DO NOTHING`)

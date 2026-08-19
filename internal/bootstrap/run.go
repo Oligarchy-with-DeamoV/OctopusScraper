@@ -12,9 +12,10 @@ import (
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/app"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/exporter"
+	notionexporter "github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/exporter/notion"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/fetcher"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/httpapi"
-	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/notion"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/observability"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/processor"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/storage"
@@ -227,16 +228,32 @@ func buildSyncService(
 	logger *slog.Logger,
 ) (app.SyncService, error) {
 	if !serviceConfig.Notion.Enabled {
+		if store != nil {
+			if err := store.RegisterTarget(context.Background(), "notion", false); err != nil {
+				return nil, fmt.Errorf("disable Notion exporter target: %w", err)
+			}
+		}
 		return nil, nil
 	}
-	client, err := notion.NewClient(
+	client, err := notionexporter.NewClient(
 		serviceConfig.Notion,
 		&http.Client{Timeout: maxDuration(serviceConfig.UploadTimeout, 30*time.Second)},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create Notion client: %w", err)
 	}
-	service := notion.NewSyncService(serviceConfig.Notion, store, client)
+	if err := store.RegisterTarget(context.Background(), client.ID(), true); err != nil {
+		return nil, fmt.Errorf("register Notion exporter target: %w", err)
+	}
+	service, err := exporter.NewManager(exporter.Options{
+		BatchSize:   serviceConfig.Notion.BatchSize,
+		Interval:    serviceConfig.Notion.Interval,
+		Lease:       serviceConfig.Notion.Lease,
+		MaxAttempts: serviceConfig.Notion.MaxAttempts,
+	}, store, client)
+	if err != nil {
+		return nil, fmt.Errorf("create exporter manager: %w", err)
+	}
 	return &app.InstrumentedSyncService{
 		Service:  service,
 		Metrics:  metrics,

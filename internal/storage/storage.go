@@ -13,7 +13,7 @@ const (
 	SyncRetry      = "retry"
 	SyncSynced     = "synced"
 	SyncFailed     = "failed"
-	SchemaVersion  = 1
+	SchemaVersion  = 2
 )
 
 // StoreStats describes one canonical batch insert.
@@ -30,9 +30,10 @@ type CanonicalStore interface {
 	Close()
 	ExistingContentIDs(context.Context, []string) (map[string]struct{}, error)
 	StoreContents(context.Context, []content.Content) (StoreStats, error)
-	ClaimContents(context.Context, string, int, time.Duration, int) ([]content.Content, error)
-	RenewClaim(context.Context, string, string, time.Duration) (bool, error)
-	MarkSynced(context.Context, string, string) (bool, error)
-	MarkSyncFailed(context.Context, string, string, string, int) (bool, error)
+	RegisterTarget(context.Context, string, bool) error
+	Claim(context.Context, string, string, int, time.Duration, int) ([]content.Content, error)
+	Renew(context.Context, string, string, string, time.Duration) (bool, error)
+	Complete(context.Context, string, string, string) (bool, error)
+	Fail(context.Context, string, string, string, string, int) (bool, error)
 	SyncCounts(context.Context) (map[string]int64, error)
 }
