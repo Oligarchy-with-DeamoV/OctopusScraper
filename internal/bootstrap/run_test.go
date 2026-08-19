@@ -29,6 +29,12 @@ func (bootstrapStore) ExistingContentIDs(context.Context, []string) (map[string]
 func (bootstrapStore) StoreContents(context.Context, []content.Content) (storage.StoreStats, error) {
 	return storage.StoreStats{}, nil
 }
+func (bootstrapStore) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+func (bootstrapStore) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
 func (s bootstrapStore) RegisterTarget(context.Context, string, bool) error { return s.registerErr }
 func (bootstrapStore) Claim(context.Context, string, string, int, time.Duration, int) ([]content.Content, error) {
 	return nil, nil

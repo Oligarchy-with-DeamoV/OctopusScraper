@@ -68,6 +68,12 @@ func (s *memoryStore) StoreContents(
 		Inserted:  len(items),
 	}, nil
 }
+func (s *memoryStore) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+func (s *memoryStore) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
 func (s *memoryStore) RegisterTarget(context.Context, string, bool) error { return nil }
 func (s *memoryStore) Claim(
 	context.Context,

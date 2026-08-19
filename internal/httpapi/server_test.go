@@ -13,8 +13,19 @@ import (
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/observability"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/storage"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/task"
 )
+
+type fakeContentReader struct{}
+
+func (fakeContentReader) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+
+func (fakeContentReader) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
 
 type fakeRuntime struct{}
 
@@ -178,6 +189,33 @@ func TestTaskNotFoundContract(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unexpected status: %d", response.Code)
+	}
+}
+
+func TestMCPDisabledRouteUnavailable(t *testing.T) {
+	server := newTestServer()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: %d", response.Code)
+	}
+}
+
+func TestMCPEnabledRouteUsesConfiguredHandler(t *testing.T) {
+	server := newTestServer()
+	server.serviceConfig.MCP = config.MCPConfig{
+		Enabled:              true,
+		APIToken:             "secret",
+		QueryTimeout:         time.Second,
+		MaxConcurrentQueries: 1,
+	}
+	server.EnableMCP(context.Background(), fakeContentReader{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
 	}
 }
 

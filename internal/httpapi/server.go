@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/mcpapi"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/observability"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/storage"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/task"
 )
 
@@ -51,6 +53,7 @@ type Server struct {
 	version       string
 	startedAt     time.Time
 	health        healthCache
+	mcpHandler    http.Handler
 }
 
 func NewServer(
@@ -72,6 +75,19 @@ func NewServer(
 	}
 }
 
+func (s *Server) EnableMCP(
+	shutdown context.Context,
+	reader storage.ContentReader,
+) {
+	s.mcpHandler = mcpapi.NewHandler(
+		shutdown,
+		s.logger,
+		reader,
+		s.serviceConfig.MCP,
+		s.version,
+	)
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /trigger_scraper", s.triggerScraper)
@@ -87,6 +103,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/tasks", s.tasks)
 	mux.HandleFunc("GET /admin/tasks/{task_id}", s.taskDetails)
 	mux.Handle("GET /metrics", s.metrics.Handler())
+	if s.mcpHandler != nil {
+		mux.Handle("POST /mcp", s.mcpHandler)
+	}
 	return s.recover(s.accessLog(mux))
 }
 

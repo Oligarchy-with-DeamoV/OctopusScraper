@@ -229,6 +229,27 @@ func TestLoadServiceConfigFromEnvUsesPythonDefaultsAndAliases(t *testing.T) {
 	if config.SummaryMaxLength != 500 || config.RSSReadTimeout != 1200*time.Second {
 		t.Fatalf("defaults were not preserved: %#v", config)
 	}
+	if config.MCP.Enabled || config.MCP.APIToken != "" ||
+		config.MCP.QueryTimeout != 5*time.Second ||
+		config.MCP.MaxConcurrentQueries != 4 {
+		t.Fatalf("MCP defaults = %#v", config.MCP)
+	}
+}
+
+func TestLoadServiceConfigRequiresMCPTokenWhenEnabled(t *testing.T) {
+	t.Setenv("MCP_ENABLED", "true")
+	if _, err := LoadServiceConfig(); err == nil ||
+		!strings.Contains(err.Error(), "MCP_API_TOKEN") {
+		t.Fatalf("LoadServiceConfig() error = %v", err)
+	}
+	t.Setenv("MCP_API_TOKEN", "secret")
+	serviceConfig, err := LoadServiceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !serviceConfig.MCP.Enabled || serviceConfig.MCP.APIToken != "secret" {
+		t.Fatalf("MCP config = %#v", serviceConfig.MCP)
+	}
 }
 
 func TestConfigManagerReportsHealthTransitions(t *testing.T) {
@@ -432,6 +453,7 @@ func TestLoadServiceConfigRejectsInvalidScalarValues(t *testing.T) {
 	}{
 		{name: "debug boolean", field: "DEBUG", value: "sometimes"},
 		{name: "notion boolean", field: "NOTION_SYNC_ENABLED", value: "enabled"},
+		{name: "mcp boolean", field: "MCP_ENABLED", value: "enabled"},
 		{name: "non-finite timeout", field: "RSSHUB_READ_TIMEOUT", value: "NaN"},
 		{name: "duration overflow", field: "RESULT_RETENTION_HOURS", value: "999999999999"},
 		{name: "pool overflow", field: "DB_POOL_SIZE", value: "2147483648"},

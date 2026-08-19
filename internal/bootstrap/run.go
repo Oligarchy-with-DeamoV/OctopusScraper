@@ -162,6 +162,9 @@ func Run(ctx context.Context, options Options) error {
 		metrics,
 		version.Version,
 	)
+	if serviceConfig.MCP.Enabled {
+		api.EnableMCP(runtimeCtx, canonicalStore)
+	}
 	httpServer := &http.Server{
 		Addr:              net.JoinHostPort(serviceConfig.Host, fmt.Sprint(serviceConfig.Port)),
 		Handler:           api.Handler(),

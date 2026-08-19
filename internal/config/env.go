@@ -15,6 +15,11 @@ import (
 
 const defaultTaskResultPath = ".octopus/task_results.sqlite3"
 
+const (
+	defaultMCPQueryTimeoutSeconds = 5
+	defaultMCPConcurrentQueries   = 4
+)
+
 // LoadServiceConfigFromEnv resolves runtime defaults and env aliases.
 func LoadServiceConfigFromEnv() (ServiceConfig, error) {
 	databaseURL, err := databaseURLFromEnv()
@@ -36,6 +41,18 @@ func LoadServiceConfigFromEnv() (ServiceConfig, error) {
 	)
 	if err != nil {
 		return ServiceConfig{}, err
+	}
+	mcpEnabled, err := booleanValue(
+		firstNonEmptyEnv("MCP_ENABLED"),
+		false,
+		"MCP_ENABLED",
+	)
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+	mcpToken := firstNonEmptyEnv("MCP_API_TOKEN")
+	if mcpEnabled && mcpToken == "" {
+		return ServiceConfig{}, errors.New("MCP_API_TOKEN is required when MCP_ENABLED=true")
 	}
 	servicePort, err := networkPort(
 		firstNonEmptyEnv("SERVICE_PORT", "OCTOPUS_PORT"),
@@ -163,6 +180,12 @@ func LoadServiceConfigFromEnv() (ServiceConfig, error) {
 			MaxAttempts: notionMaxAttempts,
 			Lease:       notionLease,
 			RetryDelay:  notionRetryDelay,
+		},
+		MCP: MCPConfig{
+			Enabled:              mcpEnabled,
+			APIToken:             mcpToken,
+			QueryTimeout:         time.Duration(defaultMCPQueryTimeoutSeconds) * time.Second,
+			MaxConcurrentQueries: defaultMCPConcurrentQueries,
 		},
 		MaxConcurrentTasks: maxConcurrentTasks,
 		MaxQueueSize:       maxQueueSize,

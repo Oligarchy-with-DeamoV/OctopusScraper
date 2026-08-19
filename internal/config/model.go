@@ -60,6 +60,14 @@ type NotionConfig struct {
 	RetryDelay  time.Duration
 }
 
+// MCPConfig controls the optional read-only MCP endpoint.
+type MCPConfig struct {
+	Enabled              bool
+	APIToken             string
+	QueryTimeout         time.Duration
+	MaxConcurrentQueries int
+}
+
 // ServiceConfig contains process-wide runtime settings.
 type ServiceConfig struct {
 	Host               string
@@ -71,6 +79,7 @@ type ServiceConfig struct {
 	ScraperConfig      FileSettings
 	Database           DatabaseConfig
 	Notion             NotionConfig
+	MCP                MCPConfig
 	MaxConcurrentTasks int
 	MaxQueueSize       int
 	ResultRetention    time.Duration

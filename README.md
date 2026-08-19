@@ -41,6 +41,9 @@ NOTION_SYNC_ENABLED=false
 NOTION_API_KEY=
 NOTION_CONTENT_DATABASE_ID=
 
+MCP_ENABLED=false
+MCP_API_TOKEN=
+
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 LOG_LEVEL=INFO
@@ -108,11 +111,17 @@ YAML 中自定义的 LLM `base_url` / `api_base` 不会继承其他主机使用�
 | GET | `/admin/tasks` | 任务列表 |
 | GET | `/admin/tasks/{task_id}` | 任务详情 |
 | GET | `/metrics` | Prometheus 指标 |
+| POST | `/mcp` | 可选的只读 MCP endpoint |
 
 ```bash
 curl -X POST http://localhost:8001/trigger_scraper
 curl -X POST http://localhost:8001/trigger_upload
 ```
+
+`/mcp` 默认不注册。启用时设置 `MCP_ENABLED=true` 和强随机
+`MCP_API_TOKEN`，客户端必须使用 `Authorization: Bearer <token>`。该 endpoint
+拒绝带 `Origin` 的浏览器请求，仅暴露只读 `list_contents` 和 `get_content`
+工具，用于按 `content_id` 读取 PostgreSQL canonical 内容。
 
 ## 本地开发
 
@@ -143,5 +152,5 @@ PostgreSQL schema、Notion 租约和重试状态见
 [`docs/storage.md`](docs/storage.md)。监控指标和 Vector 告警见
 [`docs/monitoring.md`](docs/monitoring.md)。
 
-升级前备份 PostgreSQL。Go 服务沿用 schema version `1`，可直接回滚到兼容该
+升级前备份 PostgreSQL。Go 服务沿用 schema version `2`，可直接回滚到兼容该
 schema 的旧镜像。切换镜像时只运行一个写入实例。

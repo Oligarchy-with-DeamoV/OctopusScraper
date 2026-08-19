@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -371,6 +373,322 @@ func TestPostgresStoreExistingContentIDsChunksRequests(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestPostgresStoreListContentsUsesParameterizedCanonicalQuery(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+	store := newPostgresStoreWithPool(mock)
+	after := time.Date(2026, 8, 19, 9, 0, 0, 0, time.UTC)
+	before := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	cursorTime := time.Date(2026, 8, 19, 11, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{
+		"content_id",
+		"title",
+		"link",
+		"summary",
+		"published",
+		"author",
+		"keywords_json",
+		"tags_json",
+		"scraper_name",
+		"created_at",
+	}).
+		AddRow("one", "Title one", "https://example.com/one", "Summary", "source-time", "Alice", `["k"]`, `["tag"]`, "Feed", cursorTime).
+		AddRow("two", "Title two", "https://example.com/two", "Summary", "source-time", nil, `[]`, `[]`, nil, cursorTime.Add(-time.Minute)).
+		AddRow("three", "Title three", "https://example.com/three", "Summary", "source-time", nil, `[]`, `[]`, nil, cursorTime.Add(-2*time.Minute))
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, published, author,\s+keywords_json, tags_json, scraper_name, created_at\s+FROM contents`).
+		WithArgs("Feed", after, before, cursorTime, "cursor-id", []string{"tag"}, 3).
+		WillReturnRows(rows)
+	page, err := store.ListContents(context.Background(), ContentListOptions{
+		Limit:           2,
+		ScraperName:     "Feed",
+		Tags:            []string{"tag"},
+		CollectedAfter:  &after,
+		CollectedBefore: &before,
+		Cursor: &ContentListCursor{
+			CreatedAt: cursorTime,
+			ContentID: "cursor-id",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 2 || page.Items[0].ContentID != "one" {
+		t.Fatalf("page = %#v", page)
+	}
+	if page.NextCursor == nil ||
+		!page.NextCursor.CreatedAt.Equal(page.Items[1].CollectedAt) ||
+		page.NextCursor.ContentID != "two" {
+		t.Fatalf("next cursor = %#v", page.NextCursor)
+	}
+	if page.Items[0].Author == nil || *page.Items[0].Author != "Alice" ||
+		!slices.Equal(page.Items[0].Keywords, []string{"k"}) ||
+		!slices.Equal(page.Items[0].Tags, []string{"tag"}) {
+		t.Fatalf("decoded metadata = %#v", page.Items[0])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresStoreListContentsNoNextCursorAndErrors(t *testing.T) {
+	t.Run("no next cursor", func(t *testing.T) {
+		mock, err := pgxmock.NewPool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mock.Close()
+		store := newPostgresStoreWithPool(mock)
+		collectedAt := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+		rows := pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}).AddRow("one", "Title", "https://example.com/one", "Summary", "source-time", nil, `[]`, `[]`, nil, collectedAt)
+		mock.ExpectQuery(`FROM contents`).
+			WithArgs(2).
+			WillReturnRows(rows)
+		page, err := store.ListContents(context.Background(), ContentListOptions{Limit: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != 1 || page.NextCursor != nil {
+			t.Fatalf("page = %#v", page)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("query error", func(t *testing.T) {
+		mock, err := pgxmock.NewPool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mock.Close()
+		store := newPostgresStoreWithPool(mock)
+		mock.ExpectQuery(`FROM contents`).
+			WithArgs(1).
+			WillReturnError(errors.New("database failed"))
+		if _, err := store.ListContents(context.Background(), ContentListOptions{}); err == nil {
+			t.Fatal("expected query error")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("zero limit", func(t *testing.T) {
+		mock, err := pgxmock.NewPool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mock.Close()
+		store := newPostgresStoreWithPool(mock)
+		rows := pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}).AddRow("one", "Title", "https://example.com/one", "Summary", "source-time", nil, `[]`, `[]`, nil, time.Now())
+		mock.ExpectQuery(`FROM contents`).
+			WithArgs(1).
+			WillReturnRows(rows)
+		page, err := store.ListContents(context.Background(), ContentListOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != 0 || page.NextCursor != nil {
+			t.Fatalf("page = %#v", page)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("decode error", func(t *testing.T) {
+		mock, err := pgxmock.NewPool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mock.Close()
+		store := newPostgresStoreWithPool(mock)
+		rows := pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}).AddRow("one", "Title", "https://example.com/one", "Summary", "source-time", nil, `bad`, `[]`, nil, time.Now())
+		mock.ExpectQuery(`FROM contents`).
+			WithArgs(2).
+			WillReturnRows(rows)
+		if _, err := store.ListContents(context.Background(), ContentListOptions{Limit: 1}); err == nil {
+			t.Fatal("expected decode error")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestBuildListContentsQueryExcludesExporterInternals(t *testing.T) {
+	query, args := buildListContentsQuery(ContentListOptions{
+		Limit:       20,
+		ScraperName: "Feed",
+		Tags:        []string{"tag"},
+	})
+	for _, forbidden := range []string{"content_exports", "export_targets", "notion", "lease", "error"} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("query exposes %q: %s", forbidden, query)
+		}
+	}
+	for _, placeholder := range []string{"$1", "$2", "$3"} {
+		if !strings.Contains(query, placeholder) {
+			t.Fatalf("query missing %s: %s", placeholder, query)
+		}
+	}
+	if len(args) != 3 {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestBuildListContentsQueryBoundsNonPositiveLimit(t *testing.T) {
+	query, args := buildListContentsQuery(ContentListOptions{Limit: -2})
+	if !strings.Contains(query, "LIMIT $1") || len(args) != 1 || args[0] != 1 {
+		t.Fatalf("query=%q args=%#v", query, args)
+	}
+}
+
+func TestDecodeStringSliceNormalizesJSONNull(t *testing.T) {
+	var values []string
+	if err := decodeStringSlice("null", &values, "tags", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if values == nil || len(values) != 0 {
+		t.Fatalf("values = %#v, want non-nil empty slice", values)
+	}
+}
+
+func TestPostgresStoreGetContent(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+	store := newPostgresStoreWithPool(mock)
+	collectedAt := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{
+		"content_id",
+		"title",
+		"link",
+		"summary",
+		"content",
+		"published",
+		"author",
+		"keywords_json",
+		"tags_json",
+		"scraper_name",
+		"created_at",
+	}).AddRow("one", "Title", "https://example.com/one", "Summary", "Body", "source-time", "Alice", `["k"]`, `["tag"]`, "Feed", collectedAt)
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, content, published, author`).
+		WithArgs("one").
+		WillReturnRows(rows)
+	record, ok, err := store.GetContent(context.Background(), "one")
+	if err != nil || !ok {
+		t.Fatalf("GetContent() = %#v, %t, %v", record, ok, err)
+	}
+	if record.Content != "Body" || record.ContentID != "one" ||
+		record.Author == nil || *record.Author != "Alice" ||
+		!record.CollectedAt.Equal(collectedAt) {
+		t.Fatalf("record = %#v", record)
+	}
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, content, published, author`).
+		WithArgs("missing").
+		WillReturnRows(pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"content",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}))
+	_, ok, err = store.GetContent(context.Background(), "missing")
+	if err != nil || ok {
+		t.Fatalf("missing = %t, %v", ok, err)
+	}
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, content, published, author`).
+		WithArgs("broken").
+		WillReturnError(errors.New("database failed"))
+	_, _, err = store.GetContent(context.Background(), "broken")
+	if err == nil {
+		t.Fatal("expected database error")
+	}
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, content, published, author`).
+		WithArgs("bad-json").
+		WillReturnRows(pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"content",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}).AddRow("bad-json", "Title", "https://example.com/bad-json", "Summary", "Body", "source-time", nil, `bad`, `[]`, nil, collectedAt))
+	_, _, err = store.GetContent(context.Background(), "bad-json")
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	mock.ExpectQuery(`SELECT content_id, title, link, summary, content, published, author`).
+		WithArgs("bad-tags").
+		WillReturnRows(pgxmock.NewRows([]string{
+			"content_id",
+			"title",
+			"link",
+			"summary",
+			"content",
+			"published",
+			"author",
+			"keywords_json",
+			"tags_json",
+			"scraper_name",
+			"created_at",
+		}).AddRow("bad-tags", "Title", "https://example.com/bad-tags", "Summary", "Body", "source-time", nil, `[]`, `bad`, nil, collectedAt))
+	_, _, err = store.GetContent(context.Background(), "bad-tags")
+	if err == nil {
+		t.Fatal("expected tags decode error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -332,6 +332,81 @@ ON CONFLICT (content_id, exporter_id) DO NOTHING
 	return nil
 }
 
+func (s *PostgresStore) ListContents(ctx context.Context, opts ContentListOptions) (ContentListPage, error) {
+	query, args := buildListContentsQuery(opts)
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return ContentListPage{}, fmt.Errorf("list contents: %w", err)
+	}
+	defer rows.Close()
+	items, err := scanContentMetadata(rows)
+	if err != nil {
+		return ContentListPage{}, err
+	}
+	pageLimit := opts.Limit
+	if pageLimit <= 0 {
+		pageLimit = 0
+	}
+	if len(items) <= pageLimit {
+		return ContentListPage{Items: items}, nil
+	}
+	if pageLimit == 0 {
+		return ContentListPage{}, nil
+	}
+	items = items[:pageLimit]
+	last := items[len(items)-1]
+	return ContentListPage{
+		Items: items,
+		NextCursor: &ContentListCursor{
+			CreatedAt: last.CollectedAt,
+			ContentID: last.ContentID,
+		},
+	}, nil
+}
+
+func (s *PostgresStore) GetContent(ctx context.Context, contentID string) (ContentRecord, bool, error) {
+	var (
+		record      ContentRecord
+		author      pgtype.Text
+		keywordsRaw string
+		tagsRaw     string
+		scraperName pgtype.Text
+	)
+	err := s.pool.QueryRow(ctx, `
+SELECT content_id, title, link, summary, content, published, author,
+       keywords_json, tags_json, scraper_name, created_at
+FROM contents
+WHERE content_id = $1
+`, contentID).Scan(
+		&record.ContentID,
+		&record.Title,
+		&record.Link,
+		&record.Summary,
+		&record.Content,
+		&record.Published,
+		&author,
+		&keywordsRaw,
+		&tagsRaw,
+		&scraperName,
+		&record.CollectedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return ContentRecord{}, false, nil
+		}
+		return ContentRecord{}, false, fmt.Errorf("get content: %w", err)
+	}
+	record.Author = pointerFromText(author)
+	record.ScraperName = pointerFromText(scraperName)
+	if err := decodeStringSlice(keywordsRaw, &record.Keywords, "keywords", contentID); err != nil {
+		return ContentRecord{}, false, err
+	}
+	if err := decodeStringSlice(tagsRaw, &record.Tags, "tags", contentID); err != nil {
+		return ContentRecord{}, false, err
+	}
+	return record, true, nil
+}
+
 func (s *PostgresStore) Claim(ctx context.Context, exporterID, workerID string, batchSize int, lease time.Duration, maxAttempts int) ([]content.Content, error) {
 	rows, err := s.pool.Query(ctx, `
 WITH due AS (
@@ -489,6 +564,56 @@ GROUP BY status
 	return counts, nil
 }
 
+func buildListContentsQuery(opts ContentListOptions) (string, []any) {
+	var builder strings.Builder
+	builder.WriteString(`
+SELECT content_id, title, link, summary, published, author,
+       keywords_json, tags_json, scraper_name, created_at
+FROM contents`)
+	where := make([]string, 0, 5)
+	args := make([]any, 0, 7)
+	addArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	if opts.ScraperName != "" {
+		where = append(where, "scraper_name = "+addArg(opts.ScraperName))
+	}
+	if opts.CollectedAfter != nil {
+		where = append(where, "created_at >= "+addArg(*opts.CollectedAfter))
+	}
+	if opts.CollectedBefore != nil {
+		where = append(where, "created_at <= "+addArg(*opts.CollectedBefore))
+	}
+	if opts.Cursor != nil {
+		createdAtPlaceholder := addArg(opts.Cursor.CreatedAt)
+		contentIDPlaceholder := addArg(opts.Cursor.ContentID)
+		where = append(where, "(created_at, content_id) < ("+createdAtPlaceholder+", "+contentIDPlaceholder+")")
+	}
+	if len(opts.Tags) > 0 {
+		where = append(where, `EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(tags_json::jsonb) AS tag(value)
+    WHERE tag.value = ANY(`+addArg(opts.Tags)+`::text[])
+)`)
+	}
+	if len(where) > 0 {
+		builder.WriteString(`
+WHERE `)
+		builder.WriteString(strings.Join(where, `
+  AND `))
+	}
+	limit := opts.Limit + 1
+	if limit < 1 {
+		limit = 1
+	}
+	builder.WriteString(`
+ORDER BY created_at DESC, content_id DESC
+LIMIT `)
+	builder.WriteString(addArg(limit))
+	return builder.String(), args
+}
+
 func nextRetryDelay(attempt int) time.Duration {
 	if attempt <= 0 {
 		attempt = 1
@@ -502,6 +627,46 @@ func nextRetryDelay(attempt int) time.Duration {
 		}
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func scanContentMetadata(rows pgx.Rows) ([]ContentMetadata, error) {
+	items := make([]ContentMetadata, 0)
+	for rows.Next() {
+		var (
+			item        ContentMetadata
+			author      pgtype.Text
+			keywordsRaw string
+			tagsRaw     string
+			scraperName pgtype.Text
+		)
+		if err := rows.Scan(
+			&item.ContentID,
+			&item.Title,
+			&item.Link,
+			&item.Summary,
+			&item.Published,
+			&author,
+			&keywordsRaw,
+			&tagsRaw,
+			&scraperName,
+			&item.CollectedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan content metadata row: %w", err)
+		}
+		item.Author = pointerFromText(author)
+		item.ScraperName = pointerFromText(scraperName)
+		if err := decodeStringSlice(keywordsRaw, &item.Keywords, "keywords", item.ContentID); err != nil {
+			return nil, err
+		}
+		if err := decodeStringSlice(tagsRaw, &item.Tags, "tags", item.ContentID); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate content metadata rows: %w", err)
+	}
+	return items, nil
 }
 
 func buildInsertContentsQuery(contents []content.Content) (string, []any, error) {
@@ -581,17 +746,11 @@ func scanContents(rows pgx.Rows) ([]content.Content, error) {
 		}
 		item.Author = pointerFromText(author)
 		item.ScraperName = pointerFromText(scraperName)
-		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
-			return nil, fmt.Errorf("decode keywords for %s: %w", item.ContentID, err)
+		if err := decodeStringSlice(keywordsJSON, &item.Keywords, "keywords", item.ContentID); err != nil {
+			return nil, err
 		}
-		if item.Keywords == nil {
-			item.Keywords = []string{}
-		}
-		if err := json.Unmarshal([]byte(tagsJSON), &item.Tags); err != nil {
-			return nil, fmt.Errorf("decode tags for %s: %w", item.ContentID, err)
-		}
-		if item.Tags == nil {
-			item.Tags = []string{}
+		if err := decodeStringSlice(tagsJSON, &item.Tags, "tags", item.ContentID); err != nil {
+			return nil, err
 		}
 		contents = append(contents, item)
 	}
@@ -599,6 +758,16 @@ func scanContents(rows pgx.Rows) ([]content.Content, error) {
 		return nil, fmt.Errorf("iterate content rows: %w", err)
 	}
 	return contents, nil
+}
+
+func decodeStringSlice(raw string, target *[]string, field, contentID string) error {
+	if err := json.Unmarshal([]byte(raw), target); err != nil {
+		return fmt.Errorf("decode %s for %s: %w", field, contentID, err)
+	}
+	if *target == nil {
+		*target = []string{}
+	}
+	return nil
 }
 
 func uniqueContents(contents []content.Content) []content.Content {
