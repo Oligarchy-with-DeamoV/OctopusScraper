@@ -50,15 +50,22 @@ type DatabaseConfig struct {
 
 // NotionConfig controls optional downstream synchronization.
 type NotionConfig struct {
-	Enabled      bool
-	APIKey       string
-	DatabaseID   string
-	DataSourceID string
-	Interval     time.Duration
-	BatchSize    int
-	MaxAttempts  int
-	Lease        time.Duration
-	RetryDelay   time.Duration
+	Enabled     bool
+	APIKey      string
+	DatabaseID  string
+	Interval    time.Duration
+	BatchSize   int
+	MaxAttempts int
+	Lease       time.Duration
+	RetryDelay  time.Duration
+}
+
+// MCPConfig controls the optional read-only MCP endpoint.
+type MCPConfig struct {
+	Enabled              bool
+	APIToken             string
+	QueryTimeout         time.Duration
+	MaxConcurrentQueries int
 }
 
 // ServiceConfig contains process-wide runtime settings.
@@ -68,10 +75,13 @@ type ServiceConfig struct {
 	Debug              bool
 	LogLevel           string
 	LogFormat          string
+	LogFile            string
+	LogRetentionDays   int
 	Environment        string
 	ScraperConfig      FileSettings
 	Database           DatabaseConfig
 	Notion             NotionConfig
+	MCP                MCPConfig
 	MaxConcurrentTasks int
 	MaxQueueSize       int
 	ResultRetention    time.Duration

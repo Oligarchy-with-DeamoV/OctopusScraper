@@ -7,17 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-19
+
+### Added
+- Added pluggable exporter targets with independent PostgreSQL synchronization state, leases, and retries.
+- Added token-protected, read-only MCP tools for listing and retrieving canonical content.
+
 ### Changed
 - Reimplemented the service in Go 1.26.
 - Replaced Sanic, Poetry, SQLAlchemy, and Python worker threads with `net/http`,
   Go modules, `pgx`, and bounded goroutine workers.
 - Replaced the Python runtime image with a statically linked distroless image.
 - Updated Notion synchronization for API version `2026-03-11` and data sources.
+- Changed service logging to structured Zap output with optional rotating compressed file logs and runtime level control.
+- Formal versions now come from validated Git tags, and user-visible changes are collected as changelog fragments.
 
 ### Removed
 - Removed the Python runtime, tests, packaging, vendored `doraemon` wheel,
   deprecated `llm` processor, misspelled fetcher alias, and placeholder
   provider implementations.
+- Removed the Notion Data Source ID setting and now require each configured database to expose exactly one data source.
 
 ## [0.2.0] - 2025-05-07
 

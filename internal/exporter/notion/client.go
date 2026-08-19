@@ -27,6 +27,19 @@ type Uploader interface {
 	StoreContents(context.Context, []content.Content, bool) ([]bool, error)
 }
 
+func (c *Client) ID() string { return "notion" }
+
+func (c *Client) Deliver(ctx context.Context, item content.Content) error {
+	results, err := c.StoreContents(ctx, []content.Content{item}, true)
+	if err != nil {
+		return err
+	}
+	if len(results) != 1 || !results[0] {
+		return errors.New("Notion upload failed")
+	}
+	return nil
+}
+
 type Client struct {
 	config     config.NotionConfig
 	httpClient *http.Client
@@ -148,13 +161,9 @@ func (c *Client) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	dataSourceID := strings.TrimSpace(c.config.DataSourceID)
-	if dataSourceID == "" {
-		resolvedID, err := c.resolveDataSourceID(ctx)
-		if err != nil {
-			return err
-		}
-		dataSourceID = resolvedID
+	dataSourceID, err := c.resolveDataSourceID(ctx)
+	if err != nil {
+		return err
 	}
 	properties, err := c.retrieveDataSource(ctx, dataSourceID)
 	if err != nil {
@@ -383,7 +392,11 @@ func (c *Client) resolveDataSourceID(ctx context.Context) (string, error) {
 	case 1:
 		return response.DataSources[0].ID, nil
 	default:
-		return "", fmt.Errorf("database %s has %d data sources; set DataSourceID explicitly", c.config.DatabaseID, len(response.DataSources))
+		return "", fmt.Errorf(
+			"database %s has %d data sources; this target is unsupported, use a database containing exactly one data source",
+			c.config.DatabaseID,
+			len(response.DataSources),
+		)
 	}
 }
 

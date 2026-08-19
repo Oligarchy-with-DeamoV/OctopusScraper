@@ -31,7 +31,6 @@ DB_PORT=5432
 NOTION_SYNC_ENABLED=true
 NOTION_API_KEY=secret
 NOTION_CONTENT_DATABASE_ID=database-id
-NOTION_CONTENT_DATA_SOURCE_ID=data-source-id
 NOTION_SYNC_INTERVAL_SECONDS=60
 NOTION_SYNC_BATCH_SIZE=100
 NOTION_SYNC_MAX_ATTEMPTS=10
@@ -49,11 +48,11 @@ startup so admin APIs do not report work that is no longer executing. If the
 optional task-history SQLite file cannot be opened, read, or repaired, the
 service logs the degradation and continues scraping without persisted history.
 
-The service uses Notion API version `2026-03-11`. A database containing one
-data source is resolved automatically. Set `NOTION_CONTENT_DATA_SOURCE_ID`
-when the database contains multiple data sources. An ambiguous target fails
-the first synchronization attempt explicitly without blocking service startup
-or canonical PostgreSQL scraping. If a full Notion query reaches the 10,000
+The service uses Notion API version `2026-03-11`. The target database must
+contain exactly one data source, which is resolved automatically. A database
+with zero or multiple data sources fails the first synchronization attempt
+explicitly without blocking service startup or canonical PostgreSQL scraping.
+If a full Notion query reaches the 10,000
 result cap, deduplication detects the incomplete response and verifies each
 candidate content ID with an exact query before creating a page.
 

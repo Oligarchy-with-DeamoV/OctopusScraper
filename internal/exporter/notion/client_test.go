@@ -141,6 +141,8 @@ func TestClientUsesContentIDCache(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.Method + " " + r.URL.Path {
+		case "GET /v1/databases/db-1":
+			writeJSON(t, w, map[string]any{"data_sources": []map[string]any{{"id": "ds-1"}}})
 		case "GET /v1/data_sources/ds-1":
 			writeJSON(t, w, map[string]any{"id": "ds-1", "properties": completeProperties()})
 		case "POST /v1/data_sources/ds-1/query":
@@ -158,9 +160,8 @@ func TestClientUsesContentIDCache(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, config.NotionConfig{
-		APIKey:       "secret",
-		DatabaseID:   "db-1",
-		DataSourceID: "ds-1",
+		APIKey:     "secret",
+		DatabaseID: "db-1",
 	}, server.URL)
 	item := content.Content{ContentID: "cache-me", Title: "Cached", Summary: "Summary"}
 
@@ -188,6 +189,10 @@ func TestClientChecksNotionWhenFreshCacheMissesCrossInstanceWrite(t *testing.T) 
 		request *http.Request,
 	) {
 		switch request.Method + " " + request.URL.Path {
+		case "GET /v1/databases/db-1":
+			writeJSON(t, writer, map[string]any{
+				"data_sources": []map[string]any{{"id": "ds-1"}},
+			})
 		case "GET /v1/data_sources/ds-1":
 			writeJSON(
 				t,
@@ -257,9 +262,8 @@ func TestClientChecksNotionWhenFreshCacheMissesCrossInstanceWrite(t *testing.T) 
 	defer server.Close()
 
 	client := newTestClient(t, config.NotionConfig{
-		APIKey:       "secret",
-		DatabaseID:   "db-1",
-		DataSourceID: "ds-1",
+		APIKey:     "secret",
+		DatabaseID: "db-1",
 	}, server.URL)
 	if err := client.Initialize(context.Background()); err != nil {
 		t.Fatal(err)
@@ -303,6 +307,10 @@ func TestClientChecksExactIDsAfterIncompleteColdScan(t *testing.T) {
 		request *http.Request,
 	) {
 		switch request.Method + " " + request.URL.Path {
+		case "GET /v1/databases/db-1":
+			writeJSON(t, writer, map[string]any{
+				"data_sources": []map[string]any{{"id": "ds-1"}},
+			})
 		case "GET /v1/data_sources/ds-1":
 			writeJSON(t, writer, map[string]any{
 				"id":         "ds-1",
@@ -369,9 +377,8 @@ func TestClientChecksExactIDsAfterIncompleteColdScan(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, config.NotionConfig{
-		APIKey:       "secret",
-		DatabaseID:   "db-1",
-		DataSourceID: "ds-1",
+		APIKey:     "secret",
+		DatabaseID: "db-1",
 	}, server.URL)
 	results, err := client.StoreContents(
 		context.Background(),
@@ -405,6 +412,8 @@ func TestClientCachesEmptyContentIDQuery(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.Method + " " + r.URL.Path {
+		case "GET /v1/databases/db-1":
+			writeJSON(t, w, map[string]any{"data_sources": []map[string]any{{"id": "ds-1"}}})
 		case "GET /v1/data_sources/ds-1":
 			writeJSON(t, w, map[string]any{"id": "ds-1", "properties": completeProperties()})
 		case "POST /v1/data_sources/ds-1/query":
@@ -417,9 +426,8 @@ func TestClientCachesEmptyContentIDQuery(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, config.NotionConfig{
-		APIKey:       "secret",
-		DatabaseID:   "db-1",
-		DataSourceID: "ds-1",
+		APIKey:     "secret",
+		DatabaseID: "db-1",
 	}, server.URL)
 	if err := client.Initialize(context.Background()); err != nil {
 		t.Fatal(err)
@@ -445,8 +453,25 @@ func TestClientInitializeFailsForMultipleDataSources(t *testing.T) {
 
 	client := newTestClient(t, config.NotionConfig{APIKey: "secret", DatabaseID: "db-1"}, server.URL)
 	err := client.Initialize(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "set DataSourceID explicitly") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "unsupported") ||
+		!strings.Contains(err.Error(), "exactly one data source") {
 		t.Fatalf("Initialize error = %v, want multiple data source guidance", err)
+	}
+}
+
+func TestClientInitializeFailsForNoDataSources(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, map[string]any{"data_sources": []any{}})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, config.NotionConfig{APIKey: "secret", DatabaseID: "db-1"}, server.URL)
+	err := client.Initialize(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "has no data sources") {
+		t.Fatalf("Initialize error = %v, want no data source guidance", err)
 	}
 }
 

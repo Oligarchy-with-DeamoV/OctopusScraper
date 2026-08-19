@@ -40,19 +40,30 @@ DB_PORT=5432
 NOTION_SYNC_ENABLED=false
 NOTION_API_KEY=
 NOTION_CONTENT_DATABASE_ID=
-NOTION_CONTENT_DATA_SOURCE_ID=
+
+MCP_ENABLED=false
+MCP_API_TOKEN=
 
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
 LOG_LEVEL=INFO
-LOG_FORMAT=plain
+LOG_FORMAT=json
+LOG_FILE=
+LOG_RETENTION_DAYS=14
 SCRAPER_CONFIG_DIR=/etc/octopus-scraper/scrapers.d
 TASK_MANAGER_MAX_CONCURRENT=3
 TASK_MANAGER_MAX_QUEUE_SIZE=1000
 ```
 
-`NOTION_CONTENT_DATA_SOURCE_ID` 在数据库包含多个 data source 时必填；单 data
-source 数据库会自动解析。
+目标 Notion database 必须包含且只包含一个 data source。零个或多个 data
+source 会在首次同步时返回明确错误，不影响服务启动或 PostgreSQL 抓取。
+
+运行时日志始终是结构化 JSON，写入 stdout，并保留 `event` 作为消息字段以兼容
+Vector 告警。`LOG_FORMAT` 只作为旧部署的兼容输入保留；`plain` 和 `json` 都会
+得到 JSON 日志，其他值会在启动时被拒绝。设置 `LOG_FILE` 后，同一份 JSON
+会同时写入 stdout 和文件；文件日志按 100 MiB 和日期轮转，压缩归档，并按
+`LOG_RETENTION_DAYS`（默认 14 天，最高 365 天）清理。在容器中启用文件日志时，
+建议把 `LOG_FILE` 指向 `/app/logs/octopus.log`，Compose 已提供持久化卷。
 
 ## Scraper 配置
 
@@ -109,11 +120,17 @@ YAML 中自定义的 LLM `base_url` / `api_base` 不会继承其他主机使用�
 | GET | `/admin/tasks` | 任务列表 |
 | GET | `/admin/tasks/{task_id}` | 任务详情 |
 | GET | `/metrics` | Prometheus 指标 |
+| POST | `/mcp` | 可选的只读 MCP endpoint |
 
 ```bash
 curl -X POST http://localhost:8001/trigger_scraper
 curl -X POST http://localhost:8001/trigger_upload
 ```
+
+`/mcp` 默认不注册。启用时设置 `MCP_ENABLED=true` 和强随机
+`MCP_API_TOKEN`，客户端必须使用 `Authorization: Bearer <token>`。该 endpoint
+拒绝带 `Origin` 的浏览器请求，仅暴露只读 `list_contents` 和 `get_content`
+工具，用于按 `content_id` 读取 PostgreSQL canonical 内容。
 
 ## 本地开发
 
@@ -144,5 +161,5 @@ PostgreSQL schema、Notion 租约和重试状态见
 [`docs/storage.md`](docs/storage.md)。监控指标和 Vector 告警见
 [`docs/monitoring.md`](docs/monitoring.md)。
 
-升级前备份 PostgreSQL。Go 服务沿用 schema version `1`，可直接回滚到兼容该
+升级前备份 PostgreSQL。Go 服务沿用 schema version `2`，可直接回滚到兼容该
 schema 的旧镜像。切换镜像时只运行一个写入实例。

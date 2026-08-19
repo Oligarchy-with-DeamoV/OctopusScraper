@@ -32,7 +32,9 @@ explicitly opt-in.
 
 ## Code style
 
-- Prefer the standard library for HTTP, contexts, concurrency, and logging.
+- Prefer the standard library for HTTP, contexts, and concurrency; logging uses
+  Zap only as the injected `slog` core and Lumberjack only for optional file
+  rotation.
 - Keep goroutines, retries, queues, response bodies, and timeouts bounded.
 - Wrap errors with operation context.
 - Use structured `slog` attributes without credentials.

@@ -24,13 +24,14 @@ services:
     environment:
       - NOTION_API_KEY=${NOTION_API_KEY}
       - NOTION_CONTENT_DATABASE_ID=${NOTION_CONTENT_DATABASE_ID}
-      - NOTION_CONTENT_DATA_SOURCE_ID=${NOTION_CONTENT_DATA_SOURCE_ID:-}
       - NOTION_SYNC_ENABLED=${NOTION_SYNC_ENABLED:-false}
       - NOTION_SYNC_INTERVAL_SECONDS=${NOTION_SYNC_INTERVAL_SECONDS:-60}
       - NOTION_SYNC_BATCH_SIZE=${NOTION_SYNC_BATCH_SIZE:-100}
       - NOTION_SYNC_MAX_ATTEMPTS=${NOTION_SYNC_MAX_ATTEMPTS:-10}
       - NOTION_SYNC_LEASE_SECONDS=${NOTION_SYNC_LEASE_SECONDS:-300}
       - NOTION_UPLOAD_RETRY_DELAY=${NOTION_UPLOAD_RETRY_DELAY:-30}
+      - MCP_ENABLED=${MCP_ENABLED:-false}
+      - MCP_API_TOKEN=${MCP_API_TOKEN:-}
       - POSTGRES_DB=${POSTGRES_DB:-octopus}
       - POSTGRES_USER=${POSTGRES_USER:-octopus}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-octopus}
@@ -46,7 +47,9 @@ services:
       # Cache config, will affect content refresh
       - OCTOPUS_DEBUG=${OCTOPUS_DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_FORMAT=${LOG_FORMAT:-plain}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_FILE=${LOG_FILE:-}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-14}
       - TASK_MANAGER_MAX_CONCURRENT=${TASK_MANAGER_MAX_CONCURRENT:-3}
       - TASK_MANAGER_MAX_QUEUE_SIZE=${TASK_MANAGER_MAX_QUEUE_SIZE:-1000}
       - RESULT_RETENTION_HOURS=${RESULT_RETENTION_HOURS:-48}
@@ -96,6 +99,7 @@ services:
     volumes:
       - ./resources/scrapers.d:/etc/octopus-scraper/scrapers.d:ro
       - task-results:/app/.octopus
+      - octopus-logs:/app/logs
 
     networks:
       - octopus-network
@@ -207,3 +211,4 @@ networks:
 volumes:
   redis-data:
   task-results:
+  octopus-logs:

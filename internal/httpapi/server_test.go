@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,13 +9,25 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/observability"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/storage"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/task"
 )
+
+type fakeContentReader struct{}
+
+func (fakeContentReader) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+
+func (fakeContentReader) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
 
 type fakeRuntime struct{}
 
@@ -135,6 +148,70 @@ func TestAdministrativeRouteContracts(t *testing.T) {
 	}
 }
 
+func TestUpdateLogLevelContract(t *testing.T) {
+	server := newTestServer()
+	controller := &fakeLogLevelController{level: "info"}
+	server.SetLogLevelController(controller)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/admin/system/log-level",
+		bytes.NewBufferString(`{"level":"debug"}`),
+	)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("returned %d: %s", response.Code, response.Body.String())
+	}
+	if controller.level != "debug" {
+		t.Fatalf("level = %q", controller.level)
+	}
+	if server.currentLogLevel() != "debug" {
+		t.Fatalf("current level = %q", server.currentLogLevel())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	data := payload["data"].(map[string]any)
+	if data["log_level"] != "debug" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestUpdateLogLevelRejectsInvalidPayloads(t *testing.T) {
+	server := newTestServer()
+	server.SetLogLevelController(&fakeLogLevelController{level: "info"})
+	for _, body := range []string{`{`, `{"level":""}`, `{"level":"verbose"}`} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/admin/system/log-level",
+			strings.NewReader(body),
+		)
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s returned %d: %s", body, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestUpdateLogLevelUnavailableWithoutController(t *testing.T) {
+	server := newTestServer()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/admin/system/log-level",
+		strings.NewReader(`{"level":"debug"}`),
+	)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("returned %d: %s", response.Code, response.Body.String())
+	}
+	if server.currentLogLevel() != server.serviceConfig.LogLevel {
+		t.Fatalf("fallback current level = %q", server.currentLogLevel())
+	}
+}
+
 func TestSystemInfoReportsSyncStatusFailure(t *testing.T) {
 	server := newTestServer()
 	server.runtime = failingSyncRuntime{}
@@ -181,12 +258,58 @@ func TestTaskNotFoundContract(t *testing.T) {
 	}
 }
 
+func TestMCPDisabledRouteUnavailable(t *testing.T) {
+	server := newTestServer()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: %d", response.Code)
+	}
+}
+
+func TestMCPEnabledRouteUsesConfiguredHandler(t *testing.T) {
+	server := newTestServer()
+	server.serviceConfig.MCP = config.MCPConfig{
+		Enabled:              true,
+		APIToken:             "secret",
+		QueryTimeout:         time.Second,
+		MaxConcurrentQueries: 1,
+	}
+	server.EnableMCP(context.Background(), fakeContentReader{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
 type unhealthyRuntime struct {
 	fakeRuntime
 }
 
 func (unhealthyRuntime) StoragePing(context.Context) error {
 	return errors.New("database unavailable")
+}
+
+type fakeLogLevelController struct {
+	level string
+}
+
+func (c *fakeLogLevelController) SetLevel(level string) error {
+	level = strings.ToLower(strings.TrimSpace(level))
+	switch level {
+	case "debug", "info", "warn", "warning", "error", "critical":
+		c.level = level
+		return nil
+	default:
+		return errors.New("unsupported log level")
+	}
+}
+
+func (c *fakeLogLevelController) Level() string {
+	return c.level
 }
 
 func TestReadinessFailsWhenDatabaseUnavailable(t *testing.T) {
@@ -219,7 +342,7 @@ func newTestServer() *Server {
 		config.ServiceConfig{
 			Environment: "test",
 			ScraperConfig: config.FileSettings{
-				Directory:    "/tmp",
+				Directory:    "scrapers",
 				PollInterval: time.Second,
 				Debounce:     750 * time.Millisecond,
 			},

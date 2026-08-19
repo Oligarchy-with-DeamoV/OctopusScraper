@@ -1,16 +1,58 @@
 package bootstrap
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/content"
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/observability"
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/storage"
 )
+
+type bootstrapStore struct {
+	registerErr error
+}
+
+func (bootstrapStore) Initialize(context.Context) error { return nil }
+func (bootstrapStore) Ping(context.Context) error       { return nil }
+func (bootstrapStore) Close()                           {}
+func (bootstrapStore) ExistingContentIDs(context.Context, []string) (map[string]struct{}, error) {
+	return map[string]struct{}{}, nil
+}
+func (bootstrapStore) StoreContents(context.Context, []content.Content) (storage.StoreStats, error) {
+	return storage.StoreStats{}, nil
+}
+func (bootstrapStore) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+func (bootstrapStore) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
+func (s bootstrapStore) RegisterTarget(context.Context, string, bool) error { return s.registerErr }
+func (bootstrapStore) Claim(context.Context, string, string, int, time.Duration, int) ([]content.Content, error) {
+	return nil, nil
+}
+func (bootstrapStore) Renew(context.Context, string, string, string, time.Duration) (bool, error) {
+	return true, nil
+}
+func (bootstrapStore) Complete(context.Context, string, string, string) (bool, error) {
+	return true, nil
+}
+func (bootstrapStore) Fail(context.Context, string, string, string, string, int) (bool, error) {
+	return true, nil
+}
+func (bootstrapStore) SyncCounts(context.Context) (map[string]int64, error) {
+	return map[string]int64{}, nil
+}
 
 func TestApplyOptions(t *testing.T) {
 	serviceConfig := config.ServiceConfig{
@@ -63,6 +105,14 @@ func TestApplyOptionsPreservesEnvironmentValues(t *testing.T) {
 	}
 }
 
+func TestApplyOptionsTreatsLogFormatAsDeprecatedCompatibilityInput(t *testing.T) {
+	serviceConfig := config.ServiceConfig{LogFormat: "json"}
+	applyOptions(&serviceConfig, Options{LogFormat: "plain"})
+	if serviceConfig.LogFormat != "json" {
+		t.Fatalf("LogFormat = %q", serviceConfig.LogFormat)
+	}
+}
+
 func TestLoadDotEnv(t *testing.T) {
 	originalDirectory, err := os.Getwd()
 	if err != nil {
@@ -107,10 +157,36 @@ func TestLoadDotEnv(t *testing.T) {
 	}
 }
 
+func TestRunInitializesAndClosesLoggerBeforeConfigFailure(t *testing.T) {
+	directory := t.TempDir()
+	logPath := filepath.Join(directory, "logs", "octopus.log")
+	t.Setenv("SCRAPER_CONFIG_DIR", filepath.Join(directory, "missing"))
+	t.Setenv("LOG_LEVEL", "DEBUG")
+	t.Setenv("LOG_FILE", logPath)
+	t.Setenv("LOG_RETENTION_DAYS", "1")
+
+	err := Run(context.Background(), Options{})
+	if err == nil || !strings.Contains(err.Error(), "load initial scraper configuration") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(content, &payload); err != nil {
+		t.Fatalf("log file is not JSON: %s", content)
+	}
+	if payload["level"] != "error" ||
+		payload["event"] != "scan config directory failed" {
+		t.Fatalf("unexpected startup log payload: %#v", payload)
+	}
+}
+
 func TestBuildSyncServiceDisabled(t *testing.T) {
 	service, err := buildSyncService(
 		config.ServiceConfig{},
-		nil,
+		bootstrapStore{},
 		observability.NewMetrics("test"),
 		nil,
 	)
@@ -133,7 +209,7 @@ func TestBuildSyncServiceDoesNotContactNotionAtStartup(t *testing.T) {
 			},
 			UploadTimeout: time.Second,
 		},
-		nil,
+		bootstrapStore{},
 		observability.NewMetrics("test"),
 		nil,
 	)
@@ -142,6 +218,40 @@ func TestBuildSyncServiceDoesNotContactNotionAtStartup(t *testing.T) {
 	}
 	if service == nil {
 		t.Fatal("expected enabled sync service")
+	}
+}
+
+func TestBuildSyncServiceErrors(t *testing.T) {
+	registerErr := errors.New("register failed")
+	if _, err := buildSyncService(
+		config.ServiceConfig{},
+		bootstrapStore{registerErr: registerErr},
+		observability.NewMetrics("test"),
+		nil,
+	); !errors.Is(err, registerErr) {
+		t.Fatalf("disabled registration error = %v", err)
+	}
+	if _, err := buildSyncService(
+		config.ServiceConfig{Notion: config.NotionConfig{Enabled: true}},
+		bootstrapStore{},
+		observability.NewMetrics("test"),
+		nil,
+	); err == nil {
+		t.Fatal("expected invalid Notion configuration error")
+	}
+	if _, err := buildSyncService(
+		config.ServiceConfig{
+			Notion: config.NotionConfig{
+				Enabled:    true,
+				APIKey:     "secret",
+				DatabaseID: "database",
+			},
+		},
+		bootstrapStore{registerErr: registerErr},
+		observability.NewMetrics("test"),
+		nil,
+	); !errors.Is(err, registerErr) {
+		t.Fatalf("enabled registration error = %v", err)
 	}
 }
 

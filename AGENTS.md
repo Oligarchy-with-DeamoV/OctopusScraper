@@ -44,7 +44,8 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 - `internal/fetcher/` — RSSHub and direct RSS acquisition.
 - `internal/processor/` — ordered HTML and LLM processing pipeline.
 - `internal/storage/` — PostgreSQL canonical store and migrations.
-- `internal/notion/` — Notion REST client, block conversion, and sync worker.
+- `internal/exporter/` — target-isolated export scheduling, leases, and retries.
+- `internal/exporter/notion/` — Notion REST client and block conversion.
 - `internal/task/` — bounded priority queue, workers, retries, and SQLite results.
 - `internal/httpapi/` — trigger, health, admin, and metrics routes.
 - `internal/observability/` — `slog` handlers and Prometheus metrics.
@@ -96,7 +97,9 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 
 - Go 1.26.6.
 - Run `gofmt`; CI rejects formatting drift.
-- Prefer the standard library for HTTP, concurrency, contexts, and logging.
+- Prefer the standard library for HTTP, concurrency, and contexts. Logging uses
+  Zap behind injected `*slog.Logger`; Lumberjack is limited to optional file
+  rotation.
 - Keep interfaces at consumer boundaries and concrete types elsewhere.
 - Propagate `context.Context` through blocking and external operations.
 - Bound goroutines, queues, response bodies, retries, and external timeouts.

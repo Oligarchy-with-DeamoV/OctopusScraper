@@ -68,8 +68,16 @@ func (s *memoryStore) StoreContents(
 		Inserted:  len(items),
 	}, nil
 }
-func (s *memoryStore) ClaimContents(
+func (s *memoryStore) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
+	return storage.ContentListPage{}, nil
+}
+func (s *memoryStore) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
+	return storage.ContentRecord{}, false, nil
+}
+func (s *memoryStore) RegisterTarget(context.Context, string, bool) error { return nil }
+func (s *memoryStore) Claim(
 	context.Context,
+	string,
 	string,
 	int,
 	time.Duration,
@@ -77,19 +85,21 @@ func (s *memoryStore) ClaimContents(
 ) ([]content.Content, error) {
 	return nil, nil
 }
-func (s *memoryStore) RenewClaim(
+func (s *memoryStore) Renew(
 	context.Context,
+	string,
 	string,
 	string,
 	time.Duration,
 ) (bool, error) {
 	return true, nil
 }
-func (s *memoryStore) MarkSynced(context.Context, string, string) (bool, error) {
+func (s *memoryStore) Complete(context.Context, string, string, string) (bool, error) {
 	return true, nil
 }
-func (s *memoryStore) MarkSyncFailed(
+func (s *memoryStore) Fail(
 	context.Context,
+	string,
 	string,
 	string,
 	string,
