@@ -3,32 +3,36 @@
 ![Go Version](https://img.shields.io/badge/go-1.26-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
-OctopusScraper 是一个面向 RSS 信息源的采集服务。它负责抓取、内容处理、
-PostgreSQL 持久化以及可选的 Notion 增量同步，不承载业务分析逻辑。
+OctopusScraper 是一个 RSS/Atom 内容采集服务。它从 RSSHub 或直接订阅地址抓取
+内容，按需执行 HTML 和 OpenAI 兼容处理器，将结果保存到 PostgreSQL，也可以
+继续同步到 Notion。
 
-## 架构
+项目只负责信息采集、处理和持久化。业务分析、知识整理和决策由下游系统完成。
 
-```text
-HTTP API -> Task Manager -> RSS Fetcher -> Processor Pipeline -> PostgreSQL
-                                                              -> Notion Sync
-```
+## 主要能力
 
-- Go 单进程服务提供 HTTP API、配置热更新、任务调度和 Prometheus 指标。
-- PostgreSQL 是内容的唯一事实来源。
-- Notion 是可选的下游同步目标，故障不会影响抓取事务。
-- RSSHub、Redis、scheduler 和 Vector 由 Docker Compose 独立运行。
-- Browserless/Chrome 通过远程 CDP 使用，不打包进服务镜像。
+- 支持 RSSHub 路由和直接 RSS/Atom 地址。
+- 支持正文提取、摘要、关键词和标签处理。
+- 使用 PostgreSQL 保存权威内容，重复抓取不会重复写入。
+- 可选同步到 Notion，Notion 故障不会影响 PostgreSQL 写入。
+- 提供任务触发、健康检查、管理接口、MCP 读取接口和 Prometheus 指标。
 
-## Docker Compose 部署
+## 快速开始
+
+### 准备
+
+- Docker 和 Docker Compose。
+- 一个可访问的 PostgreSQL 实例。Compose 不会创建 PostgreSQL。
+- 一个 RSS/Atom 地址，或可用的 RSSHub 路由。
+
+### 1. 创建运行配置
 
 ```bash
 cp resources/envs/deploy.prod.env .env
 cp resources/scraper.example.yaml resources/scrapers.d/my-feed.yaml
-docker compose up -d
-docker compose ps
 ```
 
-主要配置：
+编辑 `.env`，至少确认 PostgreSQL 连接信息：
 
 ```env
 POSTGRES_DB=octopus
@@ -36,130 +40,63 @@ POSTGRES_USER=octopus
 POSTGRES_PASSWORD=replace-with-a-strong-password
 DB_HOST=host.docker.internal
 DB_PORT=5432
-
-NOTION_SYNC_ENABLED=false
-NOTION_API_KEY=
-NOTION_CONTENT_DATABASE_ID=
-
-MCP_ENABLED=false
-MCP_API_TOKEN=
-
-SERVICE_HOST=0.0.0.0
-SERVICE_PORT=8000
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-LOG_FILE=
-LOG_RETENTION_DAYS=14
-SCRAPER_CONFIG_DIR=/etc/octopus-scraper/scrapers.d
-TASK_MANAGER_MAX_CONCURRENT=3
-TASK_MANAGER_MAX_QUEUE_SIZE=1000
 ```
 
-目标 Notion database 必须包含且只包含一个 data source。零个或多个 data
-source 会在首次同步时返回明确错误，不影响服务启动或 PostgreSQL 抓取。
-
-运行时日志始终是结构化 JSON，写入 stdout，并保留 `event` 作为消息字段以兼容
-Vector 告警。`LOG_FORMAT` 只作为旧部署的兼容输入保留；`plain` 和 `json` 都会
-得到 JSON 日志，其他值会在启动时被拒绝。设置 `LOG_FILE` 后，同一份 JSON
-会同时写入 stdout 和文件；文件日志按 100 MiB 和日期轮转，压缩归档，并按
-`LOG_RETENTION_DAYS`（默认 14 天，最高 365 天）清理。在容器中启用文件日志时，
-建议把 `LOG_FILE` 指向 `/app/logs/octopus.log`，Compose 已提供持久化卷。
-
-## Scraper 配置
-
-每个 `.yml` 或 `.yaml` 文件定义一个 scraper：
+编辑 `resources/scrapers.d/my-feed.yaml`，启用并填写订阅地址：
 
 ```yaml
-id: vscode-issues
-name: VSCode Issues
+id: my-feed
+name: My Feed
 enabled: true
-fetcher: rsshub
-hub_root: http://rsshub:1200
-route: /github/issues/microsoft/vscode
-fetch_params:
-  limit: 20
-priority: 1
+fetcher: direct_rss
+hub_root: https://example.com
+route: /feed.xml
+fetch_params: {}
+priority: 5
 content_processor_configs: {}
 default_keywords:
-  - vscode
+  - feed
 ```
 
-支持的 fetcher：
+将示例地址替换为真实订阅地址。RSSHub 和处理器配置见
+[`docs/configuration.md`](docs/configuration.md)。
 
-- `rsshub`
-- `direct_rss`
-
-支持的 processor：
-
-- `html_content`
-- `llm_summary`
-- `llm_keywords`
-- `llm_tags`
-
-YAML 中自定义的 LLM `base_url` / `api_base` 不会继承其他主机使用的
-`OPENAI_API_KEY`。需要共用全局密钥时，同时设置 `OPENAI_BASE_URL`；独立
-网关需在对应 processor 中提供自己的 `api_key`。
-
-配置目录按内容指纹轮询。无效的新文件会被忽略；已加载文件出现无效修改时，
-服务继续使用它的上一份有效配置。
-
-## HTTP API
-
-| Method | Path | 用途 |
-| --- | --- | --- |
-| GET | `/health` | 综合健康检查 |
-| GET | `/health/liveness` | 存活检查 |
-| GET | `/health/readiness` | 就绪检查 |
-| POST | `/trigger_scraper` | 提交全部启用的 scraper |
-| POST | `/trigger_upload` | 执行一批 PostgreSQL → Notion 同步 |
-| GET | `/admin/config/status` | 配置状态 |
-| POST | `/admin/config/refresh` | 立即刷新配置 |
-| GET | `/admin/system/info` | 运行信息 |
-| GET | `/admin/scrapers` | scraper 列表 |
-| GET | `/admin/tasks/stats` | 任务统计 |
-| GET | `/admin/tasks` | 任务列表 |
-| GET | `/admin/tasks/{task_id}` | 任务详情 |
-| GET | `/metrics` | Prometheus 指标 |
-| POST | `/mcp` | 可选的只读 MCP endpoint |
+### 2. 启动服务
 
 ```bash
+docker compose up -d --build
+docker compose ps
+```
+
+默认情况下，宿主机通过 `http://localhost:8001` 访问服务。
+
+### 3. 检查并触发采集
+
+```bash
+curl http://localhost:8001/health/readiness
 curl -X POST http://localhost:8001/trigger_scraper
+curl "http://localhost:8001/admin/tasks?limit=10"
+```
+
+采集任务在 PostgreSQL 写入成功后完成。启用 Notion 同步后，可以手动触发一批
+增量同步：
+
+```bash
 curl -X POST http://localhost:8001/trigger_upload
 ```
 
-`/mcp` 默认不注册。启用时设置 `MCP_ENABLED=true` 和强随机
-`MCP_API_TOKEN`，客户端必须使用 `Authorization: Bearer <token>`。该 endpoint
-拒绝带 `Origin` 的浏览器请求，仅暴露只读 `list_contents` 和 `get_content`
-工具，用于按 `content_id` 读取 PostgreSQL canonical 内容。
+## 文档
 
-## 本地开发
+| 内容 | 文档 |
+| --- | --- |
+| 文档导航 | [`docs/index.md`](docs/index.md) |
+| 环境变量、scraper 和处理器配置 | [`docs/configuration.md`](docs/configuration.md) |
+| HTTP API 和 MCP | [`docs/api.md`](docs/api.md) |
+| 系统架构和运行流程 | [`docs/architecture.md`](docs/architecture.md) |
+| PostgreSQL 与 Notion 同步 | [`docs/storage.md`](docs/storage.md) |
+| 日志、指标和告警 | [`docs/monitoring.md`](docs/monitoring.md) |
+| 本地开发和贡献流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
-要求 Go 1.26.6、Docker 和可访问的 PostgreSQL。
+## 许可证
 
-```bash
-go mod download
-gofmt -w .
-go vet ./...
-go test ./...
-go test -race ./...
-go run ./cmd/octopus_service serve \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --scraper-config-dir resources/scrapers.d
-```
-
-构建镜像：
-
-```bash
-docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
-docker image inspect octopus-scraper:latest --format '{{.Size}}'
-```
-
-## 数据与故障恢复
-
-PostgreSQL schema、Notion 租约和重试状态见
-[`docs/storage.md`](docs/storage.md)。监控指标和 Vector 告警见
-[`docs/monitoring.md`](docs/monitoring.md)。
-
-升级前备份 PostgreSQL。Go 服务沿用 schema version `2`，可直接回滚到兼容该
-schema 的旧镜像。切换镜像时只运行一个写入实例。
+OctopusScraper 使用 [Apache License 2.0](LICENSE)。
