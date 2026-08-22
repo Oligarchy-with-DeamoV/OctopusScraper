@@ -51,11 +51,24 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 - `internal/observability/` — `slog` handlers and Prometheus metrics.
 - `contracts/` — language-neutral compatibility fixtures.
 
+## Documentation ownership
+
+- `README.md` is the user-facing product overview and shortest working path.
+- `docs/index.md` is the documentation map.
+- `docs/configuration.md` owns environment and scraper configuration.
+- `docs/api.md` owns HTTP and MCP reference.
+- `docs/architecture.md` owns component responsibilities and runtime flows.
+- `docs/storage.md` owns persistence, schema, leases, retries, and recovery.
+- `docs/monitoring.md` owns logs, metrics, and alerting.
+- `CONTRIBUTING.md` owns development and pull request workflow.
+- Keep detailed information in its canonical document and link to it elsewhere
+  instead of duplicating reference tables.
+
 ## Runtime invariants
 
 - PostgreSQL is canonical. A scrape succeeds after its database write commits.
 - Notion failure must not roll back canonical content.
-- Preserve schema version `1` unless a migration is explicitly requested.
+- Preserve schema version `2` unless a migration is explicitly requested.
 - Scraper config uses one YAML document per file. Reject aliases, duplicate
   keys, unknown fields, invalid URLs, duplicate IDs/names, and unsupported
   fetchers/processors.
