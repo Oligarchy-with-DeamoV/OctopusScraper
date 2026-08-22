@@ -43,7 +43,7 @@ explicitly opt-in.
 
 ## Pull requests
 
-1. Create a focused branch from the latest `main`.
+1. Create a focused branch from the latest `dev`.
 2. Add or update tests and documentation. Add one changelog fragment for each
    user-visible change:
 
@@ -56,7 +56,8 @@ explicitly opt-in.
    bullet. Internal refactors, tests, and maintenance with no behavior change
    do not require a fragment.
 3. Run formatting, vet, race tests, coverage, and the Docker build.
-4. Open a PR against `main` with a `## Verification` section.
+4. Open a PR against `dev` with a `## Verification` section. Release and
+   hotfix PRs may target `main`.
 5. Wait for green CI. Maintainers perform the merge.
 
 ## Version tags

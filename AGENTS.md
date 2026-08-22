@@ -148,13 +148,13 @@ cutover. Do not keep old implementations for reference.
 
 ## Mandatory change workflow
 
-Direct pushes to `main` are forbidden.
+Direct pushes to `main` and `dev` are forbidden.
 
-1. Branch from latest `main`:
+1. Branch from latest `dev`:
 
    ```bash
-   git checkout main
-   git pull --ff-only origin main
+   git checkout dev
+   git pull --ff-only origin dev
    git checkout -b <type>/<slug>
    ```
 
@@ -183,8 +183,9 @@ Direct pushes to `main` are forbidden.
    Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
    ```
 
-4. Push and open a PR against `main`. The PR body must contain a
-   `## Verification` section listing exact commands and outcomes.
+4. Push and open a PR against `dev`. Release and hotfix PRs may target `main`.
+   The PR body must contain a `## Verification` section listing exact commands
+   and outcomes.
 
 5. Watch CI and fix failures on the same branch. Stop after three failed fix
    pushes and report the remaining failure.
