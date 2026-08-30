@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	yaml "go.yaml.in/yaml/v4"
 )
@@ -268,6 +269,11 @@ func validateScraperConfig(raw map[string]any) (ScraperConfig, error) {
 	scraperID, err := requiredString(raw, "id")
 	if err != nil {
 		return ScraperConfig{}, err
+	}
+	if utf8.RuneCountInString(scraperID) > MaxScraperIDLength {
+		return ScraperConfig{}, newScraperConfigError(
+			"id must not exceed %d Unicode code points", MaxScraperIDLength,
+		)
 	}
 	if !scraperIDPattern.MatchString(scraperID) {
 		return ScraperConfig{}, newScraperConfigError("id must match ^[a-z0-9][a-z0-9._-]*$")

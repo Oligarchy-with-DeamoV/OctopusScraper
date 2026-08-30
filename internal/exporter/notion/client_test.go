@@ -20,6 +20,30 @@ import (
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/content"
 )
 
+func TestClientIdentityTracksConcreteDatabase(t *testing.T) {
+	first := newTestClient(t, config.NotionConfig{
+		APIKey:     "secret",
+		DatabaseID: "12345678-1234-1234-1234-123456789abc",
+	}, "https://example.com")
+	equivalent := newTestClient(t, config.NotionConfig{
+		APIKey:     "secret",
+		DatabaseID: "12345678123412341234123456789ABC",
+	}, "https://example.com")
+	other := newTestClient(t, config.NotionConfig{
+		APIKey:     "secret",
+		DatabaseID: "other-database",
+	}, "https://example.com")
+	if first.Kind() != "notion" ||
+		first.ID() != equivalent.ID() ||
+		first.DestinationFingerprint() != equivalent.DestinationFingerprint() {
+		t.Fatalf("equivalent database identities differ: %q %q", first.ID(), equivalent.ID())
+	}
+	if first.ID() == other.ID() ||
+		first.DestinationFingerprint() == other.DestinationFingerprint() {
+		t.Fatal("different databases share an export target identity")
+	}
+}
+
 func TestClientStoreContentsPayloads(t *testing.T) {
 	t.Parallel()
 

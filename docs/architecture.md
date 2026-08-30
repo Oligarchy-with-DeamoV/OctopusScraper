@@ -52,15 +52,16 @@ Prometheus 指标和结构化日志覆盖配置、抓取、处理、存储、导
 1. 加载 `.env`、环境变量和命令行覆盖项。
 2. 创建动态日志级别控制器和 Prometheus registry。
 3. 读取 scraper 配置目录，执行 YAML 严格校验和组件可构造性校验。
-4. 连接 PostgreSQL，初始化或迁移到 schema version `2`。
+4. 连接 PostgreSQL，初始化或迁移到 schema version `3`。
 5. 创建 fetcher factory、processor registry 和采集 executor。
 6. 创建有界任务队列、worker 和可选的 SQLite 任务结果存储。
 7. 根据配置注册 Notion exporter，并启动定时同步 worker。
 8. 启动 scraper 配置 watcher 和 HTTP server。
 9. 在启用 MCP 时，将只读 handler 注册到 `/mcp`。
 
-初始 scraper 配置或 PostgreSQL 初始化失败会阻止服务启动。任务历史 SQLite
-不可用时，服务会禁用历史持久化并继续运行。
+初始 scraper 配置或 PostgreSQL 初始化失败会阻止服务启动。任务历史 SQLite 的
+打开、迁移、中断任务恢复和历史读取响应启动取消，并共享 30 秒预算；不可用或
+超时时，服务会禁用历史持久化并继续运行。
 
 ## 采集链路
 
@@ -79,14 +80,15 @@ fetch RSS/Atom
         v
 quality filter and content_id deduplication
         |
-        v
-skip IDs already stored in PostgreSQL
-        |
-        v
-ordered processor pipeline
-        |
-        v
-PostgreSQL transaction
+        +------------------- source observations -------------------+
+        |                                                           |
+        v                                                           |
+skip IDs already stored in PostgreSQL                               |
+        |                                                           |
+        v                                                           |
+ordered processor pipeline for new IDs                              |
+        |                                                           |
+        +----------------------> PostgreSQL transaction <------------+
 ```
 
 任务按优先级从高到低执行，相同优先级按提交顺序执行。队列和 worker 数量均有
@@ -124,9 +126,10 @@ OpenAI 兼容处理器通过注入的 HTTP client 工作。scraper 选择了不�
 
 ### 写入成功边界
 
-Executor 在运行 processor 前查询 PostgreSQL 中已存在的 `content_id`。处理后的
-新内容在一个事务中写入 `contents`，并为所有启用的导出目标创建
-`content_exports` 状态。
+Executor 在运行 processor 前查询 PostgreSQL 中已存在的 `content_id`。每个通过
+质量过滤的条目都会记录稳定 scraper ID 的来源观测；已有内容跳过 processor，
+但仍更新 `content_sources.last_seen_at`。处理后的新内容和全部来源观测在一个
+事务中写入，并为所有启用的导出目标创建 `content_exports` 状态。
 
 事务提交后，采集任务即为成功。Notion 的状态和可用性不参与这个成功判断。
 
@@ -164,25 +167,25 @@ SQLite 只保存任务观察数据，不保存采集内容。PostgreSQL 仍是�
 
 ## PostgreSQL 与 exporter
 
-schema version `2` 将内容和导出状态分开：
+schema version `3` 将权威内容、多来源关系和具体导出目的地分开：
 
 ```text
-contents
-    |
-    +---- content_exports ---- export_targets
+content_sources ---- contents ---- content_exports ---- export_targets
 ```
 
-`contents` 保存处理后的内容。`export_targets` 保存目标是否启用。
-`content_exports` 以 `(content_id, exporter_id)` 为主键，保存状态、尝试次数、
-错误、下次执行时间和租约。
+`contents` 保存处理后的内容和主来源，`content_sources` 以
+`(content_id, scraper_id)` 保存所有发现来源。`export_targets` 的每一行对应一个
+具体目的地，`content_exports` 以 `(content_id, target_id)` 为主键，保存状态、
+尝试次数、错误、下次执行时间和租约。
 
 每个 exporter 拥有独立 worker。worker 使用 PostgreSQL
 `FOR UPDATE SKIP LOCKED` 领取到期记录，并在交付过程中维持租约。完成、失败和
 续租操作都要求 worker 仍持有同一 claim。租约丢失后，当前 writer 会被取消，
 记录等待其他 worker 重新领取。
 
-当前实现注册了 Notion target。导出管理器按 target 隔离，后续目标可以复用同一
-状态模型，不需要修改 `contents`。
+当前实现注册了 Notion target。target 身份由具体 database ID 派生；切换
+database 会创建新 target 并回填历史内容，旧 target 被禁用且保留历史。导出管理器
+按 target 隔离，后续目标可以复用同一状态模型，不需要修改 `contents`。
 
 更完整的状态和恢复说明见 [PostgreSQL 与 Notion 同步](storage.md)。
 

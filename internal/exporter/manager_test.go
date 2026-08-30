@@ -42,27 +42,19 @@ func (t *fakeTarget) Deliver(ctx context.Context, item content.Content) error {
 }
 
 type fakeQueue struct {
-	mu               sync.Mutex
-	claims           map[string][][]content.Content
-	claimErr         error
-	renewResults     []bool
-	renewErr         error
-	completeResult   bool
-	completeErr      error
-	failResult       bool
-	failErr          error
-	claimCalls       int
-	completeCalls    []string
-	failCalls        []string
-	renewCalls       int
-	registeredTarget []string
-}
-
-func (q *fakeQueue) RegisterTarget(_ context.Context, id string, _ bool) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.registeredTarget = append(q.registeredTarget, id)
-	return nil
+	mu             sync.Mutex
+	claims         map[string][][]content.Content
+	claimErr       error
+	renewResults   []bool
+	renewErr       error
+	completeResult bool
+	completeErr    error
+	failResult     bool
+	failErr        error
+	claimCalls     int
+	completeCalls  []string
+	failCalls      []string
+	renewCalls     int
 }
 
 func (q *fakeQueue) Claim(_ context.Context, exporterID, _ string, _ int, _ time.Duration, _ int) ([]content.Content, error) {
@@ -143,6 +135,9 @@ func TestNewManagerValidatesTargets(t *testing.T) {
 	}
 	if manager.options.BatchSize != 1 || manager.options.Lease != time.Minute || manager.options.MaxAttempts != 1 {
 		t.Fatalf("defaults = %#v", manager.options)
+	}
+	if workerID := manager.workers["one"].workerID; len(workerID) > 64 {
+		t.Fatalf("worker ID length = %d, want at most 64", len(workerID))
 	}
 }
 

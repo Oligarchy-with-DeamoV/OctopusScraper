@@ -68,7 +68,7 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 
 - PostgreSQL is canonical. A scrape succeeds after its database write commits.
 - Notion failure must not roll back canonical content.
-- Preserve schema version `2` unless a migration is explicitly requested.
+- Preserve schema version `3` unless a migration is explicitly requested.
 - Scraper config uses one YAML document per file. Reject aliases, duplicate
   keys, unknown fields, invalid URLs, duplicate IDs/names, and unsupported
   fetchers/processors.
@@ -88,9 +88,16 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 - Persisted non-terminal task results must be finalized during startup; never
   expose stale `pending`, `running`, or `retrying` work after a restart.
 - Task-result SQLite persistence is optional and must not prevent PostgreSQL
-  scraping from starting when history cannot be read or written.
+  scraping from starting when history cannot be read, migrated, or written.
+- Task-result SQLite initialization, recovery, and history loading must honor
+  startup cancellation, remain time-bounded, and avoid unbounded result
+  materialization.
 - Notion workers claim rows with leases and PostgreSQL
   `FOR UPDATE SKIP LOCKED`.
+- Target reconciliation is serialized against canonical content writes so
+  every committed content row receives every committed enabled target.
+- All instances sharing one PostgreSQL database must use the same configured
+  export-target set; reconciliation is cluster-global desired state.
 - Losing a Notion lease cancels the active writer before another worker can
   reclaim the row.
 - Notion deduplication must treat `request_status.type=incomplete` as a
@@ -130,7 +137,7 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 - Compatibility fixtures cover YAML, RSS normalization, API JSON, Notion
   blocks, metrics, and stable log events.
 - Run the race detector for concurrent code.
-- CI requires at least 70% coverage.
+- CI requires at least 95% coverage.
 
 ## Dependencies
 

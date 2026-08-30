@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/content"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -115,8 +116,8 @@ func TestParsePublishedTimeAcceptsLegacyISOForms(t *testing.T) {
 		"2025-04-06 13:50:59+08:00",
 		"2025-04-06",
 	} {
-		if _, ok := parsePublishedTime(value); !ok {
-			t.Fatalf("parsePublishedTime(%q) failed", value)
+		if _, ok := content.ParsePublishedTime(value); !ok {
+			t.Fatalf("content.ParsePublishedTime(%q) failed", value)
 		}
 	}
 }
@@ -200,6 +201,145 @@ func TestFactorySupportsRSSHubAndDirectRSS(t *testing.T) {
 		},
 	}); err == nil {
 		t.Fatal("Create() accepted an unsupported nested query parameter")
+	}
+}
+
+func TestCanonicalSourceIdentityUsesFetcherResolution(t *testing.T) {
+	first, err := CanonicalSourceIdentity(
+		NameRSSHub,
+		"https://EXAMPLE.com/base/",
+		"feed?existing=1",
+		map[string]any{"limit": 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equivalent, err := CanonicalSourceIdentity(
+		NameRSSHub,
+		"https://example.com/",
+		"/base/feed?existing=1",
+		map[string]any{"limit": 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != equivalent {
+		t.Fatalf("equivalent source identities differ:\n%s\n%s", first, equivalent)
+	}
+
+	distinct, err := CanonicalSourceIdentity(
+		NameRSSHub,
+		"https://example.com/base",
+		"feed?existing=1",
+		map[string]any{"limit": 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == distinct {
+		t.Fatal("distinct resolved URLs share a source identity")
+	}
+
+	directBase := func(params map[string]any) string {
+		t.Helper()
+		identity, err := CanonicalSourceIdentity(
+			NameDirectRSS,
+			"https://example.com/base/",
+			"feed.xml",
+			params,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return identity
+	}
+	if directBase(nil) != directBase(map[string]any{"filter_time": nil}) ||
+		directBase(nil) != directBase(map[string]any{"filter_time": false}) ||
+		directBase(nil) != directBase(map[string]any{"filter_time": " 0.0 "}) {
+		t.Fatal("falsey direct RSS filter_time values changed source identity")
+	}
+	if directBase(map[string]any{"filter_time": 3600}) !=
+		directBase(map[string]any{"filter_time": 3600.0}) ||
+		directBase(map[string]any{"filter_time": 3600}) !=
+			directBase(map[string]any{"filter_time": "3600"}) {
+		t.Fatal("equivalent direct RSS filter_time values changed source identity")
+	}
+	if directBase(map[string]any{"unused": "ignored"}) != directBase(nil) {
+		t.Fatal("unused direct RSS parameters changed source identity")
+	}
+	if directBase(map[string]any{"filter_time": 60}) ==
+		directBase(map[string]any{"filter_time": 120}) {
+		t.Fatal("distinct direct RSS filter windows share a source identity")
+	}
+	if _, err := CanonicalSourceIdentity(
+		NameDirectRSS,
+		"https://example.com/base/",
+		"feed.xml",
+		map[string]any{"filter_time": "invalid"},
+	); err == nil {
+		t.Fatal("invalid direct RSS filter_time was accepted")
+	}
+}
+
+func TestCanonicalSourceIdentityNormalizesEquivalentURLs(t *testing.T) {
+	tests := []struct {
+		name       string
+		first      string
+		second     string
+		equivalent bool
+	}{
+		{
+			name:       "idn",
+			first:      "https://bücher.example/feed",
+			second:     "https://xn--bcher-kva.example/feed",
+			equivalent: true,
+		},
+		{
+			name:       "default ports and empty path",
+			first:      "HTTP://EXAMPLE.com:80",
+			second:     "http://example.com/",
+			equivalent: true,
+		},
+		{
+			name:       "zero-padded default port",
+			first:      "https://example.com:0443/feed",
+			second:     "https://example.com/feed",
+			equivalent: true,
+		},
+		{
+			name:       "ipv6",
+			first:      "https://[2001:DB8::1]:8443/feed",
+			second:     "https://[2001:db8::1]:8443/feed",
+			equivalent: true,
+		},
+		{
+			name:       "non-default port",
+			first:      "https://example.com:8443/feed",
+			second:     "https://example.com/feed",
+			equivalent: false,
+		},
+		{
+			name:       "query ordering and fragment",
+			first:      "https://example.com/feed?b=2&a=1#old",
+			second:     "https://example.com/feed?a=1&b=2#new",
+			equivalent: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first, err := CanonicalSourceIdentity(NameDirectRSS, test.first, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := CanonicalSourceIdentity(NameDirectRSS, test.second, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (first == second) != test.equivalent {
+				t.Fatalf("identities equivalent = %t, want %t:\n%s\n%s",
+					first == second, test.equivalent, first, second)
+			}
+		})
 	}
 }
 

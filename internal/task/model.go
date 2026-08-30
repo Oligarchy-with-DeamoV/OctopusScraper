@@ -8,6 +8,8 @@ import (
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/config"
 )
 
+const taskTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 type Status string
 
 const (
@@ -31,6 +33,7 @@ const (
 // ScraperTask is one queued scraping attempt.
 type ScraperTask struct {
 	ID              string
+	ScraperID       string
 	ScraperName     string
 	ScraperConfig   config.ScraperConfig
 	FetchParams     map[string]any
@@ -82,18 +85,21 @@ func formatOptionalTime(value *time.Time) *string {
 }
 
 func formatTaskTime(value time.Time) string {
-	return value.Format("2006-01-02T15:04:05.999999999")
+	return value.UTC().Format(taskTimeLayout)
 }
 
 func parseTaskTime(value string) (time.Time, error) {
-	for _, layout := range []string{
-		time.RFC3339Nano,
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.UTC(), nil
+	}
+	// Legacy timestamps had no zone; migration must use the same local zone
+	// assumption that produced their historical meaning.
+	if parsed, err := time.ParseInLocation(
 		"2006-01-02T15:04:05.999999999",
-	} {
-		parsed, err := time.ParseInLocation(layout, value, time.Local)
-		if err == nil {
-			return parsed, nil
-		}
+		value,
+		time.Local,
+	); err == nil {
+		return parsed.UTC(), nil
 	}
 	return time.Time{}, fmt.Errorf("unsupported task timestamp %q", value)
 }

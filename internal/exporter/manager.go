@@ -28,7 +28,6 @@ type Target interface {
 }
 
 type Queue interface {
-	RegisterTarget(context.Context, string, bool) error
 	Claim(context.Context, string, string, int, time.Duration, int) ([]content.Content, error)
 	Renew(context.Context, string, string, string, time.Duration) (bool, error)
 	Complete(context.Context, string, string, string) (bool, error)
@@ -43,9 +42,9 @@ type Options struct {
 }
 
 type SyncError struct {
-	ExporterID string `json:"exporter_id,omitempty"`
-	ContentID  string `json:"content_id,omitempty"`
-	Message    string `json:"message"`
+	TargetID  string `json:"target_id,omitempty"`
+	ContentID string `json:"content_id,omitempty"`
+	Message   string `json:"message"`
 }
 
 type BatchStats struct {
@@ -214,7 +213,7 @@ func newTargetWorker(id string, target Target, queue Queue, options Options) *ta
 		target:           target,
 		queue:            queue,
 		options:          options,
-		workerID:         newToken(id + "-exporter"),
+		workerID:         newToken("exporter"),
 		operationCancels: make(map[string]context.CancelFunc),
 	}
 }
@@ -287,7 +286,7 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 		claimID := fmt.Sprintf("%s:%s", w.workerID, newToken("claim"))
 		contents, err := w.queue.Claim(ctx, w.id, claimID, 1, w.options.Lease, w.options.MaxAttempts)
 		if err != nil {
-			stats.Errors = append(stats.Errors, SyncError{ExporterID: w.id, Message: err.Error()})
+			stats.Errors = append(stats.Errors, SyncError{TargetID: w.id, Message: err.Error()})
 			batchErrors = append(batchErrors, err)
 			break
 		}
@@ -300,7 +299,7 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 		renewed, err := w.queue.Renew(renewCtx, w.id, current.ContentID, claimID, w.options.Lease)
 		cancelRenew()
 		if err != nil {
-			stats.Errors = append(stats.Errors, SyncError{ExporterID: w.id, ContentID: current.ContentID, Message: err.Error()})
+			stats.Errors = append(stats.Errors, SyncError{TargetID: w.id, ContentID: current.ContentID, Message: err.Error()})
 			stats.LostClaimCount++
 			batchErrors = append(batchErrors, err)
 			continue
@@ -337,9 +336,9 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 			if heartbeatErr != nil {
 				stats.LostClaimCount++
 				stats.Errors = append(stats.Errors, SyncError{
-					ExporterID: w.id,
-					ContentID:  current.ContentID,
-					Message:    heartbeatErr.Error(),
+					TargetID:  w.id,
+					ContentID: current.ContentID,
+					Message:   heartbeatErr.Error(),
 				})
 				return
 			}
@@ -349,9 +348,9 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 				cancelUpdate()
 				if err != nil {
 					stats.Errors = append(stats.Errors, SyncError{
-						ExporterID: w.id,
-						ContentID:  current.ContentID,
-						Message:    err.Error(),
+						TargetID:  w.id,
+						ContentID: current.ContentID,
+						Message:   err.Error(),
 					})
 					stats.LostClaimCount++
 					batchErrors = append(batchErrors, err)
@@ -370,9 +369,9 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 			cancelUpdate()
 			if err != nil {
 				stats.Errors = append(stats.Errors, SyncError{
-					ExporterID: w.id,
-					ContentID:  current.ContentID,
-					Message:    err.Error(),
+					TargetID:  w.id,
+					ContentID: current.ContentID,
+					Message:   err.Error(),
 				})
 				stats.LostClaimCount++
 				batchErrors = append(batchErrors, err)
@@ -384,9 +383,9 @@ func (w *targetWorker) runBatch(ctx context.Context) (TargetStats, error) {
 			}
 			stats.FailedCount++
 			stats.Errors = append(stats.Errors, SyncError{
-				ExporterID: w.id,
-				ContentID:  current.ContentID,
-				Message:    deliverErr.Error(),
+				TargetID:  w.id,
+				ContentID: current.ContentID,
+				Message:   deliverErr.Error(),
 			})
 		}()
 		if haltBatch {
@@ -544,8 +543,8 @@ func syncErrorsToMaps(syncErrors []SyncError) []map[string]any {
 		if syncErr.ContentID != "" {
 			entry["content_id"] = syncErr.ContentID
 		}
-		if syncErr.ExporterID != "" {
-			entry["exporter_id"] = syncErr.ExporterID
+		if syncErr.TargetID != "" {
+			entry["target_id"] = syncErr.TargetID
 		}
 		errors = append(errors, entry)
 	}

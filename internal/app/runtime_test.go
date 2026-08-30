@@ -41,9 +41,32 @@ func (noProcessorFactory) Create(string, map[string]any) (processor.Processor, e
 }
 func (noProcessorFactory) Supported(string) bool { return false }
 
+type filteringProcessorFactory struct{}
+
+func (filteringProcessorFactory) Create(string, map[string]any) (processor.Processor, error) {
+	return filteringProcessor{}, nil
+}
+
+func (filteringProcessorFactory) Supported(string) bool { return true }
+
+type filteringProcessor struct{}
+
+func (filteringProcessor) Name() string  { return "filter" }
+func (filteringProcessor) Priority() int { return 1 }
+func (filteringProcessor) Process(
+	_ context.Context,
+	items []content.Content,
+) ([]content.Content, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items[:1], nil
+}
+
 type memoryStore struct {
 	existing map[string]struct{}
 	stored   []content.Content
+	sources  []storage.ContentSource
 	closed   atomic.Bool
 	pingErr  error
 	syncErr  error
@@ -61,11 +84,14 @@ func (s *memoryStore) ExistingContentIDs(
 func (s *memoryStore) StoreContents(
 	_ context.Context,
 	items []content.Content,
+	sources []storage.ContentSource,
 ) (storage.StoreStats, error) {
 	s.stored = append([]content.Content(nil), items...)
+	s.sources = append([]storage.ContentSource(nil), sources...)
 	return storage.StoreStats{
-		Requested: len(items),
-		Inserted:  len(items),
+		Requested:       len(items),
+		Inserted:        len(items),
+		SourcesObserved: len(sources),
 	}, nil
 }
 func (s *memoryStore) ListContents(context.Context, storage.ContentListOptions) (storage.ContentListPage, error) {
@@ -74,7 +100,9 @@ func (s *memoryStore) ListContents(context.Context, storage.ContentListOptions) 
 func (s *memoryStore) GetContent(context.Context, string) (storage.ContentRecord, bool, error) {
 	return storage.ContentRecord{}, false, nil
 }
-func (s *memoryStore) RegisterTarget(context.Context, string, bool) error { return nil }
+func (s *memoryStore) ReconcileTargets(context.Context, []storage.ExportTarget) error {
+	return nil
+}
 func (s *memoryStore) Claim(
 	context.Context,
 	string,
@@ -113,6 +141,7 @@ func (s *memoryStore) SyncCounts(context.Context) (map[string]int64, error) {
 
 func TestExecutorFiltersDeduplicatesAndStores(t *testing.T) {
 	source := "Feed"
+	createdAt := time.Date(2026, 8, 30, 4, 0, 0, 123, time.UTC)
 	store := &memoryStore{existing: map[string]struct{}{"existing": {}}}
 	executor := NewExecutor(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -126,7 +155,9 @@ func TestExecutorFiltersDeduplicatesAndStores(t *testing.T) {
 		store,
 	)
 	result, err := executor.Execute(context.Background(), task.ScraperTask{
+		ScraperID:   "feed",
 		ScraperName: "Feed",
+		CreatedAt:   createdAt,
 		ScraperConfig: config.ScraperConfig{
 			Fetcher:                 "rsshub",
 			HubRoot:                 "https://example.com",
@@ -142,11 +173,102 @@ func TestExecutorFiltersDeduplicatesAndStores(t *testing.T) {
 	if result.ItemsFetched != 1 || len(store.stored) != 1 {
 		t.Fatalf("unexpected result: %+v stored=%+v", result, store.stored)
 	}
+	if len(store.sources) != 2 ||
+		store.sources[0].ScraperID != "feed" ||
+		store.sources[1].ContentID != "new" {
+		t.Fatalf("unexpected sources: %+v", store.sources)
+	}
+	if !store.sources[0].ObservedAt.Equal(createdAt) ||
+		!store.sources[1].ObservedAt.Equal(createdAt) {
+		t.Fatalf("unexpected source observations: %+v", store.sources)
+	}
+	if store.stored[0].ScraperID == nil || *store.stored[0].ScraperID != "feed" {
+		t.Fatalf("missing source ID: %+v", store.stored[0])
+	}
 	if store.stored[0].ScraperName == nil || *store.stored[0].ScraperName != source {
 		t.Fatalf("missing source: %+v", store.stored[0])
 	}
 	if len(store.stored[0].Keywords) != 1 || store.stored[0].Keywords[0] != "default" {
 		t.Fatalf("unexpected keywords: %+v", store.stored[0].Keywords)
+	}
+}
+
+func TestExecutorUsesSafeObservationFallback(t *testing.T) {
+	store := &memoryStore{}
+	executor := NewExecutor(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		staticFetcherFactory{fetcher: staticFetcher{items: []content.Content{{
+			ContentID: "new",
+			Title:     "Title",
+			Link:      "https://example.com/new",
+			Content:   "Body",
+		}}}},
+		noProcessorFactory{},
+		store,
+	)
+	if _, err := executor.Execute(context.Background(), task.ScraperTask{
+		ScraperID:   "feed",
+		ScraperName: "Feed",
+		ScraperConfig: config.ScraperConfig{
+			Fetcher:                 "direct_rss",
+			ContentProcessorConfigs: map[string]map[string]any{},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(store.sources) != 1 || store.sources[0].ObservedAt.IsZero() {
+		t.Fatalf("missing safe observation fallback: %+v", store.sources)
+	}
+}
+
+func TestExecutorRecordsSourcesOnlyForExistingOrStoredContents(t *testing.T) {
+	store := &memoryStore{existing: map[string]struct{}{"existing": {}}}
+	executor := NewExecutor(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		staticFetcherFactory{fetcher: staticFetcher{items: []content.Content{
+			{
+				ContentID: "existing",
+				Title:     "Existing",
+				Link:      "https://example.com/existing",
+				Content:   "Body",
+			},
+			{
+				ContentID: "stored",
+				Title:     "Stored",
+				Link:      "https://example.com/stored",
+				Content:   "Body",
+			},
+			{
+				ContentID: "filtered",
+				Title:     "Filtered",
+				Link:      "https://example.com/filtered",
+				Content:   "Body",
+			},
+		}}},
+		filteringProcessorFactory{},
+		store,
+	)
+	if _, err := executor.Execute(context.Background(), task.ScraperTask{
+		ScraperID:   "feed",
+		ScraperName: "Feed",
+		CreatedAt:   time.Now(),
+		ScraperConfig: config.ScraperConfig{
+			Fetcher: "direct_rss",
+			ContentProcessorConfigs: map[string]map[string]any{
+				"filter": {},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.stored) != 1 || store.stored[0].ContentID != "stored" {
+		t.Fatalf("stored contents = %#v", store.stored)
+	}
+	if len(store.sources) != 2 ||
+		store.sources[0].ContentID != "existing" ||
+		store.sources[1].ContentID != "stored" {
+		t.Fatalf("source observations = %#v", store.sources)
 	}
 }
 

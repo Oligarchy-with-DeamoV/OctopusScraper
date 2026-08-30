@@ -129,6 +129,38 @@ func TestYamlScraperConfigLoaderRejectsDeepAndLongInput(t *testing.T) {
 	}
 }
 
+func TestYamlScraperConfigLoaderLimitsIDLength(t *testing.T) {
+	loader := NewYamlScraperConfigLoader()
+	boundary := strings.Replace(
+		validConfigYAML,
+		"id: example-feed",
+		"id: "+strings.Repeat("a", MaxScraperIDLength),
+		1,
+	)
+	if _, err := loader.LoadBytes("boundary.yaml", []byte(boundary)); err != nil {
+		t.Fatalf("LoadBytes() rejected an ID at the limit: %v", err)
+	}
+	multibyte := strings.Replace(
+		validConfigYAML,
+		"id: example-feed",
+		"id: source-源",
+		1,
+	)
+	if _, err := loader.LoadBytes("multibyte.yaml", []byte(multibyte)); err == nil {
+		t.Fatal("LoadBytes() accepted a non-ASCII ID")
+	}
+
+	overlong := strings.Replace(
+		validConfigYAML,
+		"id: example-feed",
+		"id: "+strings.Repeat("a", MaxScraperIDLength+1),
+		1,
+	)
+	if _, err := loader.LoadBytes("overlong.yaml", []byte(overlong)); err == nil {
+		t.Fatal("LoadBytes() accepted an ID over the length limit")
+	}
+}
+
 func TestYamlScraperConfigLoaderValidatesSupportedFetchersProcessorsAndParams(t *testing.T) {
 	loader := NewYamlScraperConfigLoader()
 	cases := map[string]struct {

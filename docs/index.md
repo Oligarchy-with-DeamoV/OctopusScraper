@@ -10,7 +10,7 @@
 
 ## 运行与维护
 
-- [PostgreSQL 与 Notion 同步](storage.md)：schema、导出状态、租约、重试和恢复。
+- [PostgreSQL 与导出状态](storage.md)：schema、来源、目标身份、租约、重试和恢复。
 - [日志与监控](monitoring.md)：结构化日志、Prometheus 指标、Grafana 查询和
   Vector 告警。
 

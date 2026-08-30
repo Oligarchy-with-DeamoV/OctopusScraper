@@ -7,6 +7,7 @@ const (
 	MaxConfigDepth     = 20
 	MaxConfigNodes     = 5000
 	MaxStringLength    = 100000
+	MaxScraperIDLength = 255
 )
 
 // ScraperConfig defines one YAML-backed scraper.
