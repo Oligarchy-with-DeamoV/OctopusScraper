@@ -24,7 +24,50 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func Run(ctx context.Context, options Options) (err error) {
+const taskResultStoreStartupTimeout = 30 * time.Second
+
+type runDependencies struct {
+	newPostgresStore func(
+		serviceConfig config.DatabaseConfig,
+		logger *slog.Logger,
+	) (storage.CanonicalStore, error)
+	newTaskManager func(
+		ctx context.Context,
+		logger *slog.Logger,
+		executor task.Executor,
+		maxConcurrentTasks int,
+		maxQueueSize int,
+		retention time.Duration,
+		store *task.ResultStore,
+		observer task.Observer,
+	) (*task.Manager, error)
+}
+
+func (dependencies runDependencies) withDefaults() runDependencies {
+	if dependencies.newPostgresStore == nil {
+		dependencies.newPostgresStore = func(
+			serviceConfig config.DatabaseConfig,
+			logger *slog.Logger,
+		) (storage.CanonicalStore, error) {
+			return storage.NewPostgresStore(serviceConfig, logger)
+		}
+	}
+	if dependencies.newTaskManager == nil {
+		dependencies.newTaskManager = task.NewManagerContext
+	}
+	return dependencies
+}
+
+func Run(ctx context.Context, options Options) error {
+	return runWithDependencies(ctx, options, runDependencies{})
+}
+
+func runWithDependencies(
+	ctx context.Context,
+	options Options,
+	dependencies runDependencies,
+) (err error) {
+	dependencies = dependencies.withDefaults()
 	runtimeCtx, cancelRuntime := context.WithCancel(ctx)
 	defer cancelRuntime()
 	if err := loadDotEnv(); err != nil {
@@ -83,7 +126,10 @@ func Run(ctx context.Context, options Options) (err error) {
 		return fmt.Errorf("validate initial scraper configuration: %w", err)
 	}
 
-	canonicalStore, err := storage.NewPostgresStore(serviceConfig.Database, logger)
+	canonicalStore, err := dependencies.newPostgresStore(
+		serviceConfig.Database,
+		logger,
+	)
 	if err != nil {
 		return fmt.Errorf("create PostgreSQL store: %w", err)
 	}
@@ -103,6 +149,7 @@ func Run(ctx context.Context, options Options) (err error) {
 	)
 
 	syncService, err := buildSyncService(
+		runtimeCtx,
 		serviceConfig,
 		canonicalStore,
 		metrics,
@@ -120,11 +167,31 @@ func Run(ctx context.Context, options Options) (err error) {
 		serviceConfig.ScraperTimeout,
 	)
 
-	resultStore := openTaskResultStore(
-		serviceConfig.TaskResultPath,
-		logger,
+	taskHistoryCtx, cancelTaskHistory := context.WithTimeout(
+		runtimeCtx,
+		taskResultStoreStartupTimeout,
 	)
-	taskManager, err := task.NewManager(
+	resultStore, err := openTaskResultStore(
+		taskHistoryCtx,
+		serviceConfig.TaskResultPath,
+	)
+	if err != nil {
+		if runtimeCtx.Err() != nil {
+			cancelTaskHistory()
+			canonicalStore.Close()
+			return fmt.Errorf("open task result store: %w", runtimeCtx.Err())
+		}
+		logger.Error(
+			"Task result persistence unavailable; continuing without history",
+			"path",
+			serviceConfig.TaskResultPath,
+			"error",
+			err,
+		)
+		resultStore = nil
+	}
+	taskManager, err := dependencies.newTaskManager(
+		taskHistoryCtx,
 		logger,
 		executor,
 		serviceConfig.MaxConcurrentTasks,
@@ -133,12 +200,23 @@ func Run(ctx context.Context, options Options) (err error) {
 		resultStore,
 		metrics,
 	)
+	cancelTaskHistory()
 	if err != nil {
 		if resultStore != nil {
 			_ = resultStore.Close()
 		}
 		canonicalStore.Close()
 		return err
+	}
+	if runtimeCtx.Err() != nil {
+		shutdownCtx, cancelShutdown := context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+		_ = taskManager.Stop(shutdownCtx)
+		cancelShutdown()
+		canonicalStore.Close()
+		return fmt.Errorf("initialize task manager: %w", runtimeCtx.Err())
 	}
 	octopusRuntime.SetTaskManager(taskManager)
 
@@ -237,6 +315,7 @@ func Run(ctx context.Context, options Options) (err error) {
 }
 
 func buildSyncService(
+	ctx context.Context,
 	serviceConfig config.ServiceConfig,
 	store storage.CanonicalStore,
 	metrics *observability.Metrics,
@@ -244,8 +323,8 @@ func buildSyncService(
 ) (app.SyncService, error) {
 	if !serviceConfig.Notion.Enabled {
 		if store != nil {
-			if err := store.RegisterTarget(context.Background(), "notion", false); err != nil {
-				return nil, fmt.Errorf("disable Notion exporter target: %w", err)
+			if err := store.ReconcileTargets(ctx, nil); err != nil {
+				return nil, fmt.Errorf("disable export targets: %w", err)
 			}
 		}
 		return nil, nil
@@ -257,8 +336,12 @@ func buildSyncService(
 	if err != nil {
 		return nil, fmt.Errorf("create Notion client: %w", err)
 	}
-	if err := store.RegisterTarget(context.Background(), client.ID(), true); err != nil {
-		return nil, fmt.Errorf("register Notion exporter target: %w", err)
+	if err := store.ReconcileTargets(ctx, []storage.ExportTarget{{
+		TargetID:               client.ID(),
+		Kind:                   client.Kind(),
+		DestinationFingerprint: client.DestinationFingerprint(),
+	}}); err != nil {
+		return nil, fmt.Errorf("reconcile Notion exporter target: %w", err)
 	}
 	service, err := exporter.NewManager(exporter.Options{
 		BatchSize:   serviceConfig.Notion.BatchSize,
@@ -278,21 +361,10 @@ func buildSyncService(
 }
 
 func openTaskResultStore(
+	ctx context.Context,
 	path string,
-	logger *slog.Logger,
-) *task.ResultStore {
-	store, err := task.NewResultStore(path)
-	if err == nil {
-		return store
-	}
-	logger.Error(
-		"Task result persistence unavailable; continuing without history",
-		"path",
-		path,
-		"error",
-		err,
-	)
-	return nil
+) (*task.ResultStore, error) {
+	return task.NewResultStoreContext(ctx, path)
 }
 
 func loadDotEnv() error {

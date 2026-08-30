@@ -1,0 +1,1 @@
+Upgrade canonical storage to schema version 3 with stable scraper provenance, destination-specific export state, normalized timestamps, JSONB constraints, indexed task history, and a 95% CI coverage floor.

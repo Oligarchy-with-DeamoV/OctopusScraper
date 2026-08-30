@@ -44,6 +44,7 @@ type service struct {
 type listContentsInput struct {
 	Limit           int      `json:"limit,omitempty"`
 	Cursor          string   `json:"cursor,omitempty"`
+	ScraperID       string   `json:"scraper_id,omitempty"`
 	ScraperName     string   `json:"scraper_name,omitempty"`
 	Tags            []string `json:"tags,omitempty"`
 	CollectedAfter  string   `json:"collected_after,omitempty"`
@@ -56,9 +57,11 @@ type contentMetadataOutput struct {
 	Link        string   `json:"link"`
 	Summary     string   `json:"summary"`
 	Published   string   `json:"published"`
+	PublishedAt *string  `json:"published_at,omitempty"`
 	Author      *string  `json:"author,omitempty"`
 	Keywords    []string `json:"keywords"`
 	Tags        []string `json:"tags"`
+	ScraperID   *string  `json:"scraper_id,omitempty"`
 	ScraperName *string  `json:"scraper_name,omitempty"`
 	CollectedAt string   `json:"collected_at"`
 }
@@ -81,9 +84,11 @@ type getContentOutput struct {
 	Summary     string   `json:"summary"`
 	Content     string   `json:"content"`
 	Published   string   `json:"published"`
+	PublishedAt *string  `json:"published_at,omitempty"`
 	Author      *string  `json:"author,omitempty"`
 	Keywords    []string `json:"keywords"`
 	Tags        []string `json:"tags"`
+	ScraperID   *string  `json:"scraper_id,omitempty"`
 	ScraperName *string  `json:"scraper_name,omitempty"`
 	CollectedAt string   `json:"collected_at"`
 	NextOffset  int      `json:"next_offset"`
@@ -281,6 +286,7 @@ func parseListOptions(input listContentsInput) (storage.ContentListOptions, erro
 	return storage.ContentListOptions{
 		Limit:           limit,
 		Cursor:          cursor,
+		ScraperID:       strings.TrimSpace(input.ScraperID),
 		ScraperName:     strings.TrimSpace(input.ScraperName),
 		Tags:            compactStrings(input.Tags),
 		CollectedAfter:  collectedAfter,
@@ -289,17 +295,24 @@ func parseListOptions(input listContentsInput) (storage.ContentListOptions, erro
 }
 
 func metadataOutput(item storage.ContentMetadata) contentMetadataOutput {
+	var publishedAt *string
+	if item.PublishedAt != nil {
+		formatted := item.PublishedAt.UTC().Format(time.RFC3339Nano)
+		publishedAt = &formatted
+	}
 	return contentMetadataOutput{
 		ContentID:   item.ContentID,
 		Title:       item.Title,
 		Link:        item.Link,
 		Summary:     item.Summary,
 		Published:   item.Published,
+		PublishedAt: publishedAt,
 		Author:      item.Author,
 		Keywords:    nonNilStrings(item.Keywords),
 		Tags:        nonNilStrings(item.Tags),
+		ScraperID:   item.ScraperID,
 		ScraperName: item.ScraperName,
-		CollectedAt: item.CollectedAt.Format(time.RFC3339Nano),
+		CollectedAt: item.CollectedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -311,9 +324,11 @@ func contentOutput(record storage.ContentRecord) getContentOutput {
 		Link:        metadata.Link,
 		Summary:     metadata.Summary,
 		Published:   metadata.Published,
+		PublishedAt: metadata.PublishedAt,
 		Author:      metadata.Author,
 		Keywords:    metadata.Keywords,
 		Tags:        metadata.Tags,
+		ScraperID:   metadata.ScraperID,
 		ScraperName: metadata.ScraperName,
 		CollectedAt: metadata.CollectedAt,
 	}
@@ -321,7 +336,7 @@ func contentOutput(record storage.ContentRecord) getContentOutput {
 
 func encodeCursor(cursor storage.ContentListCursor) string {
 	payload := cursorPayload{
-		CreatedAt: cursor.CreatedAt.Format(time.RFC3339Nano),
+		CreatedAt: cursor.CollectedAt.UTC().Format(time.RFC3339Nano),
 		ContentID: cursor.ContentID,
 	}
 	encoded, _ := json.Marshal(payload)
@@ -346,7 +361,7 @@ func decodeCursor(raw string) (storage.ContentListCursor, error) {
 	if payload.ContentID == "" {
 		return storage.ContentListCursor{}, errors.New("cursor is invalid: missing content_id")
 	}
-	return storage.ContentListCursor{CreatedAt: createdAt, ContentID: payload.ContentID}, nil
+	return storage.ContentListCursor{CollectedAt: createdAt, ContentID: payload.ContentID}, nil
 }
 
 func compactStrings(values []string) []string {

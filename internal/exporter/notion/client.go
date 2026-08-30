@@ -19,15 +19,22 @@ import (
 )
 
 const (
-	maxNotionResponseBytes  = 10 << 20
-	maxNotionErrorBodyBytes = 2048
+	maxNotionResponseBytes    = 10 << 20
+	maxNotionErrorBodyBytes   = 2048
+	partialPageCleanupTimeout = 5 * time.Second
 )
 
 type Uploader interface {
 	StoreContents(context.Context, []content.Content, bool) ([]bool, error)
 }
 
-func (c *Client) ID() string { return "notion" }
+func (c *Client) ID() string { return c.targetID }
+
+func (c *Client) Kind() string { return "notion" }
+
+func (c *Client) DestinationFingerprint() string {
+	return c.destinationFingerprint
+}
 
 func (c *Client) Deliver(ctx context.Context, item content.Content) error {
 	results, err := c.StoreContents(ctx, []content.Content{item}, true)
@@ -41,12 +48,14 @@ func (c *Client) Deliver(ctx context.Context, item content.Content) error {
 }
 
 type Client struct {
-	config     config.NotionConfig
-	httpClient *http.Client
-	baseURL    string
-	converter  *MarkdownConverter
-	now        func() time.Time
-	sleep      func(context.Context, time.Duration) error
+	config                 config.NotionConfig
+	httpClient             *http.Client
+	baseURL                string
+	converter              *MarkdownConverter
+	now                    func() time.Time
+	sleep                  func(context.Context, time.Duration) error
+	targetID               string
+	destinationFingerprint string
 
 	initMu       sync.Mutex
 	initialized  bool
@@ -144,13 +153,16 @@ func NewClient(cfg config.NotionConfig, httpClient *http.Client) (*Client, error
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	targetID, destinationFingerprint := notionTargetIdentity(cfg.DatabaseID)
 	return &Client{
-		config:     cfg,
-		httpClient: httpClient,
-		baseURL:    "https://api.notion.com",
-		converter:  NewMarkdownConverter(),
-		now:        time.Now,
-		sleep:      sleepContext,
+		config:                 cfg,
+		httpClient:             httpClient,
+		baseURL:                "https://api.notion.com",
+		converter:              NewMarkdownConverter(),
+		now:                    time.Now,
+		sleep:                  sleepContext,
+		targetID:               targetID,
+		destinationFingerprint: destinationFingerprint,
 	}, nil
 }
 
@@ -631,7 +643,7 @@ func (c *Client) storeOne(ctx context.Context, item content.Content) error {
 			"children": toAnyBlocks(remaining[start:end]),
 		}
 		if err := c.doJSON(ctx, http.MethodPatch, "/v1/blocks/"+url.PathEscape(pageID)+"/children", nil, appendPayload, nil); err != nil {
-			archiveErr := c.archivePage(ctx, pageID)
+			archiveErr := c.archivePageAfterFailure(ctx, pageID)
 			if archiveErr != nil {
 				return fmt.Errorf("append blocks for %s: %w (archive partial page: %v)", item.ContentID, err, archiveErr)
 			}
@@ -647,7 +659,7 @@ func (c *Client) storeOne(ctx context.Context, item content.Content) error {
 		},
 	}
 	if err := c.doJSON(ctx, http.MethodPatch, "/v1/pages/"+url.PathEscape(pageID), nil, finalizePayload, nil); err != nil {
-		archiveErr := c.archivePage(ctx, pageID)
+		archiveErr := c.archivePageAfterFailure(ctx, pageID)
 		if archiveErr != nil {
 			return fmt.Errorf("finalize page for %s: %w (archive partial page: %v)", item.ContentID, err, archiveErr)
 		}
@@ -655,6 +667,15 @@ func (c *Client) storeOne(ctx context.Context, item content.Content) error {
 	}
 	c.cacheFinalContentID(item.ContentID)
 	return nil
+}
+
+func (c *Client) archivePageAfterFailure(ctx context.Context, pageID string) error {
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		partialPageCleanupTimeout,
+	)
+	defer cancel()
+	return c.archivePage(cleanupCtx, pageID)
 }
 
 func (c *Client) archivePage(ctx context.Context, pageID string) error {

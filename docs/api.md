@@ -99,3 +99,20 @@ MCP endpoint 是无状态、只读的 JSON 响应接口，提供两个工具：
 20,000 个字符，单次最多返回 50,000 个字符。接口拒绝带 `Origin` header 的
 浏览器请求。单个查询默认最多执行 5 秒，同时最多处理 4 个查询；服务停机时会
 取消进行中的查询。
+
+`list_contents` 支持以下过滤字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `scraper_id` | 稳定来源 ID，匹配 `contents` 或 `content_sources` |
+| `scraper_name` | 内容最近一次来源观测时的展示名称，匹配 `contents` 或 `content_sources` |
+| `tags` | 至少匹配一个标签 |
+| `collected_after` | RFC 3339 采集时间下界 |
+| `collected_before` | RFC 3339 采集时间上界 |
+| `cursor` | 上一页返回的不透明 keyset cursor |
+| `limit` | 返回条数，范围 1 到 50 |
+
+两个工具都会返回原始 `published`。可解析时还会返回 UTC RFC 3339 Nano
+`published_at`。来源字段包括稳定的 `scraper_id` 和展示用 `scraper_name`，
+采集时间使用 `collected_at`。scraper 改名不会重写未再次观测到的历史内容；
+查询完整来源历史应使用 `scraper_id`。

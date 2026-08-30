@@ -11,5 +11,6 @@ type Content struct {
 	Author      *string  `json:"author,omitempty"`
 	Keywords    []string `json:"keywords,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	ScraperID   *string  `json:"scraper_id,omitempty"`
 	ScraperName *string  `json:"scraper_name,omitempty"`
 }

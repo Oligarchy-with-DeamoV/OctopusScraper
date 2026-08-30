@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/content"
 	"github.com/mmcdole/gofeed"
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -379,7 +381,23 @@ func numericSeconds(value any) (time.Duration, error) {
 	switch typed := value.(type) {
 	case int:
 		seconds = float64(typed)
+	case int8:
+		seconds = float64(typed)
+	case int16:
+		seconds = float64(typed)
+	case int32:
+		seconds = float64(typed)
 	case int64:
+		seconds = float64(typed)
+	case uint:
+		seconds = float64(typed)
+	case uint8:
+		seconds = float64(typed)
+	case uint16:
+		seconds = float64(typed)
+	case uint32:
+		seconds = float64(typed)
+	case uint64:
 		seconds = float64(typed)
 	case float64:
 		seconds = typed
@@ -438,6 +456,97 @@ func resolveURL(hubRoot, route string) (string, error) {
 		return "", fmt.Errorf("parse route %q: %w", route, err)
 	}
 	return baseURL.ResolveReference(routeURL).String(), nil
+}
+
+// CanonicalSourceIdentity returns the effective source identity used by a fetcher.
+func CanonicalSourceIdentity(
+	fetcherName string,
+	hubRoot string,
+	route string,
+	fetchParams map[string]any,
+) (string, error) {
+	fetcherName = strings.TrimSpace(fetcherName)
+	if fetcherName != NameRSSHub && fetcherName != NameDirectRSS {
+		return "", fmt.Errorf("unsupported fetcher %q", fetcherName)
+	}
+	base := &baseFetcher{
+		name: fetcherName,
+		config: endpointConfig{
+			HubRoot:     strings.TrimSpace(hubRoot),
+			Route:       strings.TrimSpace(route),
+			FetchParams: cloneParams(fetchParams),
+		},
+	}
+	requestURL, effectiveParams, err := base.requestURL(nil)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(requestURL)
+	if err != nil {
+		return "", fmt.Errorf("parse resolved source URL %q: %w", requestURL, err)
+	}
+	if err := normalizeIdentityURL(parsed); err != nil {
+		return "", err
+	}
+	identity := fetcherName + "\x00" + parsed.String()
+	if fetcherName == NameRSSHub {
+		return identity, nil
+	}
+	effectiveParams, err = normalizedDirectRSSParams(effectiveParams)
+	if err != nil {
+		return "", fmt.Errorf("validate direct RSS parameters: %w", err)
+	}
+	paramsJSON, err := json.Marshal(effectiveParams)
+	if err != nil {
+		return "", fmt.Errorf("marshal direct RSS parameters: %w", err)
+	}
+	return identity + "\x00" + string(paramsJSON), nil
+}
+
+func normalizeIdentityURL(parsed *url.URL) error {
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Host != "" {
+		host := parsed.Hostname()
+		port := parsed.Port()
+		if ip := net.ParseIP(host); ip != nil {
+			host = ip.String()
+		} else if strings.Contains(host, ":") {
+			host = strings.ToLower(host)
+		} else {
+			ascii, err := idna.Lookup.ToASCII(host)
+			if err != nil {
+				return fmt.Errorf("normalize source hostname %q: %w", host, err)
+			}
+			host = strings.ToLower(ascii)
+		}
+		if numericPort, err := strconv.ParseUint(port, 10, 16); err == nil {
+			port = strconv.FormatUint(numericPort, 10)
+		}
+		if (parsed.Scheme == "http" && port == "80") ||
+			(parsed.Scheme == "https" && port == "443") {
+			port = ""
+		}
+		if strings.Contains(host, ":") {
+			parsed.Host = "[" + host + "]"
+			if port != "" {
+				parsed.Host += ":" + port
+			}
+		} else {
+			parsed.Host = host
+			if port != "" {
+				parsed.Host += ":" + port
+			}
+		}
+	}
+	if parsed.Path == "" {
+		parsed.Path = "/"
+		parsed.RawPath = ""
+	}
+	parsed.Fragment = ""
+	if values, err := url.ParseQuery(parsed.RawQuery); err == nil {
+		parsed.RawQuery = values.Encode()
+	}
+	return nil
 }
 
 func addQueryValue(values url.Values, key string, value any) error {
@@ -610,17 +719,20 @@ func FilterQualityContents(contents []content.Content) []content.Content {
 
 func filterByTimeRange(contents []content.Content, params map[string]any) ([]content.Content, error) {
 	value, ok := params["filter_time"]
-	if !ok || isFalseyFilterTime(value) {
+	if !ok {
 		return contents, nil
 	}
-	window, err := numericSeconds(value)
+	window, present, err := normalizeFilterTime(value)
 	if err != nil {
 		return nil, fmt.Errorf("filter_time: %w", err)
+	}
+	if !present {
+		return contents, nil
 	}
 	cutoff := time.Now().UTC().Add(-window)
 	filtered := make([]content.Content, 0, len(contents))
 	for _, item := range contents {
-		publishedTime, ok := parsePublishedTime(item.Published)
+		publishedTime, ok := content.ParsePublishedTime(item.Published)
 		if !ok {
 			continue
 		}
@@ -662,39 +774,41 @@ func isFalseyFilterTime(value any) bool {
 	case float64:
 		return typed == 0
 	case string:
-		return typed == ""
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return true
+		}
+		seconds, err := strconv.ParseFloat(trimmed, 64)
+		return err == nil && seconds == 0
 	default:
 		return false
 	}
 }
 
-func parsePublishedTime(value string) (time.Time, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return time.Time{}, false
+func normalizeFilterTime(value any) (time.Duration, bool, error) {
+	if isFalseyFilterTime(value) {
+		return 0, false, nil
 	}
-	layouts := []string{
-		time.RFC3339,
-		time.RFC3339Nano,
-		time.RFC1123Z,
-		time.RFC1123,
-		time.RFC822Z,
-		time.RFC822,
-		time.RFC850,
-		time.RubyDate,
-		"Mon, 02 Jan 2006 15:04:05 MST",
-		"2006-01-02 15:04:05Z07:00",
-		"2006-01-02 15:04:05 -0700 MST",
-		"2006-01-02 15:04:05 -0700",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
+	window, err := numericSeconds(value)
+	if err != nil {
+		return 0, false, err
 	}
-	for _, layout := range layouts {
-		if parsed, err := time.Parse(layout, value); err == nil {
-			return parsed.UTC(), true
-		}
+	return window, true, nil
+}
+
+func normalizedDirectRSSParams(params map[string]any) (map[string]any, error) {
+	value, ok := params["filter_time"]
+	if !ok {
+		return map[string]any{}, nil
 	}
-	return time.Time{}, false
+	window, present, err := normalizeFilterTime(value)
+	if err != nil {
+		return nil, fmt.Errorf("filter_time: %w", err)
+	}
+	if !present {
+		return map[string]any{}, nil
+	}
+	return map[string]any{"filter_time": window.String()}, nil
 }
 
 func cloneParams(input map[string]any) map[string]any {

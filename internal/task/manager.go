@@ -26,6 +26,13 @@ const (
 	retryAdmissionDelay    = 100 * time.Millisecond
 )
 
+type cleanupTickerFactory func(time.Duration) (<-chan time.Time, func())
+
+func defaultCleanupTicker(duration time.Duration) (<-chan time.Time, func()) {
+	ticker := time.NewTicker(duration)
+	return ticker.C, ticker.Stop
+}
+
 // ExecutionResult reports one scraper attempt.
 type ExecutionResult struct {
 	ItemsFetched   int
@@ -86,13 +93,14 @@ type counters struct {
 
 // Manager owns the bounded priority queue and worker lifecycle.
 type Manager struct {
-	logger    *slog.Logger
-	executor  Executor
-	observer  Observer
-	maxQueue  int
-	workers   int
-	retention time.Duration
-	store     *ResultStore
+	logger        *slog.Logger
+	executor      Executor
+	observer      Observer
+	maxQueue      int
+	workers       int
+	retention     time.Duration
+	store         *ResultStore
+	cleanupTicker cleanupTickerFactory
 
 	mu          sync.RWMutex
 	cond        *sync.Cond
@@ -118,6 +126,29 @@ func NewManager(
 	store *ResultStore,
 	observer Observer,
 ) (*Manager, error) {
+	return NewManagerContext(
+		context.Background(),
+		logger,
+		executor,
+		maxConcurrentTasks,
+		maxQueueSize,
+		retention,
+		store,
+		observer,
+	)
+}
+
+// NewManagerContext initializes persisted history within the caller's startup context.
+func NewManagerContext(
+	ctx context.Context,
+	logger *slog.Logger,
+	executor Executor,
+	maxConcurrentTasks int,
+	maxQueueSize int,
+	retention time.Duration,
+	store *ResultStore,
+	observer Observer,
+) (*Manager, error) {
 	if executor == nil {
 		return nil, errors.New("task executor is required")
 	}
@@ -131,24 +162,25 @@ func NewManager(
 		observer = nopObserver{}
 	}
 	manager := &Manager{
-		logger:      logger,
-		executor:    executor,
-		observer:    observer,
-		maxQueue:    maxQueueSize,
-		workers:     maxConcurrentTasks,
-		retention:   retention,
-		store:       store,
-		results:     make(map[string]*Result),
-		running:     make(map[string]context.CancelFunc),
-		cancelled:   make(map[string]struct{}),
-		retryTimers: make(map[string]*time.Timer),
-		cleanupDone: make(chan struct{}),
-		stopCleanup: make(chan struct{}),
+		logger:        logger,
+		executor:      executor,
+		observer:      observer,
+		maxQueue:      maxQueueSize,
+		workers:       maxConcurrentTasks,
+		retention:     retention,
+		store:         store,
+		cleanupTicker: defaultCleanupTicker,
+		results:       make(map[string]*Result),
+		running:       make(map[string]context.CancelFunc),
+		cancelled:     make(map[string]struct{}),
+		retryTimers:   make(map[string]*time.Timer),
+		cleanupDone:   make(chan struct{}),
+		stopCleanup:   make(chan struct{}),
 	}
 	manager.cond = sync.NewCond(&manager.mu)
 	if store != nil {
 		persistenceAvailable := true
-		results, err := store.LoadRecent(context.Background(), retention)
+		recovered, err := store.recoverInterrupted(ctx, time.Now())
 		if err != nil {
 			logger.Error(
 				"Task result history unavailable; starting without history",
@@ -156,30 +188,27 @@ func NewManager(
 				err,
 			)
 			persistenceAvailable = false
-			results = nil
+		} else if recovered > 0 {
+			logger.Warn(
+				"Recovered interrupted task results",
+				"task_count",
+				recovered,
+			)
 		}
-		recoveredAt := time.Now()
+		var results []Result
+		if persistenceAvailable {
+			results, err = store.LoadRecent(ctx, retention)
+			if err != nil {
+				logger.Error(
+					"Task result history unavailable; starting without history",
+					"error",
+					err,
+				)
+				persistenceAvailable = false
+			}
+		}
 		for index := range results {
 			value := results[index]
-			if markInterruptedResult(&value, recoveredAt) {
-				if err := store.Save(context.Background(), value); err != nil {
-					logger.Error(
-						"Failed to persist interrupted task recovery",
-						"task_id",
-						value.TaskID,
-						"error",
-						err,
-					)
-					persistenceAvailable = false
-				}
-				logger.Warn(
-					"Recovered interrupted task result",
-					"task_id",
-					value.TaskID,
-					"previous_status",
-					results[index].Status,
-				)
-			}
 			manager.results[value.TaskID] = &value
 		}
 		manager.counters.persisted = len(results)
@@ -236,6 +265,7 @@ func NewScraperTask(
 	}
 	return ScraperTask{
 		ID:              uuid.NewString(),
+		ScraperID:       scraper.ID,
 		ScraperName:     scraper.Name,
 		ScraperConfig:   scraper.Config,
 		FetchParams:     cloneMap(fetchParams),
@@ -258,6 +288,7 @@ func NewScraperTask(
 // ConfigScraperInput keeps task creation independent from config internals.
 type configScraper struct {
 	Config          config.ScraperConfig
+	ID              string
 	Name            string
 	Priority        int
 	Fetcher         string
@@ -272,6 +303,7 @@ func NewTaskFromConfig(
 ) ScraperTask {
 	return NewScraperTask(configScraper{
 		Config:          scraper,
+		ID:              scraper.ID,
 		Name:            scraper.Name,
 		Priority:        scraper.Priority,
 		Fetcher:         scraper.Fetcher,
@@ -642,33 +674,41 @@ func (m *Manager) submitScheduledRetry(retry ScraperTask) {
 }
 
 func (m *Manager) cleanupLoop() {
-	ticker := time.NewTicker(time.Hour)
+	tickerFactory := m.cleanupTicker
+	if tickerFactory == nil {
+		tickerFactory = defaultCleanupTicker
+	}
+	ticker, stopTicker := tickerFactory(time.Hour)
 	defer func() {
-		ticker.Stop()
+		stopTicker()
 		close(m.cleanupDone)
 	}()
 	for {
 		select {
 		case <-m.stopCleanup:
 			return
-		case <-ticker.C:
+		case <-ticker:
 		}
-		m.mu.Lock()
-		if m.stopping {
-			m.mu.Unlock()
-			return
-		}
-		cutoff := time.Now().Add(-m.retention)
-		for taskID, result := range m.results {
-			if result.EndTime != nil && result.EndTime.Before(cutoff) {
-				delete(m.results, taskID)
-			}
-		}
+		m.cleanupExpiredResults()
+	}
+}
+
+func (m *Manager) cleanupExpiredResults() {
+	m.mu.Lock()
+	if m.stopping {
 		m.mu.Unlock()
-		if m.store != nil {
-			if _, err := m.store.DeleteOlderThan(context.Background(), cutoff); err != nil {
-				m.logger.Error("Failed to clean up persisted task results", "error", err)
-			}
+		return
+	}
+	cutoff := time.Now().Add(-m.retention)
+	for taskID, result := range m.results {
+		if result.EndTime != nil && result.EndTime.Before(cutoff) {
+			delete(m.results, taskID)
+		}
+	}
+	m.mu.Unlock()
+	if m.store != nil {
+		if _, err := m.store.DeleteOlderThan(context.Background(), cutoff); err != nil {
+			m.logger.Error("Failed to clean up persisted task results", "error", err)
 		}
 	}
 }

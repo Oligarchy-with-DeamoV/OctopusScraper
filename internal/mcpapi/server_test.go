@@ -113,13 +113,23 @@ func TestCorrectTokenConnectsAndToolsListIsReadOnly(t *testing.T) {
 }
 
 func TestListContentsFiltersPaginationAndEmptyResult(t *testing.T) {
-	firstTime := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+	firstTime := time.Date(
+		2026,
+		8,
+		19,
+		18,
+		0,
+		0,
+		0,
+		time.FixedZone("UTC+8", 8*60*60),
+	)
 	secondTime := firstTime.Add(-time.Minute)
 	var calls atomic.Int32
 	reader := fakeContentReader{list: func(_ context.Context, opts storage.ContentListOptions) (storage.ContentListPage, error) {
 		switch calls.Add(1) {
 		case 1:
 			if opts.Limit != 2 ||
+				opts.ScraperID != "feed" ||
 				opts.ScraperName != "Feed" ||
 				!slices.Equal(opts.Tags, []string{"alpha", "beta"}) ||
 				opts.CollectedAfter == nil ||
@@ -133,13 +143,13 @@ func TestListContentsFiltersPaginationAndEmptyResult(t *testing.T) {
 					metadata("two", secondTime),
 				},
 				NextCursor: &storage.ContentListCursor{
-					CreatedAt: secondTime,
-					ContentID: "two",
+					CollectedAt: secondTime,
+					ContentID:   "two",
 				},
 			}, nil
 		case 2:
 			if opts.Cursor == nil ||
-				!opts.Cursor.CreatedAt.Equal(secondTime) ||
+				!opts.Cursor.CollectedAt.Equal(secondTime) ||
 				opts.Cursor.ContentID != "two" {
 				t.Fatalf("unexpected cursor opts: %#v", opts.Cursor)
 			}
@@ -161,6 +171,7 @@ func TestListContentsFiltersPaginationAndEmptyResult(t *testing.T) {
 
 	first := callTool[listContentsOutput](t, session, listContentsTool, map[string]any{
 		"limit":            2,
+		"scraper_id":       "feed",
 		"scraper_name":     "Feed",
 		"tags":             []string{"alpha", "", "beta", "alpha"},
 		"collected_after":  "2026-08-19T09:00:00Z",
@@ -171,6 +182,13 @@ func TestListContentsFiltersPaginationAndEmptyResult(t *testing.T) {
 	}
 	if first.Contents[0].ContentID != "one" {
 		t.Fatalf("wrong item: %#v", first.Contents[0])
+	}
+	if first.Contents[0].ScraperID == nil ||
+		*first.Contents[0].ScraperID != "feed" ||
+		first.Contents[0].PublishedAt == nil ||
+		*first.Contents[0].PublishedAt != "2026-08-19T09:00:00Z" ||
+		first.Contents[0].CollectedAt != "2026-08-19T10:00:00Z" {
+		t.Fatalf("missing normalized metadata: %#v", first.Contents[0])
 	}
 	second := callTool[listContentsOutput](t, session, listContentsTool, map[string]any{
 		"cursor": first.NextCursor,
@@ -513,16 +531,20 @@ func textContent(t *testing.T, result *mcp.CallToolResult) string {
 
 func metadata(id string, collectedAt time.Time) storage.ContentMetadata {
 	author := "Author"
+	scraperID := "feed"
 	scraper := "Feed"
+	publishedAt := collectedAt.Add(-time.Hour)
 	return storage.ContentMetadata{
 		ContentID:   id,
 		Title:       "Title " + id,
 		Link:        "https://example.com/" + id,
 		Summary:     "Summary",
 		Published:   "source-time",
+		PublishedAt: &publishedAt,
 		Author:      &author,
 		Keywords:    []string{"keyword"},
 		Tags:        []string{"alpha"},
+		ScraperID:   &scraperID,
 		ScraperName: &scraper,
 		CollectedAt: collectedAt,
 	}

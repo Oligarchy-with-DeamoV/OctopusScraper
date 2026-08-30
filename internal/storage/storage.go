@@ -13,14 +13,30 @@ const (
 	SyncRetry      = "retry"
 	SyncSynced     = "synced"
 	SyncFailed     = "failed"
-	SchemaVersion  = 2
+	SchemaVersion  = 3
 )
 
 // StoreStats describes one canonical batch insert.
 type StoreStats struct {
-	Requested  int `json:"requested"`
-	Inserted   int `json:"inserted"`
-	Duplicates int `json:"duplicates"`
+	Requested       int `json:"requested"`
+	Inserted        int `json:"inserted"`
+	Duplicates      int `json:"duplicates"`
+	SourcesObserved int `json:"sources_observed"`
+}
+
+// ContentSource identifies one scraper that observed canonical content.
+type ContentSource struct {
+	ContentID   string
+	ScraperID   string
+	ScraperName string
+	ObservedAt  time.Time
+}
+
+// ExportTarget identifies one concrete downstream destination.
+type ExportTarget struct {
+	TargetID               string
+	Kind                   string
+	DestinationFingerprint string
 }
 
 // ContentMetadata is the canonical read-only metadata exposed to consumers.
@@ -30,9 +46,11 @@ type ContentMetadata struct {
 	Link        string
 	Summary     string
 	Published   string
+	PublishedAt *time.Time
 	Author      *string
 	Keywords    []string
 	Tags        []string
+	ScraperID   *string
 	ScraperName *string
 	CollectedAt time.Time
 }
@@ -45,14 +63,15 @@ type ContentRecord struct {
 
 // ContentListCursor identifies a keyset page boundary.
 type ContentListCursor struct {
-	CreatedAt time.Time
-	ContentID string
+	CollectedAt time.Time
+	ContentID   string
 }
 
 // ContentListOptions constrains read-only canonical content listing.
 type ContentListOptions struct {
 	Limit           int
 	Cursor          *ContentListCursor
+	ScraperID       string
 	ScraperName     string
 	Tags            []string
 	CollectedAfter  *time.Time
@@ -71,15 +90,15 @@ type ContentReader interface {
 	GetContent(context.Context, string) (ContentRecord, bool, error)
 }
 
-// CanonicalStore persists scraped content and Notion synchronization state.
+// CanonicalStore persists scraped content, provenance, and export state.
 type CanonicalStore interface {
 	ContentReader
 	Initialize(context.Context) error
 	Ping(context.Context) error
 	Close()
 	ExistingContentIDs(context.Context, []string) (map[string]struct{}, error)
-	StoreContents(context.Context, []content.Content) (StoreStats, error)
-	RegisterTarget(context.Context, string, bool) error
+	StoreContents(context.Context, []content.Content, []ContentSource) (StoreStats, error)
+	ReconcileTargets(context.Context, []ExportTarget) error
 	Claim(context.Context, string, string, int, time.Duration, int) ([]content.Content, error)
 	Renew(context.Context, string, string, string, time.Duration) (bool, error)
 	Complete(context.Context, string, string, string) (bool, error)

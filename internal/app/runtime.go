@@ -71,19 +71,46 @@ func (e *Executor) Execute(
 		return task.ExecutionResult{}, err
 	}
 	contents = filterQuality(contents)
+	scraperID := strings.TrimSpace(scraperTask.ScraperID)
+	if scraperID == "" {
+		scraperID = strings.TrimSpace(scraperTask.ScraperConfig.ID)
+	}
+	scraperName := strings.TrimSpace(scraperTask.ScraperName)
+	if scraperName == "" {
+		scraperName = strings.TrimSpace(scraperTask.ScraperConfig.Name)
+	}
+	if scraperID == "" || scraperName == "" {
+		return task.ExecutionResult{}, errors.New("scraper ID and name are required")
+	}
+	observationAt := scraperTask.CreatedAt
+	if observationAt.IsZero() {
+		observationAt = time.Now().UTC()
+	} else {
+		observationAt = observationAt.UTC()
+	}
 	candidateIDs := make([]string, 0, len(contents))
-	for _, item := range contents {
+	for index, item := range contents {
+		contents[index].ScraperID = &scraperID
+		contents[index].ScraperName = &scraperName
 		candidateIDs = append(candidateIDs, item.ContentID)
 	}
 	existing, err := e.store.ExistingContentIDs(ctx, candidateIDs)
 	if err != nil {
 		return task.ExecutionResult{}, fmt.Errorf("load existing content ids: %w", err)
 	}
-	newContents := contents[:0]
+	sources := make([]storage.ContentSource, 0, len(contents))
+	newContents := make([]content.Content, 0, len(contents))
 	for _, item := range contents {
-		if _, found := existing[item.ContentID]; !found {
-			newContents = append(newContents, item)
+		if _, found := existing[item.ContentID]; found {
+			sources = append(sources, storage.ContentSource{
+				ContentID:   item.ContentID,
+				ScraperID:   scraperID,
+				ScraperName: scraperName,
+				ObservedAt:  observationAt,
+			})
+			continue
 		}
+		newContents = append(newContents, item)
 	}
 	contents = newContents
 
@@ -117,17 +144,21 @@ func (e *Executor) Execute(
 		}
 	}
 	for index := range contents {
-		if contents[index].ScraperName == nil || strings.TrimSpace(*contents[index].ScraperName) == "" {
-			name := scraperTask.ScraperName
-			contents[index].ScraperName = &name
-		}
+		contents[index].ScraperID = &scraperID
+		contents[index].ScraperName = &scraperName
 		contents[index].Keywords = mergeKeywords(
 			scraperTask.DefaultKeywords,
 			contents[index].Keywords,
 		)
+		sources = append(sources, storage.ContentSource{
+			ContentID:   contents[index].ContentID,
+			ScraperID:   scraperID,
+			ScraperName: scraperName,
+			ObservedAt:  observationAt,
+		})
 	}
 	executionTime := time.Since(started).Seconds()
-	stats, err := e.store.StoreContents(ctx, contents)
+	stats, err := e.store.StoreContents(ctx, contents, sources)
 	if err != nil {
 		return task.ExecutionResult{}, err
 	}

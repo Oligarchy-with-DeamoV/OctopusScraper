@@ -6,6 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -160,4 +163,43 @@ func TestUsageTextCoversCommands(t *testing.T) {
 		containsHelpFlag([]string{"serve"}) {
 		t.Fatal("containsHelpFlag returned an unexpected result")
 	}
+}
+
+func TestRunDispatchesHelpHealthcheckAndServeErrors(t *testing.T) {
+	if err := run([]string{"help"}); err != nil {
+		t.Fatalf("help command error = %v", err)
+	}
+	if err := run([]string{"serve", "--help"}); err != nil {
+		t.Fatalf("serve help error = %v", err)
+	}
+	if err := run([]string{"healthcheck", "--help"}); err != nil {
+		t.Fatalf("healthcheck help error = %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	if err := run([]string{"healthcheck", "--url", server.URL}); err != nil {
+		t.Fatalf("healthcheck dispatch error = %v", err)
+	}
+	if err := run([]string{"unknown"}); err == nil {
+		t.Fatal("unknown command unexpectedly succeeded")
+	}
+	directory := t.TempDir()
+	t.Setenv("SCRAPER_CONFIG_DIR", filepath.Join(directory, "missing"))
+	t.Setenv("LOG_FILE", filepath.Join(directory, "service.log"))
+	err := run([]string{"serve", "--scraper-config-dir", filepath.Join(directory, "missing")})
+	if err == nil || !strings.Contains(err.Error(), "load initial scraper configuration") {
+		t.Fatalf("serve startup error = %v", err)
+	}
+}
+
+func TestMainHelpPath(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+	os.Args = []string{"octopus_service", "help"}
+	main()
 }

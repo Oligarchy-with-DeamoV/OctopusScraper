@@ -8,11 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Oligarchy-with-DeamoV/OctopusScraper/internal/content"
 )
 
 const (
@@ -113,34 +114,19 @@ func limitRichTextSegments(richText []map[string]any) []map[string]any {
 }
 
 func parsePublishedDate(raw string) *string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
+	parsed, ok := content.ParsePublishedTime(raw)
+	if !ok {
 		return nil
 	}
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		time.RFC1123Z,
-		time.RFC1123,
-		time.RFC822Z,
-		time.RFC822,
-		time.RFC850,
-		"2006-01-02 15:04:05 -0700 MST",
-		"2006-01-02 15:04:05 -0700",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
-	}
-	for _, layout := range layouts {
-		if parsed, err := time.Parse(layout, value); err == nil {
-			formatted := parsed.Format(time.RFC3339)
-			return &formatted
-		}
-	}
-	if parsed, err := http.ParseTime(value); err == nil {
-		formatted := parsed.Format(time.RFC3339)
-		return &formatted
-	}
-	return nil
+	formatted := parsed.Format(time.RFC3339)
+	return &formatted
+}
+
+func notionTargetIdentity(databaseID string) (string, string) {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(databaseID), "-", ""))
+	digest := sha256.Sum256([]byte(normalized))
+	fingerprint := hex.EncodeToString(digest[:])
+	return "notion:" + fingerprint[:24], fingerprint
 }
 
 func pendingContentID(contentID string) string {

@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -41,6 +42,7 @@ func TestNewTaskFromConfigMapsFieldsAndPriority(t *testing.T) {
 		1: PriorityLow, 4: PriorityNormal, 7: PriorityHigh, 9: PriorityCritical,
 	} {
 		task := NewTaskFromConfig(config.ScraperConfig{
+			ID:              "feed",
 			Name:            "Feed",
 			Fetcher:         "rsshub",
 			HubRoot:         "https://example.com",
@@ -49,7 +51,10 @@ func TestNewTaskFromConfigMapsFieldsAndPriority(t *testing.T) {
 			FetchParams:     map[string]any{"limit": 10},
 			DefaultKeywords: []string{"go"},
 		}, 42*time.Second)
-		if task.ID == "" || task.Priority != expected || task.ScraperName != "Feed" {
+		if task.ID == "" ||
+			task.Priority != expected ||
+			task.ScraperID != "feed" ||
+			task.ScraperName != "Feed" {
 			t.Fatalf("unexpected task: %#v", task)
 		}
 		if task.Timeout != 42*time.Second {
@@ -252,6 +257,60 @@ func TestManagerTerminalizesInterruptedPersistedTasks(t *testing.T) {
 	}
 }
 
+func TestManagerContextDisablesHistoryWhenRecoveryIsCancelled(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "tasks.sqlite3")
+	store, err := NewResultStore(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), Result{
+		TaskID:    "pending-task",
+		Status:    StatusPending,
+		StartTime: time.Now().Add(-time.Minute),
+		Metadata:  map[string]any{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	manager, err := NewManagerContext(
+		ctx,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		&fakeExecutor{failures: map[string]int{}},
+		1,
+		10,
+		time.Hour,
+		store,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.store != nil {
+		t.Fatal("cancelled recovery left task persistence enabled")
+	}
+	if err := manager.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := NewResultStore(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var status Status
+	if err := reopened.db.QueryRow(`
+SELECT status
+FROM task_results
+WHERE task_id = 'pending-task'
+`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != StatusPending {
+		t.Fatalf("cancelled recovery status = %q", status)
+	}
+}
+
 func TestManagerDegradesWhenPersistedHistoryCannotBeReadOrRepaired(t *testing.T) {
 	t.Run("malformed timestamp", func(t *testing.T) {
 		store, err := NewResultStore(
@@ -320,9 +379,8 @@ func TestManagerDegradesWhenPersistedHistoryCannotBeReadOrRepaired(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, exists := manager.Result("interrupted")
-		if !exists || result.Status != StatusFailed {
-			t.Fatalf("recovered result = %+v", result)
+		if result, exists := manager.Result("interrupted"); exists {
+			t.Fatalf("unpersisted recovery was exposed: %+v", result)
 		}
 		if manager.store != nil {
 			t.Fatal("unwritable task persistence should be disabled")
@@ -777,13 +835,31 @@ func TestResultJSONAndHelpers(t *testing.T) {
 }
 
 func TestResultStoreLoadsLegacyPythonTimestamps(t *testing.T) {
-	store, err := NewResultStore(filepath.Join(t.TempDir(), "legacy.sqlite3"))
+	path := filepath.Join(t.TempDir(), "legacy.sqlite3")
+	legacy, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-	start := formatTaskTime(time.Now().Add(-time.Minute))
-	if _, err := store.db.Exec(`
+	if _, err := legacy.Exec(`
+		CREATE TABLE task_results (
+			task_id TEXT PRIMARY KEY,
+			status TEXT NOT NULL,
+			start_time TEXT NOT NULL,
+			end_time TEXT,
+			duration_seconds REAL,
+			items_fetched INTEGER NOT NULL DEFAULT 0,
+			items_processed INTEGER NOT NULL DEFAULT 0,
+			items_uploaded INTEGER NOT NULL DEFAULT 0,
+			error_message TEXT,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			updated_at TEXT NOT NULL
+		)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-time.Minute).
+		Format("2006-01-02T15:04:05.999999999")
+	if _, err := legacy.Exec(`
 		INSERT INTO task_results (
 			task_id, status, start_time, items_fetched, items_processed,
 			items_uploaded, metadata_json, updated_at
@@ -791,12 +867,44 @@ func TestResultStoreLoadsLegacyPythonTimestamps(t *testing.T) {
 	`, "legacy", StatusCompleted, start, start); err != nil {
 		t.Fatal(err)
 	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewResultStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
 	results, err := store.LoadRecent(context.Background(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 1 || results[0].TaskID != "legacy" {
 		t.Fatalf("unexpected legacy results: %#v", results)
+	}
+	var (
+		version    int
+		storedTime string
+	)
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow(
+		`SELECT start_time FROM task_results WHERE task_id = ?`,
+		"legacy",
+	).Scan(&storedTime); err != nil {
+		t.Fatal(err)
+	}
+	if version != taskResultSchemaVersion || !strings.HasSuffix(storedTime, "Z") {
+		t.Fatalf("version=%d start_time=%q", version, storedTime)
+	}
+	if _, err := store.db.Exec(`
+		INSERT INTO task_results (
+			task_id, status, start_time, metadata_json, updated_at
+		) VALUES (?, ?, ?, '{}', ?)
+	`, "invalid-status", "unknown", storedTime, storedTime); err == nil {
+		t.Fatal("expected status constraint error")
 	}
 }
 
