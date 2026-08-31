@@ -5,16 +5,19 @@ successful after its content transaction commits; Notion availability does not
 affect that task result.
 
 The service creates the current schema at startup and records schema version
-`1` in `schema_migrations`. Back up the external PostgreSQL database before
+`2` in `schema_migrations`. Existing version 1 databases are migrated to
+version 2 during startup. Back up the external PostgreSQL database before
 deploying a version that changes the schema.
 
 ## Synchronization states
 
-Each content row records `pending`, `processing`, `retry`, `synced`, or
-`failed`, plus attempt count, last error, next attempt time, and a worker lease.
-Workers claim rows with `FOR UPDATE SKIP LOCKED` on PostgreSQL, so concurrent
-service instances do not process the same row at the same time. Expired leases
-are reclaimed after a worker interruption.
+The `content_exports` table records one synchronization state per content and
+export target: `pending`, `processing`, `retry`, `synced`, or `failed`, plus
+attempt count, last error, next attempt time, and a worker lease. Canonical
+content remains in the separate `contents` table. Workers claim export rows
+with `FOR UPDATE SKIP LOCKED` on PostgreSQL, so concurrent service instances do
+not process the same export at the same time. Expired leases are reclaimed
+after a worker interruption.
 
 `POST /trigger_upload` runs one incremental batch manually. When
 `NOTION_SYNC_ENABLED=true`, the service also runs batches every

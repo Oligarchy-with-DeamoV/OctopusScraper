@@ -115,6 +115,7 @@ YAML 中自定义的 LLM `base_url` / `api_base` 不会继承其他主机使用�
 | GET | `/admin/config/status` | 配置状态 |
 | POST | `/admin/config/refresh` | 立即刷新配置 |
 | GET | `/admin/system/info` | 运行信息 |
+| POST | `/admin/system/log-level` | 动态调整日志级别 |
 | GET | `/admin/scrapers` | scraper 列表 |
 | GET | `/admin/tasks/stats` | 任务统计 |
 | GET | `/admin/tasks` | 任务列表 |
