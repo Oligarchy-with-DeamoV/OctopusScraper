@@ -70,12 +70,7 @@ services:
       - RSSHUB_READ_TIMEOUT=${RSSHUB_READ_TIMEOUT:-1200}
 
     healthcheck:
-      test:
-        [
-          "CMD",
-          "/app/octopus_service",
-          "healthcheck",
-        ]
+      test: ["CMD", "/app/octopus_service", "healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -145,7 +140,7 @@ services:
   rsshub:
     # if used default rsshub use image below
     # image: diygod/rsshub:chromium-bundled
-    image: info-channel:1.0.0
+    image: info-channel:1.0.1
     restart: always
     ports:
       - "1200:1200"
