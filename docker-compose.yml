@@ -140,7 +140,7 @@ services:
   rsshub:
     # if used default rsshub use image below
     # image: diygod/rsshub:chromium-bundled
-    image: info-channel:1.0.1
+    image: info-channel:1.0.3
     restart: always
     ports:
       - "1200:1200"
@@ -151,7 +151,7 @@ services:
       REDIS_URL: "redis://redis:6379/"
       XUEQIU_TOKEN: ${XUEQIU_TOKEN}
       XUEQIU_RATE_WINDOW_SECONDS: ${XUEQIU_RATE_WINDOW_SECONDS:-60}
-      XUEQIU_RATE_LIMIT: ${XUEQIU_RATE_LIMIT:-25}
+      XUEQIU_RATE_LIMIT: ${XUEQIU_RATE_LIMIT:-60}
       XUEQIU_DELAY_MIN_MS: ${XUEQIU_DELAY_MIN_MS:-500}
       XUEQIU_DELAY_MAX_MS: ${XUEQIU_DELAY_MAX_MS:-1500}
       XUEQIU_SCAN_POST_REPLIES: ${XUEQIU_SCAN_POST_REPLIES:-true}
