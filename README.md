@@ -135,7 +135,7 @@ curl -X POST http://localhost:8001/trigger_upload
 
 ## 本地开发
 
-要求 Go 1.26.6、Docker 和可访问的 PostgreSQL。
+要求 Go 1.26.11、Docker 和可访问的 PostgreSQL。
 
 ```bash
 go mod download

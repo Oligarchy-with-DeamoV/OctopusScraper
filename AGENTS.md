@@ -95,7 +95,7 @@ docker build -f dockerfiles/Dockerfile -t octopus-scraper:latest .
 
 ## Go style
 
-- Go 1.26.6.
+- Go 1.26.11.
 - Run `gofmt`; CI rejects formatting drift.
 - Prefer the standard library for HTTP, concurrency, and contexts. Logging uses
   Zap behind injected `*slog.Logger`; Lumberjack is limited to optional file
